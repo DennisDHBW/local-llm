@@ -205,15 +205,18 @@ class DocumentParser:
                 chunks.append(DocumentChunk(
                     chunk_id=f"{pdf_path.stem}_p{page_num}_img_{img_idx}",
                     chunk_type="image",
-                    content=f"Platzhalter: Muss noch von gemma3 captioniert werden. Pfad: {image_filepath}",
+                    content=f"Bilddatei zur lokalen Analyse: {image_filename}",
                     heading_stack=list(heading_stack),
                     page_number=page_num,
                     metadata={
                         "filename": filename,
                         "image_path": str(image_filepath),
-                        "needs_caption": True
+                        "needs_caption": True,
+                        "image_format": image_ext
                     }
                 ))
+
+        doc.close()
 
         # 4. JSON-ZWISCHENFORMAT SPEICHERN
         out_file = self.processed_dir / f"{pdf_path.stem}_chunks.json"

@@ -11,6 +11,8 @@ from src.enrichment.summarizer import TableSummarizer
 from src.retrieval.vector_store import VectorStore
 from src.retrieval.search import search_collection
 from src.agent.react_agent import ReActAgent
+from src.retrieval.query_rewriter import QueryRewriter
+from src.agent.synthesizer import SourceSynthesizer
 
 st.set_page_config(
     page_title="Private Energie- & Versorgungs-Auditor",
@@ -93,10 +95,12 @@ elif mode == "2. Modulare Pipeline (Evidence-First)":
 
     if st.button("Evidenz suchen"):
         store = VectorStore()
-        query_emb = store._get_embedding(query)
-        hits = search_collection(store.collection, query_emb, query, top_k=5)
+        rewritten_query = QueryRewriter().rewrite(query)
+        query_emb = store._get_embedding(rewritten_query)
+        hits = search_collection(store.collection, query_emb, rewritten_query, top_k=5)
 
         if hits:
+            st.caption(f"Optimierte Suchanfrage: `{rewritten_query}`")
             st.markdown("### 📄 Gefundene Evidenz-Chunks")
             for i, hit in enumerate(hits):
                 meta = hit.metadata
@@ -114,6 +118,19 @@ elif mode == "2. Modulare Pipeline (Evidence-First)":
                         f"{box_color} Treffer {i + 1} | Datei: {meta.get('filename')} | Seite: {meta.get('page_number')} | Score: {score:.2f}"):
                     st.write(f"**Pfad:** `{meta.get('heading_stack_str')}`")
                     st.write(f"**Inhalt:** {hit.document}")
+
+            evidence = [
+                {
+                    "content": hit.document,
+                    "page_number": hit.metadata.get("page_number"),
+                    "metadata": hit.metadata,
+                }
+                for hit in hits
+            ]
+            with st.spinner("Erzeuge quellengebundene Antwort..."):
+                answer = SourceSynthesizer().generate_answer(query, evidence)
+            st.markdown("### ✨ Antwort")
+            st.write(answer)
         else:
             st.warning("Keine Treffer gefunden.")
 

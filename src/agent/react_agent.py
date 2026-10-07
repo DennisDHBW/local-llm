@@ -1,6 +1,6 @@
 import re
+import json
 import ollama
-from typing import List, Dict
 from src.agent.tools import AgentTools
 
 
@@ -34,6 +34,10 @@ class ReActAgent:
 
     def run(self, user_query: str, max_iterations: int = 7) -> str:
         """Startet die ReAct-Schleife (Thought -> Action -> Observation)[cite: 1, 35, 36, 42]."""
+        if not isinstance(user_query, str) or not user_query.strip():
+            raise ValueError("Die Nutzerfrage darf nicht leer sein.")
+        if max_iterations < 1:
+            raise ValueError("max_iterations muss mindestens 1 sein.")
 
         # Initialer Chat-Verlauf
         messages = [
@@ -50,7 +54,9 @@ class ReActAgent:
                 messages=messages,
                 options={"stop": ["Observation:"]}  # Zwingt das LLM zum Warten
             )
-            llm_output = response["message"]["content"]
+            llm_output = str(response.get("message", {}).get("content", "")).strip()
+            if not llm_output:
+                raise RuntimeError("Das Agentenmodell lieferte eine leere Antwort.")
             print(llm_output + "\n")
 
             messages.append({"role": "assistant", "content": llm_output})
@@ -60,18 +66,19 @@ class ReActAgent:
                 return llm_output.split("Final Answer:")[-1].strip()
 
             # 3. Parsen der Action und des Inputs via Regex (nur die erste Aktion nehmen)
-            action_match = re.search(r"Action:\s*(.*)", llm_output)
-            input_match = re.search(r"Action Input:\s*(.*)", llm_output)
+            action_match = re.search(r"(?mi)^Action:\s*(.+?)\s*$", llm_output)
+            input_match = re.search(
+                r"(?mis)^Action Input:\s*(.+?)(?=\n(?:Thought|Action|Final Answer):|$)",
+                llm_output,
+            )
 
             if action_match and input_match:
                 action = action_match.group(1).strip()
-                action_input = input_match.group(1).strip()
-
-                # Falls das Modell Zeilenumbrüche im Input hat, nur die erste Zeile nehmen
-                action_input = action_input.split('\n')[0].strip()
-
-                # 4. Tool ausführen (Action -> Observation)[cite: 1, 35, 36]
-                observation = self._execute_tool(action, action_input)
+                try:
+                    action_input = self._normalize_action_input(input_match.group(1))
+                    observation = self._execute_tool(action, action_input)
+                except (ValueError, RuntimeError, KeyError) as exc:
+                    observation = f"Fehler beim Werkzeug '{action}': {exc}"
                 print(f"\033[93mObservation: {observation}\033[0m\n")  # Gelbe Farbe für Sichtbarkeit in Konsole
 
                 # Observation dem Modell mitteilen
@@ -83,6 +90,24 @@ class ReActAgent:
                 print(f"\033[91m{error_msg}\033[0m\n")
 
         return "Abbruch: Die maximale Anzahl an Iterationen wurde überschritten."
+
+    @staticmethod
+    def _normalize_action_input(action_input: str) -> str:
+        """Akzeptiert Plaintext sowie ein JSON-Objekt aus strikt formatierten Modellen."""
+        value = action_input.strip()
+        if not value:
+            raise ValueError("Action Input darf nicht leer sein.")
+        if value.startswith("{") and value.endswith("}"):
+            payload = json.loads(value)
+            if not isinstance(payload, dict):
+                raise ValueError("Action Input muss ein Objekt oder ein String sein.")
+            for key in ("query", "expression", "filename_filter", "input"):
+                if key in payload:
+                    normalized = str(payload[key]).strip()
+                    if normalized:
+                        return normalized
+            raise ValueError("Kein unterstützter Parameter im Action Input.")
+        return value.strip('"\'')
 
     def _execute_tool(self, action: str, action_input: str) -> str:
         """Mappt den String des Modells auf die Python-Methoden[cite: 1, 41]."""
@@ -98,14 +123,3 @@ class ReActAgent:
             return self.tools.calculate(action_input)
         else:
             return f"Fehler: Unbekanntes Werkzeug '{action}'."
-
-
-# --- Direkter Test-Block ---
-if __name__ == "__main__":
-    agent = ReActAgent()
-    # Testen wir den in der Prüfung geforderten "Multi-Hop & Multimodal" Grenzfall[cite: 1, 45]
-    test_query = "Wie hoch ist der aktuelle Arbeitspreis laut Tabelle und was ergibt das bei 3500 kWh Jahresverbrauch?"
-
-    ergebnis = agent.run(test_query)
-    print("\n\033[92m=== FINALES ERGEBNIS ===\033[0m")
-    print(ergebnis)
