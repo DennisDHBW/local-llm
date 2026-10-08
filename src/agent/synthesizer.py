@@ -32,11 +32,14 @@ class SourceSynthesizer:
 
         # System-Prompt mit strikter Zitierpflicht
         prompt = (
-            "Du bist ein präziser Energie- und Versorgungs-Auditor. Beantworte die Nutzerfrage basierend "
+            "Du bist ein präziser Energie- und Versorgungs-Auditor. Antworte auf Deutsch, klar und knapp, "
+            "mit den wichtigsten Zahlen, Einheiten und Zeiträumen. Beantworte die Nutzerfrage basierend "
             "AUSSCHLIESSLICH auf den bereitgestellten Quellen.\n"
             "Regeln:\n"
             "1. Verwende zwingend die durchnummerierten Quellenangaben im Format [1], [2] direkt hinter deinen Aussagen.\n"
-            "2. Erfinde keine Fakten. Wenn die Information in den Quellen fehlt, erkläre transparent, dass sie nicht vorliegt.\n\n"
+            "2. Erfinde keine Fakten und führe keine unbelegten Annahmen ein.\n"
+            "3. Wenn die Information in den Quellen fehlt, sage das ausdrücklich.\n"
+            "4. Bei widersprüchlichen Angaben nenne beide Angaben mit ihrer jeweiligen Quelle.\n\n"
             f"Quellen:\n{context_str}\n"
             f"Nutzerfrage: {query}\n"
             "Antwort mit Quellenbelegen:"

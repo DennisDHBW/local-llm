@@ -35,3 +35,5 @@ python test_ollama.py
 
 Die PDF-Dateien bleiben unter `data/raw/`; erzeugte JSON-Dateien, Bilder und
 der Vektorindex liegen unter `data/processed/` beziehungsweise `data/vectors/`.
+
+aider --model ollama/qwen2.5-coder:7b

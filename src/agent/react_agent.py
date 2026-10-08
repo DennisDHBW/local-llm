@@ -1,6 +1,7 @@
 import re
 import json
 import ollama
+from typing import Callable, Optional
 from src.agent.tools import AgentTools
 
 
@@ -9,117 +10,204 @@ class ReActAgent:
         self.model_name = model_name
         self.tools = AgentTools()
 
-        # System-Prompt definiert die Persona und erzwingt das ReAct-Format[cite: 1, 35, 36]
-        self.system_prompt = """Du bist der 'Private Energie- & Versorgungs-Auditor', ein lokaler KI-Agent zur Prüfung von Rechnungen.
-        Dir stehen folgende Werkzeuge (Tools) zur Verfügung:
-        1. search_documents: Sucht in Texten nach Klauseln/Vertragsdetails (Parameter: query, top_k)
-        2. search_tables: Sucht in Tabellen nach Zahlen, Verbräuchen, Preisen (Parameter: query, top_k)
-        3. search_images: Sucht in Diagramm-Bildbeschreibungen (Parameter: query, top_k)
-        4. get_document_outline: Zeigt die Struktur/Überschriften des Dokuments (Parameter: filename_filter)
-        5. calculate: Führt mathematische Berechnungen aus. WICHTIG: Übermittle NUR reine Zahlen und Operatoren (z.B. 29.05 + 3.65 oder 32.337 * 3500), keine Einheiten!
+        self.system_prompt = """Du bist ein präziser, universeller KI-Agent zur Dokumentenanalyse.
 
-        Führe immer nur GENAU EINE Action pro Durchlauf aus!
+Verfügbare Werkzeuge:
+1. get_document_inventory: Liefert eine Vollübersicht aller indizierten Dokumente mit Metadaten (Dateinamen, Typen, Datum, Anbieter, Nummern). Parameter: leer lassen.
+2. search_documents: Sucht in Textabsätzen nach Klauseln und Begriffen. Parameter: Suchtext.
+3. search_tables: Sucht in Tabellenzeilen nach Zahlen, Preisen und Positionen. Parameter: Suchtext.
+4. search_images: Sucht in Bild- und Diagrammbeschreibungen. Parameter: Suchtext.
+5. get_document_outline: Zeigt die Kapitelstruktur eines Dokuments. Parameter: Dateiname oder leer lassen.
+6. calculate: Führt reine mathematische Berechnungen aus. Parameter: NUR Zahlen und Operatoren (z.B. "15.41 + 4.89"). KEINE Texte, Einheiten oder Paragraphenzeichen!
 
-        Du MUSST strikt in folgendem Format antworten:
+STRUKTUR FÜR DEINE GEDANKEN (Thought):
+Gliedere JEDEN Gedankenschritt zwingend wie folgt:
+Thought:
+- Bisherige Erkenntnisse: [Was weiß ich bereits sicher?]
+- Fehlende Fakten: [Welche Information fehlt noch zur Beantwortung?]
+- Werkzeug-Wahl: [Warum wähle ich dieses Werkzeug?]
+- Eingabe-Muster: [Wie lautet der exakte Suchbegriff oder Rechenausdruck?]
 
-        Thought: [Deine Überlegung, was als Nächstes zu tun ist]
-        Action: [Name des Werkzeugs]
-        Action Input: [Der Parameter für das Werkzeug]
+WICHTIGE VERHALTENSREGELN:
+- Verwende bei Fragen zu Dokumentanzahl, Typen oder Metadaten im ERSTEN Schritt `get_document_inventory`.
+- Unterscheide strikt zwischen 'Verbrauchsabrechnungsnummer' (Rechnungsnummer) und 'Vertragskonto'.
+- Beachte bei Preisen: Ein Gesamt-Grundpreis enthält bereits seine Unterpositionen. Addiere nicht doppelt.
+- Sobald alle Fakten vorliegen, erstelle DIREKT die `Final Answer`.
+- Führe pro Durchlauf strikt nur GENAU EINE Aktion aus.
 
-        Wenn du alle Informationen hast und das Ziel erreicht ist, beende die Aufgabe so:
+Antwortformat für Werkzeugaufrufe:
+Thought:
+- Bisherige Erkenntnisse: ...
+- Fehlende Fakten: ...
+- Werkzeug-Wahl: ...
+- Eingabe-Muster: ...
+Action: Werkzeugname
+Action Input: Parameterwert
 
-        Thought: Ich habe alle Informationen.
-        Final Answer: [Deine finale Antwort mit Quellenbeleg]
-        """
+Antwortformat für das Ergebnis:
+Thought:
+- Bisherige Erkenntnisse: Alle notwendigen Daten liegen vor.
+- Final Answer Vorbereitung: Prüfe auf Vollständigkeit.
+Final Answer: Reine Faktenantwort mit konkreten Zahlen und Quellen.
+"""
 
-    def run(self, user_query: str, max_iterations: int = 7) -> str:
-        """Startet die ReAct-Schleife (Thought -> Action -> Observation)[cite: 1, 35, 36, 42]."""
+    @staticmethod
+    def _contains_unresolved_placeholders(text: str) -> bool:
+        placeholder_pattern = r"\[[A-Za-z0-9_\s\-\.äöüÄÖÜß]{2,60}\]"
+        return bool(re.search(placeholder_pattern, text))
+
+    def run(
+        self,
+        user_query: str,
+        max_iterations: int = 8,
+        callback: Optional[Callable[[dict], None]] = None,
+        stop_check: Optional[Callable[[], bool]] = None
+    ) -> str:
         if not isinstance(user_query, str) or not user_query.strip():
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")
-        if max_iterations < 1:
-            raise ValueError("max_iterations muss mindestens 1 sein.")
 
-        # Initialer Chat-Verlauf
         messages = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": f"Frage: {user_query}"}
         ]
 
-        print(f"\n--- Starte Agenten-Loop für: '{user_query}' ---\n")
+        last_action_signature = None
+        repeat_count = 0
 
         for i in range(max_iterations):
-            # 1. LLM generiert einen Thought und eine Action (oder Final Answer)
+            iteration_num = i + 1
+
+            # Abbruch durch den Benutzer prüfen
+            if stop_check and stop_check():
+                return "⚠️ Die Ausführung wurde durch den Benutzer abgebrochen."
+
+            if callback:
+                callback({"type": "thinking_start", "iteration": iteration_num})
+
             response = ollama.chat(
                 model=self.model_name,
                 messages=messages,
-                options={"stop": ["Observation:"]}  # Zwingt das LLM zum Warten
+                options={"stop": ["Observation:"]}
             )
             llm_output = str(response.get("message", {}).get("content", "")).strip()
             if not llm_output:
                 raise RuntimeError("Das Agentenmodell lieferte eine leere Antwort.")
-            print(llm_output + "\n")
 
-            messages.append({"role": "assistant", "content": llm_output})
+            action_match = re.search(r"(?mi)^Action:\s*(.+?)$", llm_output)
 
-            # 2. Prüfen, ob das LLM fertig ist[cite: 1, 35]
+            if action_match:
+                action_pos = action_match.start()
+                input_match = re.search(
+                    r"(?mis)^Action Input:\s*(.*?)(?=\n(?:Thought|Action|Final Answer):|$)",
+                    llm_output[action_pos:]
+                )
+
+                if input_match:
+                    action = action_match.group(1).strip()
+                    raw_input = input_match.group(1)
+                    action_input = self._normalize_action_input(raw_input)
+
+                    thought_match = re.search(r"(?mis)^Thought:\s*(.+?)(?=\nAction:|$)", llm_output)
+                    thought_text = thought_match.group(1).strip() if thought_match else llm_output[:action_pos].strip()
+
+                    current_signature = f"{action}:{action_input}"
+                    if current_signature == last_action_signature:
+                        repeat_count += 1
+                    else:
+                        repeat_count = 0
+                        last_action_signature = current_signature
+
+                    if repeat_count >= 1:
+                        messages.append({"role": "user", "content": "Observation: Diese Aktion wurde bereits ausgeführt. Erstelle nun deine 'Final Answer' mit den bisherigen Daten."})
+                        continue
+
+                    clean_assistant_step = f"Thought:\n{thought_text}\nAction: {action}\nAction Input: {action_input}"
+                    messages.append({"role": "assistant", "content": clean_assistant_step})
+
+                    if callback:
+                        callback({
+                            "type": "action_execution",
+                            "iteration": iteration_num,
+                            "thought": thought_text,
+                            "action": action,
+                            "action_input": action_input
+                        })
+
+                    try:
+                        observation = self._execute_tool(action, action_input)
+                    except Exception as exc:
+                        observation = f"Fehler beim Werkzeug '{action}': {exc}"
+
+                    messages.append({"role": "user", "content": f"Observation: {observation}"})
+
+                    if callback:
+                        callback({
+                            "type": "observation_result",
+                            "iteration": iteration_num,
+                            "observation": observation
+                        })
+                    continue
+
             if "Final Answer:" in llm_output:
-                return llm_output.split("Final Answer:")[-1].strip()
+                final_ans = llm_output.split("Final Answer:")[-1].strip()
+                thought_part = llm_output.split("Final Answer:")[0].replace("Thought:", "").strip()
 
-            # 3. Parsen der Action und des Inputs via Regex (nur die erste Aktion nehmen)
-            action_match = re.search(r"(?mi)^Action:\s*(.+?)\s*$", llm_output)
-            input_match = re.search(
-                r"(?mis)^Action Input:\s*(.+?)(?=\n(?:Thought|Action|Final Answer):|$)",
-                llm_output,
-            )
+                if self._contains_unresolved_placeholders(final_ans):
+                    error_feedback = "Observation: Deine Final Answer enthält ungefüllte Platzhalter. Ersetze sie durch konkrete Daten aus den Observations."
+                    messages.append({"role": "assistant", "content": llm_output})
+                    messages.append({"role": "user", "content": error_feedback})
+                    continue
 
-            if action_match and input_match:
-                action = action_match.group(1).strip()
-                try:
-                    action_input = self._normalize_action_input(input_match.group(1))
-                    observation = self._execute_tool(action, action_input)
-                except (ValueError, RuntimeError, KeyError) as exc:
-                    observation = f"Fehler beim Werkzeug '{action}': {exc}"
-                print(f"\033[93mObservation: {observation}\033[0m\n")  # Gelbe Farbe für Sichtbarkeit in Konsole
+                messages.append({"role": "assistant", "content": llm_output})
 
-                # Observation dem Modell mitteilen
-                messages.append({"role": "user", "content": f"Observation: {observation}"})
-            else:
-                # Modell hat das Format missachtet
-                error_msg = "Formatfehler. Bitte nutze strikt 'Thought:', 'Action:' und 'Action Input:'."
-                messages.append({"role": "user", "content": f"Observation: {error_msg}"})
-                print(f"\033[91m{error_msg}\033[0m\n")
+                if callback:
+                    callback({
+                        "type": "final_answer",
+                        "iteration": iteration_num,
+                        "thought": thought_part,
+                        "final_answer": final_ans
+                    })
+                return final_ans
+
+            error_msg = "Formatfehler. Bitte strukturiere deine Antwort strikt nach Vorgabe mit 'Thought:', 'Action:', 'Action Input:' ODER 'Final Answer:'."
+            messages.append({"role": "assistant", "content": llm_output})
+            messages.append({"role": "user", "content": f"Observation: {error_msg}"})
 
         return "Abbruch: Die maximale Anzahl an Iterationen wurde überschritten."
 
     @staticmethod
     def _normalize_action_input(action_input: str) -> str:
-        """Akzeptiert Plaintext sowie ein JSON-Objekt aus strikt formatierten Modellen."""
         value = action_input.strip()
-        if not value:
-            raise ValueError("Action Input darf nicht leer sein.")
+        if not value or value.lower() in ("none", "null", '""', "''"):
+            return ""
         if value.startswith("{") and value.endswith("}"):
-            payload = json.loads(value)
-            if not isinstance(payload, dict):
-                raise ValueError("Action Input muss ein Objekt oder ein String sein.")
-            for key in ("query", "expression", "filename_filter", "input"):
-                if key in payload:
-                    normalized = str(payload[key]).strip()
-                    if normalized:
-                        return normalized
-            raise ValueError("Kein unterstützter Parameter im Action Input.")
+            try:
+                payload = json.loads(value)
+                if isinstance(payload, dict):
+                    for key in ("query", "expression", "filename_filter", "input"):
+                        if key in payload:
+                            normalized = str(payload[key]).strip()
+                            if normalized:
+                                return normalized
+                    return ""
+            except json.JSONDecodeError:
+                pass
         return value.strip('"\'')
 
     def _execute_tool(self, action: str, action_input: str) -> str:
-        """Mappt den String des Modells auf die Python-Methoden[cite: 1, 41]."""
-        if action == "search_documents":
+        clean_action = re.sub(r"\(.*?\)$", "", action.strip().strip("`'\"")).strip()
+
+        if clean_action == "get_document_inventory":
+            return self.tools.get_document_inventory()
+        elif clean_action == "search_documents":
             return self.tools.search_documents(action_input)
-        elif action == "search_tables":
+        elif clean_action == "search_tables":
             return self.tools.search_tables(action_input)
-        elif action == "search_images":
+        elif clean_action == "search_images":
             return self.tools.search_images(action_input)
-        elif action == "get_document_outline":
+        elif clean_action == "get_document_outline":
             return self.tools.get_document_outline(action_input)
-        elif action == "calculate":
+        elif clean_action == "calculate":
             return self.tools.calculate(action_input)
         else:
             return f"Fehler: Unbekanntes Werkzeug '{action}'."

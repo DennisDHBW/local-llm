@@ -1,75 +1,36 @@
 import time
+import json
+from pathlib import Path
+
 from src.agent.react_agent import ReActAgent
+from src.retrieval.query_rewriter import QueryRewriter
+from src.retrieval.vector_store import VectorStore
+from src.retrieval.search import search_collection
+from src.agent.synthesizer import SourceSynthesizer
 
 # Der standardisierte 9-Fragen-Testkatalog für Energie- und Versorgungsdokumente
 TEST_CATALOG = [
-    # --- Kategorie 1: Faktenabfragen (5 Fragen) ---
-    {
-        "id": 1,
-        "category": "Faktenabfrage",
-        "question": "Wie hoch ist der aktuelle Arbeitspreis pro Kilowattstunde im Jahr 2025?",
-        "expected_type": "factual"
-    },
-    {
-        "id": 2,
-        "category": "Faktenabfrage",
-        "question": "Welcher monatliche Grundpreis wird in der aktuellen Abrechnung berechnet?",
-        "expected_type": "factual"
-    },
-    {
-        "id": 3,
-        "category": "Faktenabfrage",
-        "question": "Welche Zählernummer ist für die Verbrauchsstelle hinterlegt?",
-        "expected_type": "factual"
-    },
-    {
-        "id": 4,
-        "category": "Faktenabfrage",
-        "question": "Welche Kündigungsfrist ist laut Vertragsbestätigung für den Tarif festgelegt?",
-        "expected_type": "factual"
-    },
-    {
-        "id": 5,
-        "category": "Faktenabfrage",
-        "question": "Bis zu welchem Datum gilt die vertraglich zugesicherte Preisgarantie?",
-        "expected_type": "factual"
-    },
-
-    # --- Kategorie 2: Komplexe Grenzfälle / Multi-Hop & Multimodal (2 Fragen) ---
-    {
-        "id": 6,
-        "category": "Grenzfall (Arithmetik)",
-        "question": "Wie hoch sind die Gesamtkosten bei einem Jahresverbrauch von 3500 kWh mit dem aktuellen Arbeitspreis ab 01.04.2025?",
-        "expected_type": "multihop_calc"
-    },
-    {
-        "id": 7,
-        "category": "Grenzfall (Multimodal)",
-        "question": "In welchem Monat lag laut dem Diagramm zum Verbrauchsverlauf der höchste Verbrauch?",
-        "expected_type": "multimodal"
-    },
-
-    # --- Kategorie 3: Negativfragen / Halluzinationskontrolle (2 Fragen) ---
-    {
-        "id": 8,
-        "category": "Negativtest",
-        "question": "Welche Einspeisevergütung für Solarstrom wird im Dokument ausgewiesen?",
-        "expected_type": "negative"
-    },
-    {
-        "id": 9,
-        "category": "Negativtest",
-        "question": "Welcher spezielle Nachlass für gewerbliche Großabnehmer wird gewährt?",
-        "expected_type": "negative"
-    }
+    {"id": 1, "category": "Faktenabfrage", "question": "Wie hoch ist der aktuelle Arbeitspreis pro Kilowattstunde im Jahr 2025?"},
+    {"id": 2, "category": "Faktenabfrage", "question": "Welcher monatliche Grundpreis wird in der aktuellen Abrechnung berechnet?"},
+    {"id": 3, "category": "Faktenabfrage", "question": "Welche Zählernummer ist für die Verbrauchsstelle hinterlegt?"},
+    {"id": 4, "category": "Faktenabfrage", "question": "Welche Kündigungsfrist ist laut Vertragsbestätigung für den Tarif festgelegt?"},
+    {"id": 5, "category": "Faktenabfrage", "question": "Bis zu welchem Datum gilt die vertraglich zugesicherte Preisgarantie?"},
+    {"id": 6, "category": "Grenzfall (Arithmetik)", "question": "Wie hoch sind die Gesamtkosten bei einem Jahresverbrauch von 3500 kWh mit dem aktuellen Arbeitspreis ab 01.04.2025?"},
+    {"id": 7, "category": "Grenzfall (Multimodal)", "question": "In welchem Monat lag laut dem Diagramm zum Verbrauchsverlauf der höchste Verbrauch?"},
+    {"id": 8, "category": "Negativtest", "question": "Welche Einspeisevergütung für Solarstrom wird im Dokument ausgewiesen?"},
+    {"id": 9, "category": "Negativtest", "question": "Welcher spezielle Nachlass für gewerbliche Großabnehmer wird gewährt?"}
 ]
 
 def run_evaluation():
     print("=" * 70)
-    print(" 🚀 START DES AUTOMATISIERTEN EVALUATIONSLAUFS (Agentic RAG)")
+    print(" 🚀 START DES AUTOMATISIERTEN EVALUATIONSLAUFS (P1: RAG vs. P2: ReAct Agent)")
     print("=" * 70)
 
     agent = ReActAgent()
+    rewriter = QueryRewriter()
+    store = VectorStore()
+    synthesizer = SourceSynthesizer()
+
     results = []
 
     for item in TEST_CATALOG:
@@ -80,46 +41,63 @@ def run_evaluation():
         print(f"\n[Testfrage {q_id}/9] [{category}]")
         print(f"Frage: {query}")
 
-        start_time = time.time()
+        # --- Prototyp 1: Modulare Pipeline (Direct RAG) ---
+        p1_start = time.time()
         try:
-            # Agenten-Loop für die Testfrage starten
-            answer = agent.run(query, max_iterations=5)
-            status = "Erfolgreich"
+            opt_query = rewriter.rewrite(query)
+            ret_query = f"{query}\n{opt_query}"
+            query_emb = store._get_embedding(ret_query)
+            hits = search_collection(store.collection, query_emb, ret_query, top_k=5)
+            retrieved_chunks = [
+                {"content": h.document, "page_number": h.metadata.get("page_number", "?"), "metadata": h.metadata}
+                for h in hits
+            ]
+            p1_answer = synthesizer.generate_answer(query, retrieved_chunks)
+            p1_status = "Erfolgreich"
         except Exception as e:
-            answer = f"Fehler bei Ausführung: {e}"
-            status = "Fehlgeschlagen"
+            p1_answer = f"Fehler P1: {e}"
+            p1_status = "Fehlgeschlagen"
+        p1_duration = time.time() - p1_start
 
-        duration = time.time() - start_time
+        # --- Prototyp 2: Agentic RAG (ReAct Agent mit Tools) ---
+        p2_start = time.time()
+        try:
+            p2_answer = agent.run(query, max_iterations=5)
+            p2_status = "Erfolgreich"
+        except Exception as e:
+            p2_answer = f"Fehler P2: {e}"
+            p2_status = "Fehlgeschlagen"
+        p2_duration = time.time() - p2_start
 
-        print(f"Antwort: {answer}")
-        print(f"Dauer: {duration:.2f} Sekunden | Status: {status}")
+        print(f"\n🟢 P1 (Modulare Pipeline): {p1_answer[:120]}... ({p1_duration:.2f}s)")
+        print(f"🔵 P2 (ReAct Agent):       {p2_answer[:120]}... ({p2_duration:.2f}s)")
         print("-" * 50)
 
         results.append({
             "id": q_id,
             "category": category,
             "question": query,
-            "answer": answer,
-            "duration": duration,
-            "status": status
+            "p1_answer": p1_answer,
+            "p1_duration": p1_duration,
+            "p1_status": p1_status,
+            "p2_answer": p2_answer,
+            "p2_duration": p2_duration,
+            "p2_status": p2_status,
         })
 
-    # Zusammenfassung ausgeben
     print("\n" + "=" * 70)
     print(" 📊 EVALUATION ZUSAMMENFASSUNG")
     print("=" * 70)
-    success_count = sum(1 for r in results if r["status"] == "Erfolgreich")
-    print(- f"Getestete Fragen: {len(results)}")
-    print(f"Erfolgreich beantwortet: {success_count}/{len(results)}")
+    p1_ok = sum(1 for r in results if r["p1_status"] == "Erfolgreich")
+    p2_ok = sum(1 for r in results if r["p2_status"] == "Erfolgreich")
+    print(f"Prototyp 1 (Modulare Pipeline): {p1_ok}/{len(results)} erfolgreich")
+    print(f"Prototyp 2 (ReAct Agent):       {p2_ok}/{len(results)} erfolgreich")
 
-    # Optional als JSON abspeichern für den Projektbericht
-    import json
-    from pathlib import Path
     out_path = Path("data/processed/evaluation_report.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    print(f"`data/processed/evaluation_report.json` gespeichert!")
+    print(f"\nBericht erfolgreich unter `{out_path}` gespeichert!")
 
 if __name__ == "__main__":
     run_evaluation()

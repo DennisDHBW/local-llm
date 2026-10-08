@@ -23,9 +23,53 @@ class ImageCaptioner:
         """Erzeugt einen SHA-256 Hash der Bilddatei für den Cache."""
         hasher = hashlib.sha256()
         with open(image_path, "rb") as f:
-            buf = f.read()
-            hasher.update(buf)
+            for buf in iter(lambda: f.read(1024 * 1024), b""):
+                hasher.update(buf)
         return hasher.hexdigest()
+
+    def _remove_duplicate_images(self, json_files: list[Path]) -> int:
+        """Entfernt identische extrahierte Bilder und die zugehörigen JSON-Chunks."""
+        image_by_hash: dict[str, Path] = {}
+        duplicate_paths: set[Path] = set()
+        removed_chunks = 0
+
+        for json_file in sorted(json_files):
+            with open(json_file, "r", encoding="utf-8") as f:
+                chunks = json.load(f)
+
+            filtered_chunks = []
+            json_changed = False
+            for chunk in chunks:
+                if chunk.get("chunk_type") != "image":
+                    filtered_chunks.append(chunk)
+                    continue
+
+                image_path = Path(chunk.get("metadata", {}).get("image_path", ""))
+                if not image_path.is_file():
+                    filtered_chunks.append(chunk)
+                    continue
+
+                image_hash = self._get_image_hash(image_path)
+                canonical_path = image_by_hash.get(image_hash)
+                if canonical_path is None:
+                    image_by_hash[image_hash] = image_path
+                    filtered_chunks.append(chunk)
+                elif canonical_path == image_path:
+                    filtered_chunks.append(chunk)
+                else:
+                    duplicate_paths.add(image_path)
+                    removed_chunks += 1
+                    json_changed = True
+
+            if json_changed:
+                with open(json_file, "w", encoding="utf-8") as f:
+                    json.dump(filtered_chunks, f, ensure_ascii=False, indent=2)
+
+        for duplicate_path in duplicate_paths:
+            if duplicate_path.exists():
+                duplicate_path.unlink()
+
+        return removed_chunks
 
     def generate_caption(self, image_path: Path) -> str:
         """Generiert eine Bildbeschreibung mit Ollama oder lädt sie aus dem Cache[cite: 1, 23, 24]."""
@@ -64,12 +108,20 @@ class ImageCaptioner:
 
     def process_all_jsons(self):
         """Durchläuft alle JSONs, sucht nach Platzhaltern und aktualisiert sie[cite: 1, 23, 24]."""
-        json_files = list(self.processed_dir.glob("*_chunks.json"))
+        json_files = sorted(self.processed_dir.glob("*_chunks.json"))
+        removed_duplicates = self._remove_duplicate_images(json_files)
+        if removed_duplicates:
+            print(f"{removed_duplicates} doppelte Bilddatei(en) vor der Analyse entfernt.")
 
         for json_file in json_files:
             print(f"\nÜberprüfe {json_file.name} auf unbeschriftete Bilder...")
-            with open(json_file, "r", encoding="utf-8") as f:
-                chunks = json.load(f)
+            try:
+                with open(json_file, "r", encoding="utf-8") as f:
+                    chunks = json.load(f)
+            except json.JSONDecodeError:
+                print(f"⚠️ Warnung: {json_file.name} war nach einem Absturz beschädigt. Lösche defekte Datei...")
+                json_file.unlink()
+                continue
 
             updated = False
             for chunk in chunks:

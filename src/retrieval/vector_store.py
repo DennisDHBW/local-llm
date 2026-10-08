@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List, Dict, Any
 import ollama
 
-# Projekt-Hauptverzeichnis dynamisch ermitteln
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,30 +20,31 @@ class VectorStore:
         self.vector_dir.mkdir(parents=True, exist_ok=True)
         self.embed_model = embed_model
 
-        # ChromaDB initialisieren (Speichert persistent auf der Festplatte)[cite: 1, 23, 24, 31]
         self.client = chromadb.PersistentClient(path=str(self.vector_dir))
-
-        # HNSW Cosine-Distanz konfigurieren[cite: 1, 23]
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"}
         )
 
     def _get_embedding(self, text: str) -> List[float]:
-        """Holt das 768-dimensionale Embedding von Ollama (nomic-embed-text)[cite: 1, 31, 32]."""
         response = ollama.embeddings(
             model=self.embed_model,
             prompt=text
         )
         return response["embedding"]
 
-    def index_documents(self):
-        """Liest alle Chunks, fügt den Hierarchie-Prefix hinzu und speichert sie in ChromaDB[cite: 1, 24, 25]."""
+    def index_documents(self, rebuild: bool = False):
+        """Liest Chunks und speichert sie samt ALLEN Metadaten in ChromaDB."""
         json_files = list(self.processed_dir.glob("*_chunks.json"))
 
         if not json_files:
             print("Keine JSON-Dateien zum Vektorisieren gefunden.")
             return
+
+        if rebuild:
+            existing_ids = self.collection.get(include=[])["ids"]
+            if existing_ids:
+                self.collection.delete(ids=existing_ids)
 
         for json_file in json_files:
             print(f"\nStarte Vektorisierung für: {json_file.name}...")
@@ -60,60 +60,48 @@ class VectorStore:
                 chunk_id = chunk["chunk_id"]
                 content = chunk["content"]
                 heading_stack = chunk.get("heading_stack", [])
-                filename = chunk.get("metadata", {}).get("filename", "Unbekannt")
+                meta = chunk.get("metadata", {})
+                filename = meta.get("filename", "Unbekannt")
 
-                # Hierarchie-Prefixing: [Dateiname | Kapitel > Unterkapitel] Text[cite: 1, 24, 25]
                 path_str = " > ".join(heading_stack)
-                if path_str:
-                    prefix = f"[{filename} | {path_str}]"
-                else:
-                    prefix = f"[{filename}]"
-
-                # Text, den das Modell "liest" und vektorisiert
+                prefix = f"[{filename} | {path_str}]" if path_str else f"[{filename}]"
                 embed_text = f"{prefix} {content}"
 
-                # Metadaten für spätere Filterung (z.B. nach Dateiname oder Typ) vorbereiten
+                # Vollständiges Metadaten-Mapping für ChromaDB
                 safe_metadata = {
-                    "filename": filename,
-                    "chunk_type": chunk.get("chunk_type", "unknown"),
-                    "page_number": chunk.get("page_number", 0),
-                    # ChromaDB mag keine Listen in Metadaten, daher als String speichern
-                    "heading_stack_str": path_str
+                    "filename": str(filename),
+                    "chunk_type": str(chunk.get("chunk_type", "unknown")),
+                    "page_number": int(chunk.get("page_number", 0)),
+                    "heading_stack_str": str(path_str),
+                    "doc_type": str(meta.get("doc_type", "Unbekannt")),
+                    "provider": str(meta.get("provider", "Unbekannt")),
+                    "customer_name": str(meta.get("customer_name", "Unbekannt")),
+                    "doc_date": str(meta.get("doc_date", "Unbekannt")),
+                    "contract_number": str(meta.get("contract_number") or ""),
+                    "invoice_number": str(meta.get("invoice_number") or ""),
                 }
 
-                # Tabellen-ID hinzufügen, falls vorhanden (für gezielte Tabellensuche)
-                if "table_id" in chunk.get("metadata", {}):
-                    safe_metadata["table_id"] = chunk["metadata"]["table_id"]
+                if "table_id" in meta:
+                    safe_metadata["table_id"] = str(meta["table_id"])
 
-                # 1. Embedding berechnen
                 embedding = self._get_embedding(embed_text)
 
-                # 2. Dem Batch hinzufügen
                 batch_ids.append(chunk_id)
                 batch_embeddings.append(embedding)
                 batch_metadatas.append(safe_metadata)
-
-                # Als reines Dokument speichern wir den angereicherten Text
                 batch_documents.append(embed_text)
 
-            # Batch-Insert in ChromaDB
             if batch_ids:
-                print(f"  Füge {len(batch_ids)} neue Chunks in ChromaDB ein...")
+                print(f"  Füge {len(batch_ids)} Chunks in ChromaDB ein...")
                 self.collection.upsert(
                     ids=batch_ids,
                     embeddings=batch_embeddings,
                     metadatas=batch_metadatas,
                     documents=batch_documents
                 )
-                print(f"  Erfolgreich abgeschlossen.")
-            else:
-                print(f"  Alle Chunks aus {json_file.name} sind bereits in der Datenbank.")
+                print("  Erfolgreich abgeschlossen.")
 
 
 if __name__ == "__main__":
     store = VectorStore()
-    store.index_documents()
-
-    # Kurzer Test, wie viele Dokumente nun in der Collection liegen
-    count = store.collection.count()
-    print(f"\nGesamtzahl der Vektoren in ChromaDB: {count}")
+    store.index_documents(rebuild=True)
