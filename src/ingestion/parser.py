@@ -32,8 +32,34 @@ class DocumentParser:
         self.image_dir.mkdir(exist_ok=True)
         self.extraction_model = extraction_model
 
+    @staticmethod
+    def _is_header_row(first_row: List[Any]) -> bool:
+        """Prüft, ob die erste Zeile eine echte Kopfzeile oder bereits eine Datenzeile ist."""
+        if not first_row:
+            return False
+
+        row_str = " ".join(str(cell) for cell in first_row if cell).casefold()
+        if not row_str.strip():
+            return False
+
+        # Indikatoren für konkrete Daten (Zahlen, Währungen, konkrete Tarifpositionen)
+        data_patterns = [
+            r"\d+[.,]\d+",
+            r"ct/kwh", r"eur", r"€", r"kwh", r"m³",
+            r"arbeitspreis", r"grundpreis", r"verbrauchspreis", r"leistungspreis"
+        ]
+        if any(re.search(p, row_str) for p in data_patterns):
+            return False
+
+        # Indikatoren für reine Header-Begriffe
+        header_terms = {"position", "bezeichnung", "beschreibung", "tarif", "netto", "brutto", "einheit", "zeitraum",
+                        "menge", "betrag", "preis"}
+        if any(term in row_str for term in header_terms):
+            return True
+
+        return True
+
     def _extract_document_metadata(self, sample_text: str, filename: str) -> Dict[str, Any]:
-        """Dynamische Extraktion von Dokument-Metadaten inkl. Dokumentdatum via LLM & Fallback."""
         fallback_date = self._find_fallback_date(sample_text)
         fallback_meta = {
             "doc_type": "Unbekannt",
@@ -72,7 +98,6 @@ Textauszug:
                 options={"temperature": 0.0}
             )
             raw_json = response.get("response", "").strip()
-            # Säubern eventueller Markdown-Umwicklungen
             raw_json = re.sub(r"^```json\s*", "", raw_json)
             raw_json = re.sub(r"\s*```$", "", raw_json)
 
@@ -96,7 +121,6 @@ Textauszug:
 
     @staticmethod
     def _find_fallback_date(text: str) -> Optional[str]:
-        """Extrahiert ein Datum via Regex aus dem Dokumententext."""
         match = re.search(
             r"\b(\d{1,2}\.\s*(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember|\d{1,2}\.)\s*\d{4})\b",
             text, re.IGNORECASE)
@@ -170,13 +194,22 @@ Textauszug:
             if tables and len(tables.tables) > 0:
                 for t_idx, table in enumerate(tables.tables):
                     rows = table.extract()
-                    if not rows or len(rows) < 2 or len(rows[0]) < 2:
+                    if not rows:
                         continue
 
-                    table_bboxes.append(pymupdf.Rect(table.bbox))
-                    headers = [str(c).strip().replace("\n", " ") if c else f"Spalte_{i}" for i, c in enumerate(rows[0])]
+                    # Header-Erkennung: Falls rows[0] Daten enthält (z.B. Arbeitspreis), nicht verschlucken!
+                    is_header = self._is_header_row(rows[0])
+                    if is_header and len(rows) >= 2:
+                        headers = [str(c).strip().replace("\n", " ") if c else f"Spalte_{i + 1}" for i, c in
+                                   enumerate(rows[0])]
+                        data_rows = rows[1:]
+                    else:
+                        headers = [f"Spalte_{i + 1}" for i in range(len(rows[0]))]
+                        data_rows = rows
 
-                    for r_idx, row in enumerate(rows[1:]):
+                    table_bboxes.append(pymupdf.Rect(table.bbox))
+
+                    for r_idx, row in enumerate(data_rows):
                         row_pairs = []
                         has_content = False
                         for h, val in zip(headers, row):

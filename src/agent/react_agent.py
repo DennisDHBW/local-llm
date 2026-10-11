@@ -1,213 +1,239 @@
-import re
+"""Agent mit nativem Tool-Calling (statt Regex-geparstem ReAct-Text).
+
+Ablauf: Das Modell ruft Werkzeuge auf -> Ergebnisse werden als Evidenz gesammelt ->
+am Ende formuliert der SourceSynthesizer die Antwort mit nummerierten Quellenangaben.
+Das Callback-Format ist unverändert (thinking_start, action_execution,
+observation_result, final_answer).
+"""
+
 import json
+import re
+from typing import Any, Callable, Optional
+
 import ollama
-from typing import Callable, Optional
-from src.agent.tools import AgentTools
+
+from src.agent.synthesizer import SourceSynthesizer
+from src.agent.tools import TOOL_SCHEMAS, AgentTools
+from src.config import AGENT_MODEL, SYNTH_MODEL, ollama_options
+
+SYSTEM_PROMPT = """Du bist ein präziser Assistent zur Analyse von Energie- und Versorgungsdokumenten \
+(Rechnungen, Verträge, Tarifinformationen). Stütze dich ausschließlich auf die Ergebnisse deiner Werkzeuge.
+
+Vorgehen:
+- Fragen zu Anzahl, Typ, Datum, Anbieter oder Nummern der Dokumente: zuerst get_document_inventory.
+- Fragen zu Preisen, Beträgen, Verbrauch, Laufzeit oder Fristen: zuerst get_document_facts, danach mit search im Text oder in Tabellen gegenprüfen.
+- Ist ein bestimmtes Dokument gemeint, übergib den Dateinamen als filename.
+- Fragen über mehrere Dokumente, Verträge oder Zähler hinweg: graph_lookup.
+- Es gibt Strom-, Wasser- und Abwasserdokumente. Prüfe die Energieart, bevor du Werte vergleichst oder addierst.
+- Preise sind mal netto, mal brutto angegeben (siehe Preisbasis in den Fakten). Nenne immer die Basis dazu und \
+vergleiche nur Preise derselben Basis; brutto = netto * 1,19.
+- Rechne immer mit calculate, nie im Kopf. Übergib nur Zahlen und Operatoren.
+- Rechnungsnummer (Verbrauchsabrechnungsnummer) und Vertragskonto sind verschiedene Dinge.
+- Ein Gesamt-Grundpreis enthält seine Unterpositionen bereits. Addiere nicht doppelt.
+- Rufe pro Schritt höchstens ein bis drei Werkzeuge auf und wiederhole keine identischen Aufrufe.
+- Sobald du genug Fakten hast, antworte ohne weiteren Werkzeugaufruf kurz mit Zahlen, Einheiten und Zeiträumen. \
+Fehlt eine Information in den Dokumenten, sage das ausdrücklich."""
+
+MAX_CALLS_PER_STEP = 3
+MAX_EVIDENCE = 12
+REPEAT_HINT = (
+    "Dieser Aufruf wurde mit denselben Parametern bereits ausgeführt. Nutze die vorhandenen Ergebnisse, "
+    "ändere die Parameter oder antworte jetzt."
+)
+NO_TOOL_HINT = (
+    "Du hast noch kein Werkzeug benutzt. Beantworte die Frage nur auf Basis der Dokumente und rufe dafür "
+    "zuerst ein passendes Werkzeug auf."
+)
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _get(obj: Any, key: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _parse_tool_calls(raw: Any) -> list[tuple[str, dict]]:
+    calls: list[tuple[str, dict]] = []
+    for call in raw or []:
+        function = _get(call, "function")
+        name = _get(function, "name")
+        arguments = _get(function, "arguments") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {"query": arguments}
+        try:
+            arguments = dict(arguments)
+        except (TypeError, ValueError):
+            arguments = {}
+        if name:
+            calls.append((str(name), arguments))
+    return calls
+
+
+def _clean_content(content: Any) -> str:
+    return _THINK_RE.sub("", str(content or "")).strip()
+
+
+def _format_action_input(arguments: dict) -> str:
+    items = {k: v for k, v in arguments.items() if v not in (None, "")}
+    if len(items) == 1:
+        return str(next(iter(items.values())))
+    return ", ".join(f"{k}={v}" for k, v in items.items())
 
 
 class ReActAgent:
-    def __init__(self, model_name: str = "llama3.1:latest"):
+    def __init__(
+        self,
+        model_name: str = AGENT_MODEL,
+        tools: Optional[AgentTools] = None,
+        synthesizer: Optional[SourceSynthesizer] = None,
+        use_synthesizer: bool = True,
+    ):
         self.model_name = model_name
-        self.tools = AgentTools()
-
-        self.system_prompt = """Du bist ein präziser, universeller KI-Agent zur Dokumentenanalyse.
-
-Verfügbare Werkzeuge:
-1. get_document_inventory: Liefert eine Vollübersicht aller indizierten Dokumente mit Metadaten (Dateinamen, Typen, Datum, Anbieter, Nummern). Parameter: leer lassen.
-2. search_documents: Sucht in Textabsätzen nach Klauseln und Begriffen. Parameter: Suchtext.
-3. search_tables: Sucht in Tabellenzeilen nach Zahlen, Preisen und Positionen. Parameter: Suchtext.
-4. search_images: Sucht in Bild- und Diagrammbeschreibungen. Parameter: Suchtext.
-5. get_document_outline: Zeigt die Kapitelstruktur eines Dokuments. Parameter: Dateiname oder leer lassen.
-6. calculate: Führt reine mathematische Berechnungen aus. Parameter: NUR Zahlen und Operatoren (z.B. "15.41 + 4.89"). KEINE Texte, Einheiten oder Paragraphenzeichen!
-
-STRUKTUR FÜR DEINE GEDANKEN (Thought):
-Gliedere JEDEN Gedankenschritt zwingend wie folgt:
-Thought:
-- Bisherige Erkenntnisse: [Was weiß ich bereits sicher?]
-- Fehlende Fakten: [Welche Information fehlt noch zur Beantwortung?]
-- Werkzeug-Wahl: [Warum wähle ich dieses Werkzeug?]
-- Eingabe-Muster: [Wie lautet der exakte Suchbegriff oder Rechenausdruck?]
-
-WICHTIGE VERHALTENSREGELN:
-- Verwende bei Fragen zu Dokumentanzahl, Typen oder Metadaten im ERSTEN Schritt `get_document_inventory`.
-- Unterscheide strikt zwischen 'Verbrauchsabrechnungsnummer' (Rechnungsnummer) und 'Vertragskonto'.
-- Beachte bei Preisen: Ein Gesamt-Grundpreis enthält bereits seine Unterpositionen. Addiere nicht doppelt.
-- Sobald alle Fakten vorliegen, erstelle DIREKT die `Final Answer`.
-- Führe pro Durchlauf strikt nur GENAU EINE Aktion aus.
-
-Antwortformat für Werkzeugaufrufe:
-Thought:
-- Bisherige Erkenntnisse: ...
-- Fehlende Fakten: ...
-- Werkzeug-Wahl: ...
-- Eingabe-Muster: ...
-Action: Werkzeugname
-Action Input: Parameterwert
-
-Antwortformat für das Ergebnis:
-Thought:
-- Bisherige Erkenntnisse: Alle notwendigen Daten liegen vor.
-- Final Answer Vorbereitung: Prüfe auf Vollständigkeit.
-Final Answer: Reine Faktenantwort mit konkreten Zahlen und Quellen.
-"""
+        self.tools = tools if tools is not None else AgentTools()
+        self.synthesizer = synthesizer if synthesizer is not None else SourceSynthesizer(model_name=SYNTH_MODEL)
+        self.use_synthesizer = use_synthesizer
+        self.system_prompt = SYSTEM_PROMPT
+        self.last_evidence: list[dict] = []
 
     @staticmethod
-    def _contains_unresolved_placeholders(text: str) -> bool:
-        placeholder_pattern = r"\[[A-Za-z0-9_\s\-\.äöüÄÖÜß]{2,60}\]"
-        return bool(re.search(placeholder_pattern, text))
+    def _select_evidence(evidence: list[dict]) -> list[dict]:
+        """Dedupliziert und begrenzt die Evidenz (Werkzeug-Ergebnisse zuerst, dann beste Treffer)."""
+        unique: dict[str, dict] = {}
+        for item in evidence:
+            if str(item.get("content", "")).strip():
+                unique.setdefault(item["id"], item)
+        items = list(unique.values())
+        if len(items) <= MAX_EVIDENCE:
+            return items
+        ranked = sorted(
+            range(len(items)),
+            key=lambda i: (items[i].get("score") is None, items[i].get("score") or 0.0),
+            reverse=True,
+        )
+        return [items[i] for i in sorted(ranked[:MAX_EVIDENCE])]
+
+    def _finish(
+        self,
+        query: str,
+        draft: str,
+        evidence: list[dict],
+        callback: Optional[Callable[[dict], None]],
+        iteration: int,
+    ) -> str:
+        selected = self._select_evidence(evidence)
+        self.last_evidence = selected
+        answer = draft
+        if self.use_synthesizer and selected:
+            try:
+                answer = self.synthesizer.generate_answer(query, selected)
+                sources = self.synthesizer.format_sources(selected, answer)
+                if sources:
+                    answer = f"{answer}\n\n{sources}"
+            except Exception as exc:  # noqa: BLE001
+                answer = draft or f"Die Antwort konnte nicht formuliert werden: {exc}"
+        if not answer:
+            answer = "Zu der Frage konnten keine belastbaren Informationen in den Dokumenten gefunden werden."
+        if callback:
+            callback({"type": "final_answer", "iteration": iteration, "thought": draft, "final_answer": answer})
+        return answer
 
     def run(
         self,
         user_query: str,
-        max_iterations: int = 8,
+        max_iterations: int = 6,
         callback: Optional[Callable[[dict], None]] = None,
         stop_check: Optional[Callable[[], bool]] = None
     ) -> str:
         if not isinstance(user_query, str) or not user_query.strip():
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": f"Frage: {user_query}"}
+            {"role": "user", "content": user_query.strip()},
         ]
-
-        last_action_signature = None
-        repeat_count = 0
+        evidence: list[dict] = []
+        seen_calls: set[str] = set()
+        tools_used = False
+        nudged = False
+        repeated_steps = 0
+        draft = ""
+        iteration = 0
+        self.last_evidence = []
 
         for i in range(max_iterations):
-            iteration_num = i + 1
+            iteration = i + 1
 
-            # Abbruch durch den Benutzer prüfen
             if stop_check and stop_check():
                 return "⚠️ Die Ausführung wurde durch den Benutzer abgebrochen."
-
             if callback:
-                callback({"type": "thinking_start", "iteration": iteration_num})
+                callback({"type": "thinking_start", "iteration": iteration})
 
             response = ollama.chat(
                 model=self.model_name,
                 messages=messages,
-                options={"stop": ["Observation:"]}
+                tools=TOOL_SCHEMAS,
+                options=ollama_options(temperature=0.0),
             )
-            llm_output = str(response.get("message", {}).get("content", "")).strip()
-            if not llm_output:
-                raise RuntimeError("Das Agentenmodell lieferte eine leere Antwort.")
+            message = _get(response, "message")
+            content = _clean_content(_get(message, "content"))
+            calls = _parse_tool_calls(_get(message, "tool_calls"))[:MAX_CALLS_PER_STEP]
 
-            action_match = re.search(r"(?mi)^Action:\s*(.+?)$", llm_output)
-
-            if action_match:
-                action_pos = action_match.start()
-                input_match = re.search(
-                    r"(?mis)^Action Input:\s*(.*?)(?=\n(?:Thought|Action|Final Answer):|$)",
-                    llm_output[action_pos:]
-                )
-
-                if input_match:
-                    action = action_match.group(1).strip()
-                    raw_input = input_match.group(1)
-                    action_input = self._normalize_action_input(raw_input)
-
-                    thought_match = re.search(r"(?mis)^Thought:\s*(.+?)(?=\nAction:|$)", llm_output)
-                    thought_text = thought_match.group(1).strip() if thought_match else llm_output[:action_pos].strip()
-
-                    current_signature = f"{action}:{action_input}"
-                    if current_signature == last_action_signature:
-                        repeat_count += 1
-                    else:
-                        repeat_count = 0
-                        last_action_signature = current_signature
-
-                    if repeat_count >= 1:
-                        messages.append({"role": "user", "content": "Observation: Diese Aktion wurde bereits ausgeführt. Erstelle nun deine 'Final Answer' mit den bisherigen Daten."})
-                        continue
-
-                    clean_assistant_step = f"Thought:\n{thought_text}\nAction: {action}\nAction Input: {action_input}"
-                    messages.append({"role": "assistant", "content": clean_assistant_step})
-
-                    if callback:
-                        callback({
-                            "type": "action_execution",
-                            "iteration": iteration_num,
-                            "thought": thought_text,
-                            "action": action,
-                            "action_input": action_input
-                        })
-
-                    try:
-                        observation = self._execute_tool(action, action_input)
-                    except Exception as exc:
-                        observation = f"Fehler beim Werkzeug '{action}': {exc}"
-
-                    messages.append({"role": "user", "content": f"Observation: {observation}"})
-
-                    if callback:
-                        callback({
-                            "type": "observation_result",
-                            "iteration": iteration_num,
-                            "observation": observation
-                        })
+            if not calls:
+                if not content:
+                    if evidence:
+                        break
+                    raise RuntimeError("Das Agentenmodell lieferte eine leere Antwort.")
+                if not tools_used and not nudged:
+                    nudged = True
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": NO_TOOL_HINT})
                     continue
+                draft = content
+                return self._finish(user_query, draft, evidence, callback, iteration)
 
-            if "Final Answer:" in llm_output:
-                final_ans = llm_output.split("Final Answer:")[-1].strip()
-                thought_part = llm_output.split("Final Answer:")[0].replace("Thought:", "").strip()
+            tools_used = True
+            if content:
+                draft = content
+            messages.append({
+                "role": "assistant",
+                "content": content,
+                "tool_calls": [{"function": {"name": n, "arguments": a}} for n, a in calls],
+            })
 
-                if self._contains_unresolved_placeholders(final_ans):
-                    error_feedback = "Observation: Deine Final Answer enthält ungefüllte Platzhalter. Ersetze sie durch konkrete Daten aus den Observations."
-                    messages.append({"role": "assistant", "content": llm_output})
-                    messages.append({"role": "user", "content": error_feedback})
-                    continue
-
-                messages.append({"role": "assistant", "content": llm_output})
-
+            all_repeated = True
+            for name, arguments in calls:
+                signature = f"{name}:{json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)}"
                 if callback:
                     callback({
-                        "type": "final_answer",
-                        "iteration": iteration_num,
-                        "thought": thought_part,
-                        "final_answer": final_ans
+                        "type": "action_execution",
+                        "iteration": iteration,
+                        "thought": content,
+                        "action": name,
+                        "action_input": _format_action_input(arguments),
                     })
-                return final_ans
+                if signature in seen_calls:
+                    observation = REPEAT_HINT
+                else:
+                    all_repeated = False
+                    seen_calls.add(signature)
+                    result = self.tools.execute(name, arguments)
+                    observation = result.text
+                    evidence.extend(result.evidence)
 
-            error_msg = "Formatfehler. Bitte strukturiere deine Antwort strikt nach Vorgabe mit 'Thought:', 'Action:', 'Action Input:' ODER 'Final Answer:'."
-            messages.append({"role": "assistant", "content": llm_output})
-            messages.append({"role": "user", "content": f"Observation: {error_msg}"})
+                messages.append({"role": "tool", "tool_name": name, "content": observation})
+                if callback:
+                    callback({"type": "observation_result", "iteration": iteration, "observation": observation})
 
+            repeated_steps = repeated_steps + 1 if all_repeated else 0
+            if repeated_steps >= 2:
+                break
+
+        if evidence or draft:
+            return self._finish(user_query, draft, evidence, callback, iteration)
         return "Abbruch: Die maximale Anzahl an Iterationen wurde überschritten."
-
-    @staticmethod
-    def _normalize_action_input(action_input: str) -> str:
-        value = action_input.strip()
-        if not value or value.lower() in ("none", "null", '""', "''"):
-            return ""
-        if value.startswith("{") and value.endswith("}"):
-            try:
-                payload = json.loads(value)
-                if isinstance(payload, dict):
-                    for key in ("query", "expression", "filename_filter", "input"):
-                        if key in payload:
-                            normalized = str(payload[key]).strip()
-                            if normalized:
-                                return normalized
-                    return ""
-            except json.JSONDecodeError:
-                pass
-        return value.strip('"\'')
-
-    def _execute_tool(self, action: str, action_input: str) -> str:
-        clean_action = re.sub(r"\(.*?\)$", "", action.strip().strip("`'\"")).strip()
-
-        if clean_action == "get_document_inventory":
-            return self.tools.get_document_inventory()
-        elif clean_action == "search_documents":
-            return self.tools.search_documents(action_input)
-        elif clean_action == "search_tables":
-            return self.tools.search_tables(action_input)
-        elif clean_action == "search_images":
-            return self.tools.search_images(action_input)
-        elif clean_action == "get_document_outline":
-            return self.tools.get_document_outline(action_input)
-        elif clean_action == "calculate":
-            return self.tools.calculate(action_input)
-        else:
-            return f"Fehler: Unbekanntes Werkzeug '{action}'."

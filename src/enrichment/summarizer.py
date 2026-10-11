@@ -1,26 +1,37 @@
-import json
 import hashlib
+import json
 import re
 from pathlib import Path
-from diskcache import Cache
-import ollama
 
-# Projekt-Hauptverzeichnis dynamisch ermitteln
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+import httpx
+import ollama
+from diskcache import Cache
+
+from src.config import PROCESSED_DIR, PROJECT_ROOT, SUMMARY_MODEL, ollama_options
+
+# Fehler, die bedeuten: Ollama ist nicht erreichbar oder abgestürzt (z. B. Speichermangel).
+_OLLAMA_DOWN_ERRORS = (ConnectionError, httpx.TransportError)
+
+# Erhöhen, wenn sich Prompt oder Format der Zusammenfassung ändern -> alte Summaries werden ersetzt.
+SUMMARY_VERSION = 2
+DOC_META_KEYS = (
+    "filename", "doc_type", "provider", "customer_name", "doc_date", "contract_number", "invoice_number",
+)
 
 
 class TableSummarizer:
     def __init__(
             self,
-            processed_dir: Path = PROJECT_ROOT / "data" / "processed",
+            processed_dir: Path = PROCESSED_DIR,
             cache_dir: Path = PROJECT_ROOT / ".cache" / "table_summaries",
-            model_name: str = "llama3.1:latest",  # Standard Reasoner
-            max_rows_for_summary: int = 12,
+            model_name: str = SUMMARY_MODEL,
+            max_rows_for_summary: int = 20,
     ):
-        self.processed_dir = processed_dir
+        self.processed_dir = Path(processed_dir)
         self.cache = Cache(cache_dir)
         self.model_name = model_name
         self.max_rows_for_summary = max_rows_for_summary
+        self._ollama_down = False
 
     def _table_group_key(self, chunk: dict) -> str:
         metadata = chunk.get("metadata", {})
@@ -40,7 +51,11 @@ class TableSummarizer:
         tail_count = self.max_rows_for_summary - head_count
         omitted = len(normalized_rows) - (head_count + tail_count)
 
-        sampled_rows = normalized_rows[:head_count] + [f"... ({omitted} weitere Zeilen ausgelassen) ..."] + normalized_rows[-tail_count:]
+        sampled_rows = (
+            normalized_rows[:head_count]
+            + [f"... ({omitted} weitere Zeilen ausgelassen) ..."]
+            + normalized_rows[-tail_count:]
+        )
         return "\n".join(sampled_rows)
 
     def _is_summary_low_quality(self, summary: str) -> bool:
@@ -65,8 +80,8 @@ class TableSummarizer:
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
         sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-        if len(sentences) >= 2:
-            cleaned = " ".join(sentences[:2]).strip()
+        if len(sentences) >= 3:
+            cleaned = " ".join(sentences[:3]).strip()
         return cleaned
 
     def _build_fallback_summary(self, rows: list[str]) -> str:
@@ -82,16 +97,14 @@ class TableSummarizer:
         )
 
     def _get_table_hash(self, table_content: str) -> str:
-        """Erzeugt einen SHA-256 Hash des Tabelleninhalts für den Cache[cite: 1, 23, 24]."""
-        hasher = hashlib.sha256()
-        hasher.update(table_content.encode("utf-8"))
-        return hasher.hexdigest()
+        """SHA-256 über Inhalt, Modell und Prompt-Version (damit Prompt-Änderungen den Cache umgehen)."""
+        payload = f"{SUMMARY_VERSION}\0{self.model_name}\0{table_content}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def generate_summary(self, table_content: str, heading_stack: list, force_refresh: bool = False) -> str:
-        """Lässt Llama 3.1 eine Zusammenfassung der Tabelle generieren[cite: 1, 22, 23]."""
+        """Lässt das Modell eine Zusammenfassung der Tabelle generieren."""
         table_hash = self._get_table_hash(table_content)
 
-        # 1. Cache-Check: Wurde diese Tabelle schon zusammengefasst?[cite: 1, 23, 24]
         if not force_refresh and table_hash in self.cache:
             print("  -> Tabellen-Summary aus Cache geladen.")
             return self.cache[table_hash]
@@ -101,11 +114,13 @@ class TableSummarizer:
         context_path = " > ".join(heading_stack) if heading_stack else "Unbekannt"
         prompt = (
             f"Kontext-Kapitel: {context_path}\n"
-            "Aufgabe: Erstelle exakt 2 kurze Sätze auf Deutsch zur Tabellenbedeutung.\n"
+            "Aufgabe: Erstelle 2 bis 3 kurze Sätze auf Deutsch zur Tabellenbedeutung.\n"
             "Regeln:\n"
-            "- Nur belegbare Aussagen aus den Zeilen.\n"
-            "- Keine Vermutungen, keine Wörter wie 'möglicherweise', 'könnte', 'wahrscheinlich'.\n"
-            "- Keine Aufzählung einzelner Zahlenwerte.\n"
+            "- Nenne, wofür die Tabelle steht (Positionen, Zeitraum, Spaltenbedeutung).\n"
+            "- Nenne die wichtigsten Kennzahlen (höchstens 5) mit Einheit, z. B. Arbeitspreis, Grundpreis, "
+            "Verbrauch, Gesamtbetrag, sofern in den Zeilen vorhanden.\n"
+            "- Nur belegbare Aussagen aus den Zeilen. Keine Vermutungen, keine Wörter wie 'möglicherweise', "
+            "'könnte', 'wahrscheinlich'.\n"
             "Tabellenzeilen:\n"
             f"{table_content}"
         )
@@ -113,91 +128,108 @@ class TableSummarizer:
         response = ollama.generate(
             model=self.model_name,
             prompt=prompt,
-            options={"temperature": 0.1, "num_predict": 120}
+            options=ollama_options(temperature=0.1, num_predict=200),
         )
         summary = self._clean_summary(response.get("response", ""))
         if not summary:
             raise RuntimeError("Ollama lieferte keine Tabellen-Zusammenfassung.")
 
-        # 2. Ergebnis im Cache speichern[cite: 1, 23, 24]
         self.cache[table_hash] = summary
         return summary
 
     def process_all_jsons(self):
-        """Liest die JSONs, gruppiert Tabellenzeilen und fügt das Summary als neuen Chunk hinzu[cite: 1, 22, 24]."""
+        """Liest die JSONs, gruppiert Tabellenzeilen und fügt das Summary als neuen Chunk hinzu."""
         json_files = sorted(self.processed_dir.glob("*_chunks.json"))
 
         for json_file in json_files:
             print(f"\nÜberprüfe {json_file.name} auf unzusammengefasste Tabellen...")
             with open(json_file, "r", encoding="utf-8") as f:
                 chunks = json.load(f)
+            if not chunks:
+                continue
 
-            # Schritt 1: Alle table_row Chunks nach ihrer table_id gruppieren
-            tables = {}
+            # Dokument-Metadaten für die Summary-Chunks (sonst fehlen doc_type/provider im Inventar).
+            base_meta = chunks[0].get("metadata", {})
+            doc_meta = {key: base_meta.get(key) for key in DOC_META_KEYS if key in base_meta}
+            doc_meta.setdefault("filename", "unknown")
+
+            tables: dict[str, dict] = {}
             existing_summaries: dict[str, int] = {}
 
             for idx, chunk in enumerate(chunks):
                 if chunk.get("chunk_type") == "table_row":
                     table_key = self._table_group_key(chunk)
-                    t_id = chunk["metadata"].get("table_id")
                     if table_key not in tables:
                         tables[table_key] = {
-                            "table_id": t_id,
-                                "rows": [],
-                                "heading_stack": chunk.get("heading_stack", []),
-                                "page": chunk.get("page_number")
-                            }
+                            "table_id": chunk["metadata"].get("table_id"),
+                            "rows": [],
+                            "heading_stack": chunk.get("heading_stack", []),
+                            "page": chunk.get("page_number"),
+                        }
                     tables[table_key]["rows"].append(chunk["content"])
 
-                # Prüfen, ob wir für diese Tabelle schon ein Summary angelegt haben
                 if chunk.get("metadata", {}).get("is_table_summary"):
                     existing_summaries[self._table_group_key(chunk)] = idx
 
-            # Schritt 2: Für jede gefundene Tabelle das Summary generieren (falls noch nicht existent)
             updated = False
             for table_key, data in tables.items():
                 summary_idx = existing_summaries.get(table_key)
-                existing_content = chunks[summary_idx].get("content", "") if summary_idx is not None else ""
-                if summary_idx is not None and not self._is_summary_low_quality(existing_content):
-                    continue
+                if summary_idx is not None:
+                    existing = chunks[summary_idx]
+                    is_current = existing.get("metadata", {}).get("summary_version") == SUMMARY_VERSION
+                    if is_current and not self._is_summary_low_quality(existing.get("content", "")):
+                        continue
 
                 print(f"Analysiere Tabelle: {data['table_id']} ({table_key})")
                 full_table_text = self._build_compact_table_text(data["rows"])
-                refresh_needed = summary_idx is not None and self._is_summary_low_quality(existing_content)
 
-                # Ollama aufrufen
-                summary_text = self.generate_summary(
-                    full_table_text,
-                    data["heading_stack"],
-                    force_refresh=refresh_needed
-                )
-                if self._is_summary_low_quality(summary_text):
+                # Schlägt das LLM fehl, wird eine einfache Platzhalter-Zusammenfassung gespeichert und mit
+                # summary_version=0 markiert; der nächste Lauf versucht es dann erneut.
+                version = SUMMARY_VERSION
+                summary_text = ""
+                if not self._ollama_down:
+                    try:
+                        summary_text = self.generate_summary(
+                            full_table_text,
+                            data["heading_stack"],
+                            force_refresh=summary_idx is not None,
+                        )
+                    except _OLLAMA_DOWN_ERRORS as exc:
+                        self._ollama_down = True
+                        print(
+                            f"⚠️ Ollama nicht erreichbar oder abgestürzt ({type(exc).__name__}). "
+                            "Prüfe `ollama ps`, den Arbeitsspeicher und `journalctl -u ollama -n 50`, "
+                            "ggf. kleineres Modell (ENERGY_SUMMARY_MODEL) oder kleineres ENERGY_NUM_CTX. "
+                            "Restliche Tabellen erhalten Platzhalter."
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"⚠️ Zusammenfassung für {table_key} fehlgeschlagen: {exc}")
+                if not summary_text:
+                    version = 0
+                if not summary_text or self._is_summary_low_quality(summary_text):
                     summary_text = self._build_fallback_summary(data["rows"])
 
                 if summary_text:
-                    summary_content = f"Tabellen-Zusammenfassung: {summary_text}"
-                    # Schritt 3: Das Summary als völlig neuen Chunk ("is_table_summary = True") ins JSON einfügen[cite: 1, 22]
                     summary_chunk = {
                         "chunk_id": f"{json_file.stem}_tblsum_{table_key.replace(':', '_')}",
                         "chunk_type": "text",
-                        "content": summary_content,
+                        "content": f"Tabellen-Zusammenfassung: {summary_text}",
                         "heading_stack": data["heading_stack"],
                         "page_number": data["page"],
                         "metadata": {
-                            "filename": chunks[0]["metadata"]["filename"] if chunks else "unknown",
+                            **doc_meta,
                             "table_id": data["table_id"],
                             "table_group_key": table_key,
-                            "is_table_summary": True
-                        }
+                            "is_table_summary": True,
+                            "summary_version": version,
+                        },
                     }
-
                     if summary_idx is not None:
                         chunks[summary_idx] = summary_chunk
                     else:
                         chunks.append(summary_chunk)
                     updated = True
 
-            # Schritt 4: Die aktualisierte JSON-Datei speichern
             if updated:
                 with open(json_file, "w", encoding="utf-8") as f:
                     json.dump(chunks, f, ensure_ascii=False, indent=2)
