@@ -23,14 +23,14 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-import httpx
 import ollama
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
 from src.config import FACTS_MODEL, PROCESSED_DIR, ollama_options
 
 # Fehler, die bedeuten: Ollama ist nicht erreichbar oder abgestürzt (z. B. Speichermangel).
-_OLLAMA_DOWN_ERRORS = (ConnectionError, httpx.TransportError)
+_OLLAMA_DOWN_ERRORS = OLLAMA_DOWN_ERRORS
 
 # Erhöhen, wenn sich Schema oder Prompt ändern -> vorhandene Fakten werden neu extrahiert.
 FACTS_VERSION = 2
@@ -170,9 +170,29 @@ def _number_variants(value: float) -> set[str]:
     return {v for v in variants if v}
 
 
+def _contains_number(haystack: str, value: float) -> bool:
+    """Zahl als eigenständiges Token im Text (kein Treffer in '2025', '13512' oder '1.234,56')."""
+    return any(
+        re.search(rf"(?<![\d.,]){re.escape(variant)}(?!\d|[.,]\d)", haystack)
+        for variant in _number_variants(value)
+    )
+
+
+def _contains_id(compact_text: str, identifier: str) -> bool:
+    """Nummer nur dann gefunden, wenn davor/dahinter keine weitere Ziffer steht ('234567' != '1234567')."""
+    needle = re.sub(r"\s+", "", str(identifier)).casefold()
+    if not needle:
+        return False
+    # Leerzeichen sind im Vergleichstext entfernt, ein Label ("Zähler") klebt also an der Nummer. Deshalb
+    # nur dann gegen Ziffern abgrenzen, wenn die Nummer selbst mit einer Ziffer beginnt bzw. endet.
+    before = r"(?<!\d)" if needle[0].isdigit() else ""
+    after = r"(?!\d)" if needle[-1].isdigit() else ""
+    return re.search(f"{before}{re.escape(needle)}{after}", compact_text) is not None
+
+
 def verify_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, Any], list[str]]:
     """Behält nur Zahlen/Nummern, die im Quelltext wiederzufinden sind. Rückgabe: (verifiziert, verworfen)."""
-    haystack = source_text.replace(" ", " ")
+    haystack = source_text.replace("\u00a0", " ")
     compact = re.sub(r"\s+", "", haystack).casefold()
     verified: dict[str, Any] = {}
     dropped: list[str] = []
@@ -180,12 +200,12 @@ def verify_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, Any
         if value is None or (isinstance(value, str) and value.strip().casefold() in _EMPTY):
             continue
         if key in NUMERIC_FIELDS and isinstance(value, (int, float)) and not isinstance(value, bool):
-            if any(variant in haystack for variant in _number_variants(float(value))):
+            if _contains_number(haystack, float(value)):
                 verified[key] = value
             else:
                 dropped.append(key)
         elif key in ID_FIELDS:
-            if re.sub(r"\s+", "", str(value)).casefold() in compact:
+            if _contains_id(compact, value):
                 verified[key] = value
             else:
                 dropped.append(key)
@@ -296,6 +316,16 @@ class FactExtractor:
         self.model_name = model_name
 
     @staticmethod
+    def _clip(text: str, limit: int = MAX_SOURCE_CHARS) -> str:
+        """Kürzt lange Dokumente in der Mitte: Kopf (Preise, Zeitraum) und Ende (Laufzeit, Kündigung) bleiben."""
+        if len(text) <= limit:
+            return text
+        marker = "\n[... Text gekürzt ...]\n"
+        head = int(limit * 0.6)
+        tail = max(limit - head - len(marker), 0)
+        return text[:head] + marker + (text[-tail:] if tail else "")
+
+    @staticmethod
     def _source_text(chunks: list[dict]) -> str:
         items = [
             c for c in chunks
@@ -311,7 +341,7 @@ class FactExtractor:
                 lines.append(f"[Seite {page}]")
                 current_page = page
             lines.append(str(chunk.get("content", "")).strip())
-        return "\n".join(lines)[:MAX_SOURCE_CHARS]
+        return FactExtractor._clip("\n".join(lines))
 
     def _source_hash(self, text: str) -> str:
         return hashlib.sha256(f"{FACTS_VERSION}\0{self.model_name}\0{text}".encode("utf-8")).hexdigest()

@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 import ollama
 from pydantic import BaseModel, Field
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from src.config import PARSER_MODEL, PROJECT_ROOT
 
 
 class DocumentChunk(BaseModel):
@@ -23,7 +23,7 @@ class DocumentParser:
             self,
             raw_dir: Path = PROJECT_ROOT / "data" / "raw",
             processed_dir: Path = PROJECT_ROOT / "data" / "processed",
-            extraction_model: str = "llama3.2:latest"
+            extraction_model: str = PARSER_MODEL
     ):
         self.raw_dir = Path(raw_dir)
         self.processed_dir = Path(processed_dir)
@@ -141,7 +141,7 @@ Textauszug:
             r"^(Herr|Frau|Herrn|Firma|Familie)$",
             r"^(Rechnungsnummer|Vertragsnummer|Kundennummer|Zählernummer|Vertragskonto)\s*:?$",
             r"^\d{5}\s+[A-ZÄÖÜa-zäöüß\s-]+$",
-            r"^[A-ZÄÖÜa-zäöüß\s.-]+\s+\d+[a-zA-Z]?$"
+            r"^[A-ZÄÖÜa-zäöüß\s.-]+\s+\d{1,3}[a-zA-Z]?$"
         ]
         for pattern in invalid_patterns:
             if re.match(pattern, clean, re.IGNORECASE):
@@ -150,6 +150,44 @@ Textauszug:
         if clean.lower() in {"maschinell errechnet", "gesamt", "gesamtbetrag", "bruttobetrag", "nettobetrag"}:
             return False
         return True
+
+    @staticmethod
+    def _is_heading_span(size: float, flags: int, base_font_size: float) -> bool:
+        is_bold = bool(flags & 2 ** 4)
+        return (size >= base_font_size * 1.25) or (is_bold and size > base_font_size * 1.05)
+
+    @staticmethod
+    def _push_heading(stack: List[str], text: str, size: float, base_font_size: float) -> List[str]:
+        """Aktualisiert den hierarchischen Überschriftenpfad (Ebene 1 ab 1,4-facher Schriftgröße)."""
+        if size >= base_font_size * 1.4:
+            return [text]
+        if len(stack) >= 2:
+            return [stack[0], text]
+        return list(stack) + [text]
+
+    def _heading_events(self, page_dict: Dict[str, Any], table_bboxes: List[Any], base_font_size: float) -> List[Any]:
+        """Alle gültigen Überschriften einer Seite als (y-Position, Text, Schriftgröße), von oben nach unten."""
+        events = []
+        for block in page_dict.get("blocks", []):
+            block_rect = pymupdf.Rect(block.get("bbox", (0, 0, 0, 0)))
+            if any(block_rect.intersects(t_box) for t_box in table_bboxes):
+                continue
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    text = span["text"].strip()
+                    if text and self._is_heading_span(span["size"], span["flags"], base_font_size) \
+                            and self._is_valid_heading(text):
+                        events.append((span["bbox"][1], text, span["size"]))
+        return sorted(events, key=lambda e: e[0])
+
+    def _stack_before(self, stack: List[str], events: List[Any], y: float, base_font_size: float) -> List[str]:
+        """Überschriftenpfad, der an der Position `y` der Seite gilt (z. B. oberhalb einer Tabelle)."""
+        current = list(stack)
+        for event_y, text, size in events:
+            if event_y >= y:
+                break
+            current = self._push_heading(current, text, size, base_font_size)
+        return current
 
     def parse_pdf(self, filename: str) -> List[DocumentChunk]:
         pdf_path = self.raw_dir / filename
@@ -189,7 +227,12 @@ Textauszug:
         for page_idx, page in enumerate(doc):
             page_num = page_idx + 1
             tables = page.find_tables()
+            page_dict = page.get_text("dict")
             table_bboxes = []
+            heading_events = (
+                self._heading_events(page_dict, [pymupdf.Rect(t.bbox) for t in tables.tables], base_font_size)
+                if tables and len(tables.tables) > 0 else []
+            )
 
             if tables and len(tables.tables) > 0:
                 for t_idx, table in enumerate(tables.tables):
@@ -208,6 +251,7 @@ Textauszug:
                         data_rows = rows
 
                     table_bboxes.append(pymupdf.Rect(table.bbox))
+                    table_stack = self._stack_before(heading_stack, heading_events, table.bbox[1], base_font_size)
 
                     for r_idx, row in enumerate(data_rows):
                         row_pairs = []
@@ -232,12 +276,11 @@ Textauszug:
                             chunk_id=f"{pdf_path.stem}_p{page_num}_tbl{t_idx}_r{r_idx}",
                             chunk_type="table_row",
                             content=row_content,
-                            heading_stack=list(heading_stack),
+                            heading_stack=list(table_stack),
                             page_number=page_num,
                             metadata=chunk_meta
                         ))
 
-            page_dict = page.get_text("dict")
             current_paragraph = ""
 
             for block in page_dict.get("blocks", []):
@@ -254,8 +297,7 @@ Textauszug:
 
                             size = span["size"]
                             flags = span["flags"]
-                            is_bold = bool(flags & 2 ** 4)
-                            is_heading = (size >= base_font_size * 1.25) or (is_bold and size > base_font_size * 1.05)
+                            is_heading = self._is_heading_span(size, flags, base_font_size)
 
                             if is_heading and self._is_valid_heading(text):
                                 if len(current_paragraph) >= 20:
@@ -269,13 +311,7 @@ Textauszug:
                                     ))
                                     current_paragraph = ""
 
-                                if size >= base_font_size * 1.4:
-                                    heading_stack = [text]
-                                else:
-                                    if len(heading_stack) >= 2:
-                                        heading_stack = [heading_stack[0], text]
-                                    else:
-                                        heading_stack.append(text)
+                                heading_stack = self._push_heading(heading_stack, text, size, base_font_size)
 
                                 chunks.append(DocumentChunk(
                                     chunk_id=f"{pdf_path.stem}_p{page_num}_hd_{len(chunks)}",

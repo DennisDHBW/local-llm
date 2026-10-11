@@ -7,6 +7,70 @@ from src.config import SYNTH_MODEL, ollama_options
 
 MAX_CHUNK_CHARS = 1200
 
+_DATE_RE = re.compile(r"\b\d{1,2}\.\d{1,2}\.(?:\d{4}|\d{2})\b")
+_CITATION_RE = re.compile(r"\[\d+\]")
+_NUMBER_RE = re.compile(r"(?<![\w.])\d[\d.]*(?:,\d+)?")
+
+
+def _number_values(token: str) -> set[float]:
+    """Mögliche Zahlenwerte eines Textes: '3.512' kann Tausender (3512) oder Dezimal (3.512) sein."""
+    token = token.rstrip(".,")
+    values: set[float] = set()
+    candidates = [token.replace(".", "").replace(",", ".")]
+    if "," not in token:
+        candidates.append(token)
+    for candidate in candidates:
+        try:
+            values.add(float(candidate))
+        except ValueError:
+            continue
+    return values
+
+
+def _decimals(token: str) -> int:
+    token = token.rstrip(".,")
+    for sep in (",", "."):
+        if sep in token:
+            tail = token.rsplit(sep, 1)[1]
+            if sep == "," or len(tail) != 3:
+                return len(tail)
+    return 0
+
+
+def unsupported_numbers(answer: str, evidence_texts: Sequence[str]) -> list[str]:
+    """Zahlen der Antwort, die in keiner Quelle vorkommen (Rundung wird toleriert).
+
+    Ignoriert Quellenverweise [n], Datumsangaben, Jahreszahlen und kleine ganze Zahlen (Tage, Monate, Anzahlen).
+    Dient als Warnsignal gegen frei erfundene oder im Kopf gerechnete Werte.
+    """
+    known: set[float] = set()
+    for text in evidence_texts:
+        for token in _NUMBER_RE.findall(_DATE_RE.sub(" ", str(text))):
+            known |= _number_values(token)
+
+    cleaned = _DATE_RE.sub(" ", _CITATION_RE.sub(" ", answer))
+    missing: list[str] = []
+    for token in _NUMBER_RE.findall(cleaned):
+        token = token.rstrip(".,")
+        values = _number_values(token)
+        if not values:
+            continue
+        if all(float(v).is_integer() and (v <= 31 or 1990 <= v <= 2100) for v in values):
+            continue
+        tolerance = 0.5 * 10 ** -_decimals(token) + 1e-9
+        if not any(abs(v - k) <= tolerance for v in values for k in known) and token not in missing:
+            missing.append(token)
+    return missing
+
+
+def number_check_note(query: str, evidence: Sequence[Mapping[str, Any]], answer: str) -> str:
+    """Hinweistext, falls die Antwort Zahlen enthält, die weder in den Quellen noch in der Frage stehen."""
+    texts = [str(c.get("content", "")) for c in evidence] + [query]
+    missing = unsupported_numbers(answer, texts)
+    if not missing:
+        return ""
+    return "Hinweis: Diese Zahlen sind in den Quellen nicht belegt, bitte prüfen: " + ", ".join(missing)
+
 
 class SourceSynthesizer:
     def __init__(self, model_name: str = SYNTH_MODEL):

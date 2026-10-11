@@ -25,6 +25,10 @@ SYNTH_MODEL = os.getenv("ENERGY_SYNTH_MODEL", AGENT_MODEL)
 FACTS_MODEL = os.getenv("ENERGY_FACTS_MODEL", AGENT_MODEL)
 SUMMARY_MODEL = os.getenv("ENERGY_SUMMARY_MODEL", AGENT_MODEL)
 EMBED_MODEL = os.getenv("ENERGY_EMBED_MODEL", "nomic-embed-text")
+# Bisher fest im Code verdrahtet; Standardwerte unverändert, jetzt per Umgebungsvariable überschreibbar.
+CAPTION_MODEL = os.getenv("ENERGY_CAPTION_MODEL", "gemma3:4b")            # Bildbeschreibung (Vision)
+PARSER_MODEL = os.getenv("ENERGY_PARSER_MODEL", "llama3.2:latest")        # Metadaten beim PDF-Parsing
+REWRITER_MODEL = os.getenv("ENERGY_REWRITER_MODEL", "llama3.2:latest")    # Query-Rewriter
 
 # --- Kontextfenster ----------------------------------------------------------
 # Ollama schneidet Prompts bei zu kleinem num_ctx STILL ab (Standard: 2048-4096).
@@ -40,6 +44,26 @@ EMBED_QUERY_PREFIX = "search_query: "
 # --- Retrieval ---------------------------------------------------------------
 # Der Query-Rewriter (3B-Modell) hängte Rauschen an die Suchanfrage. Standard: aus.
 USE_QUERY_REWRITER = os.getenv("ENERGY_USE_REWRITER", "0") == "1"
+
+
+# BM25-Index im Speicher: nach dieser Zeit (Sekunden) neu aufbauen, damit ein in einem anderen Prozess
+# neu indizierter Bestand mit gleicher Chunk-Anzahl nicht dauerhaft veraltet bleibt. 0 = kein Ablauf.
+BM25_CACHE_TTL = float(os.getenv("ENERGY_BM25_TTL", "300"))
+
+# Optionale Zahlenprüfung der Antwort gegen die Quellen (Hinweis unter der Antwort). Standard: aus.
+CHECK_NUMBERS = os.getenv("ENERGY_CHECK_NUMBERS", "0") == "1"
+
+
+def graph_path_for(processed_dir) -> Path:
+    """Pfad des Dokumentgraphen zu einem Verarbeitungsordner.
+
+    Der Standardordner nutzt GRAPH_PATH. Andere Ordner (z. B. in Tests) bekommen einen eigenen Graphen,
+    damit der produktive Graph nicht überschrieben bzw. mit fremden Daten gelesen wird.
+    """
+    processed_dir = Path(processed_dir)
+    if processed_dir.resolve() == PROCESSED_DIR.resolve():
+        return GRAPH_PATH
+    return processed_dir / "graph" / "document_graph.json"
 
 
 def ollama_options(**extra):

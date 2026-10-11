@@ -136,7 +136,7 @@ class DocumentGraph:
     @classmethod
     def load_or_build(cls, path: Path = GRAPH_PATH, processed_dir: Path = PROCESSED_DIR) -> "DocumentGraph":
         path = Path(path)
-        if path.exists():
+        if path.exists() and not cls._is_stale(path, Path(processed_dir)):
             try:
                 return cls.load(path)
             except (OSError, json.JSONDecodeError, KeyError):
@@ -147,6 +147,16 @@ class DocumentGraph:
         except OSError:
             pass
         return graph
+
+    @staticmethod
+    def _is_stale(path: Path, processed_dir: Path) -> bool:
+        """True, wenn Chunks oder Fakten nach dem Graphen geändert wurden (dann ist der Graph veraltet)."""
+        try:
+            built = path.stat().st_mtime
+            inputs = [*processed_dir.glob("*_chunks.json"), *processed_dir.glob("*_facts.json")]
+            return any(f.stat().st_mtime > built for f in inputs)
+        except OSError:
+            return False
 
     # ------------------------------------------------------------------ Persistenz (eigenes JSON, versionsunabhängig)
     def save(self, path: Path = GRAPH_PATH) -> None:
@@ -236,7 +246,7 @@ class DocumentGraph:
         matches = self.find_nodes(entity)
         if not matches:
             known = sorted(
-                {d["label"] for _, d in self.graph.nodes(data=True) if d.get("type") in ("Provider", "Contract", "Meter")}
+                {d["label"] for _, d in self.graph.nodes(data=True) if d.get("type") in ("Provider", "Account", "Contract", "Meter")}
             )
             hint = f" Bekannte Anbieter/Verträge/Zähler: {', '.join(known[:15])}." if known else ""
             return f"Keine Entität zu '{entity}' im Dokumentgraph gefunden.{hint}"

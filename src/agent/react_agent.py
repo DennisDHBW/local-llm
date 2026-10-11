@@ -12,9 +12,9 @@ from typing import Any, Callable, Optional
 
 import ollama
 
-from src.agent.synthesizer import SourceSynthesizer
+from src.agent.synthesizer import SourceSynthesizer, number_check_note
 from src.agent.tools import TOOL_SCHEMAS, AgentTools
-from src.config import AGENT_MODEL, SYNTH_MODEL, ollama_options
+from src.config import AGENT_MODEL, CHECK_NUMBERS, SYNTH_MODEL, ollama_options
 
 SYSTEM_PROMPT = """Du bist ein präziser Assistent zur Analyse von Energie- und Versorgungsdokumenten \
 (Rechnungen, Verträge, Tarifinformationen). Stütze dich ausschließlich auf die Ergebnisse deiner Werkzeuge.
@@ -135,6 +135,10 @@ class ReActAgent:
                 sources = self.synthesizer.format_sources(selected, answer)
                 if sources:
                     answer = f"{answer}\n\n{sources}"
+                if CHECK_NUMBERS:
+                    note = number_check_note(query, selected, answer)
+                    if note:
+                        answer = f"{answer}\n\n{note}"
             except Exception as exc:  # noqa: BLE001
                 answer = draft or f"Die Antwort konnte nicht formuliert werden: {exc}"
         if not answer:

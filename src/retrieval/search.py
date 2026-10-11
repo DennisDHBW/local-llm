@@ -14,8 +14,11 @@ import json
 import math
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
+
+from src.config import BM25_CACHE_TTL
 
 
 @dataclass(frozen=True)
@@ -98,12 +101,14 @@ class _BM25Index:
 
 
 _INDEX_CACHE: dict[tuple, _BM25Index] = {}
+_INDEX_BUILT_AT: dict[tuple, float] = {}
 _CACHE_LOCK = threading.Lock()
 
 
 def invalidate_bm25_cache() -> None:
     with _CACHE_LOCK:
         _INDEX_CACHE.clear()
+        _INDEX_BUILT_AT.clear()
 
 
 def _get_index(collection: Any, where: dict[str, Any] | None) -> _BM25Index:
@@ -114,6 +119,9 @@ def _get_index(collection: Any, where: dict[str, Any] | None) -> _BM25Index:
     )
     with _CACHE_LOCK:
         cached = _INDEX_CACHE.get(key)
+        if cached is not None and BM25_CACHE_TTL > 0 \
+                and time.monotonic() - _INDEX_BUILT_AT.get(key, 0.0) > BM25_CACHE_TTL:
+            cached = None
     if cached is not None:
         return cached
 
@@ -126,7 +134,9 @@ def _get_index(collection: Any, where: dict[str, Any] | None) -> _BM25Index:
     with _CACHE_LOCK:
         if len(_INDEX_CACHE) > 16:
             _INDEX_CACHE.clear()
+            _INDEX_BUILT_AT.clear()
         _INDEX_CACHE[key] = index
+        _INDEX_BUILT_AT[key] = time.monotonic()
     return index
 
 

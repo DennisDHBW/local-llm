@@ -1,9 +1,11 @@
 from typing import Any
 import ollama
 
+from src.config import REWRITER_MODEL
+
 
 class QueryRewriter:
-    def __init__(self, model_name: str = "llama3.2:latest"):
+    def __init__(self, model_name: str = REWRITER_MODEL):
         self.model_name = model_name
 
     def rewrite(self, user_query: str) -> str:

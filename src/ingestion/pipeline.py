@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
+from src.config import GRAPH_PATH, graph_path_for
 from src.enrichment.captioner import ImageCaptioner
 from src.enrichment.facts import FactExtractor
 from src.enrichment.summarizer import TableSummarizer
@@ -31,6 +32,7 @@ class AsyncIngestionPipeline:
     processed_dir: Path
     vector_store: VectorStore | None = None
     max_concurrency: int = 2
+    graph_path: Path | None = None
     _errors: list[str] = field(default_factory=list, init=False)
 
     async def _parse_one(self, parser: DocumentParser, filename: str) -> list[DocumentChunk]:
@@ -80,7 +82,11 @@ class AsyncIngestionPipeline:
 
         # Metadaten-Graph (ohne LLM, günstig): Dokument-Vertrag-Zähler-Anbieter-Beziehungen.
         try:
-            await asyncio.to_thread(DocumentGraph.build_and_save, self.processed_dir)
+            target = Path(self.graph_path) if self.graph_path else graph_path_for(self.processed_dir)
+            if target == GRAPH_PATH:
+                await asyncio.to_thread(DocumentGraph.build_and_save, self.processed_dir)
+            else:
+                await asyncio.to_thread(DocumentGraph.build_and_save, self.processed_dir, target)
         except Exception as exc:
             self._errors.append(f"Dokumentgraph: {exc}")
 
@@ -101,6 +107,7 @@ def run_ingestion(
     filenames: Iterable[str] | None = None,
     rebuild: bool = False,
     enrich: bool = True,
+    graph_path: Path | None = None,
 ) -> IngestionResult:
     """Synchronous bridge for CLI and Streamlit callers."""
     pipeline = AsyncIngestionPipeline(
@@ -108,5 +115,6 @@ def run_ingestion(
         processed_dir=processed_dir,
         vector_store=vector_store,
         max_concurrency=max_concurrency,
+        graph_path=graph_path,
     )
     return asyncio.run(pipeline.run(filenames, rebuild=rebuild, enrich=enrich))

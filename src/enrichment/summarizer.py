@@ -3,14 +3,14 @@ import json
 import re
 from pathlib import Path
 
-import httpx
 import ollama
 from diskcache import Cache
 
+from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
 from src.config import PROCESSED_DIR, PROJECT_ROOT, SUMMARY_MODEL, ollama_options
 
 # Fehler, die bedeuten: Ollama ist nicht erreichbar oder abgestürzt (z. B. Speichermangel).
-_OLLAMA_DOWN_ERRORS = (ConnectionError, httpx.TransportError)
+_OLLAMA_DOWN_ERRORS = OLLAMA_DOWN_ERRORS
 
 # Erhöhen, wenn sich Prompt oder Format der Zusammenfassung ändern -> alte Summaries werden ersetzt.
 SUMMARY_VERSION = 2
@@ -58,21 +58,17 @@ class TableSummarizer:
         )
         return "\n".join(sampled_rows)
 
+    _LOW_SIGNAL_RE = re.compile(
+        r"\b(möglicherweise|könnte|könnten|scheint|wahrscheinlich|eventuell|vermutlich|organisation|betrieb)\b"
+        r"|^\s*hier sind",
+        re.IGNORECASE,
+    )
+
     def _is_summary_low_quality(self, summary: str) -> bool:
-        low_signal_phrases = (
-            "möglicherweise",
-            "könnte",
-            "scheint",
-            "wahrscheinlich",
-            "eventuell",
-            "organisation",
-            "betrieb",
-            "hier sind",
-        )
-        text = summary.lower()
+        # Wortgrenzen: 'Messstellenbetrieb' darf nicht wegen 'betrieb' als schlechte Zusammenfassung gelten.
         if len(summary.strip()) < 70:
             return True
-        return any(phrase in text for phrase in low_signal_phrases)
+        return self._LOW_SIGNAL_RE.search(summary) is not None
 
     def _clean_summary(self, summary: str) -> str:
         cleaned = summary.strip()
@@ -231,8 +227,7 @@ class TableSummarizer:
                     updated = True
 
             if updated:
-                with open(json_file, "w", encoding="utf-8") as f:
-                    json.dump(chunks, f, ensure_ascii=False, indent=2)
+                atomic_write_json(json_file, chunks)
                 print(f"Erfolgreich gespeichert: {json_file.name} um Tabellen-Summaries erweitert.")
             else:
                 print("Keine neuen Tabellen zu verarbeiten.")
