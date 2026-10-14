@@ -225,8 +225,12 @@ def _contains_number(haystack: str, value: float) -> bool:
     return any(re.search(_number_pattern(variant), haystack) for variant in _number_variants(value))
 
 
-def _contains_id(compact_text: str, identifier: str) -> bool:
-    """Nummer nur dann gefunden, wenn davor/dahinter keine weitere Ziffer steht ('234567' != '1234567')."""
+def _contains_id(compact_text: str, identifier: str, raw_text: Optional[str] = None) -> bool:
+    """Nummer nur dann gefunden, wenn davor/dahinter keine weitere Ziffer steht ('234567' != '1234567').
+
+    `raw_text` (optional): zusätzlich im Originaltext suchen. Im Vergleichstext ohne Leerzeichen klebt eine
+    Nummer am nächsten Wert ("8HTL5623212259 12.06.2024" -> "...225912.06..."); dort fiele sie durch.
+    """
     needle = re.sub(r"\s+", "", str(identifier)).casefold()
     if not needle:
         return False
@@ -234,7 +238,14 @@ def _contains_id(compact_text: str, identifier: str) -> bool:
     # nur dann gegen Ziffern abgrenzen, wenn die Nummer selbst mit einer Ziffer beginnt bzw. endet.
     before = r"(?<!\d)" if needle[0].isdigit() else ""
     after = r"(?!\d)" if needle[-1].isdigit() else ""
-    return re.search(f"{before}{re.escape(needle)}{after}", compact_text) is not None
+    if re.search(f"{before}{re.escape(needle)}{after}", compact_text) is not None:
+        return True
+    if raw_text:
+        # Zeichen der Nummer, getrennt höchstens durch ein Leer-/Trennzeichen; davor/dahinter keine Ziffer/Buchstabe
+        spaced = r"[\s\-/.]?".join(re.escape(ch) for ch in needle)
+        pattern = r"(?<![0-9a-z])" + spaced + r"(?![0-9a-z])"
+        return re.search(pattern, raw_text.casefold()) is not None
+    return False
 
 
 def verify_facts(
@@ -259,7 +270,7 @@ def verify_facts(
             else:
                 dropped.append(key)
         elif key in id_fields:
-            if _contains_id(compact, value):
+            if _contains_id(compact, value, haystack):
                 verified[key] = value
             else:
                 dropped.append(key)
@@ -398,7 +409,7 @@ def apply_deterministic(
     if (spec is None or "meter_number" in spec.fields) and "meter_number" not in found:
         old_meter = out.get("meter_number")
         compact_text = re.sub(r"\s+", "", text).casefold()
-        if old_meter is None or not _contains_id(compact_text, old_meter):
+        if old_meter is None or not _contains_id(compact_text, old_meter, text):
             meters = list(dict.fromkeys(_METER_FORMAT_RE.findall(text)))
             if meters:
                 found["meter_number"] = meters[-1]
@@ -567,12 +578,15 @@ def _find_unit_price(source: str, base: float, days: int) -> Optional[tuple[floa
 
 
 def _advance_candidates(source: str) -> set[float]:
-    """Beträge, die (innerhalb von 80 Zeichen) hinter 'Abschlag' stehen."""
+    """Beträge, die (innerhalb von 80 Zeichen) hinter 'Abschlag' stehen. Als netto markierte Abschläge
+    ("Neuer Abschlag (netto) 31,93") zählen nicht: das Feld ist der Bruttoabschlag."""
     text = source.replace("\u00a0", " ")
     low = text.casefold()
     values: set[float] = set()
     for word in _ADVANCE_WORDS:
         for match in re.finditer(re.escape(word), low):
+            if "netto" in low[match.end(): match.end() + 12]:
+                continue
             segment = text[match.end(): match.end() + 80]
             for token in _NUM_TOKEN_RE.finditer(segment):
                 number = _parse_number(token.group(0))
@@ -608,6 +622,132 @@ def _amounts_after_labels(source: str, labels: tuple[str, ...], window: int = 40
                     value = round(abs(value), 2)
                     if value not in values:
                         values.append(value)
+    return values
+
+
+_NEW_ADVANCE_STRONG_RE = re.compile(
+    r"(?:neue[rnms]?|künftige[rnms]?|zukünftige[rnms]?)\s+(?:monatliche[rnms]?\s+)?abschl[äa]g\w*", re.IGNORECASE
+)
+_NEW_ADVANCE_WEAK_RE = re.compile(
+    r"abschl[äa]g\w*\s+(?:ab\s+sofort|künftig|zukünftig|für\s+die\s+kommende\w*\s+\w+|ab\s+dem\s+\d|ab\s+\d)",
+    re.IGNORECASE,
+)
+_SUM_LINE_RE = re.compile(r"\b(?:summe|gesamt|gesamtbetrag)\b", re.IGNORECASE)
+_RUN_TOKEN_RE = re.compile(r"\s*(?:(-?\d{1,3}(?:\.\d{3})*,\d{2})(?!\d)|eur\b|€|\(\s*\d+\s*%\s*\)|\d{1,2}\s*%?(?=\s))", re.IGNORECASE)
+NEW_ADVANCE_WINDOW = 600
+
+
+def _amount_run_after(text: str, position: int) -> list[float]:
+    """Beträge einer Zeile ab `position`: '31,93 EUR 6,07 EUR 38,00 EUR' -> [31.93, 6.07, 38.0]."""
+    amounts: list[float] = []
+    while True:
+        match = _RUN_TOKEN_RE.match(text, position)
+        if not match or match.end() == position:
+            break
+        if match.group(1):
+            value = _parse_number(match.group(1))
+            if value is not None:
+                amounts.append(round(abs(value), 2))
+        position = match.end()
+    return amounts
+
+
+def _new_advance(source: str, model_value: Optional[float]) -> tuple[Optional[float], str, list[float]]:
+    """Neuer monatlicher Abschlag laut Text: (Wert oder None, Begründung, alle Kandidaten).
+
+    Reihenfolge der Belege:
+      1. Summenzeile hinter einem starken Label ("neuer/künftiger Abschlag" ... "Summe/Gesamt 31,93 6,07 38,00")
+         -> letzter Betrag der Zeile (brutto). Funktioniert auch bei Tabellen mit netto/USt/brutto-Spalten.
+      2. Steht der Modellwert hinter einem Label, bleibt er (Spaltentabellen ohne Summenzeile).
+      3. Erster Betrag direkt hinter dem Label, außer das Label ist als "(netto)" markiert.
+    Schwache Labels ("Abschlag für die kommende Abrechnungsperiode") zählen nur, wenn starke nichts liefern.
+    """
+    text = source.replace("\u00a0", " ")
+    for regex in (_NEW_ADVANCE_STRONG_RE, _NEW_ADVANCE_WEAK_RE):
+        matches = list(regex.finditer(text))
+        if not matches:
+            continue
+        summed: list[float] = []
+        firsts: list[float] = []
+        nearby: list[float] = []
+        for match in matches:
+            segment_end = match.end() + NEW_ADVANCE_WINDOW
+            line = _SUM_LINE_RE.search(text, match.end(), segment_end)
+            if line:
+                run = _amount_run_after(text, line.end())
+                if run and run[-1] not in summed:
+                    summed.append(run[-1])
+            segment = text[match.end():segment_end]
+            nearby.extend(round(abs(v), 2) for v in (_parse_number(t) for t in _AMOUNT_TOKEN_RE.findall(segment)) if v)
+            if "netto" not in segment[:12].casefold():
+                first = _AMOUNT_TOKEN_RE.search(text, match.end(), match.end() + 100)
+                value = _parse_number(first.group(0)) if first else None
+                if value and round(abs(value), 2) not in firsts:
+                    firsts.append(round(abs(value), 2))
+        if len(summed) == 1:
+            return summed[0], "Summenzeile", summed
+        if model_value is not None and any(abs(model_value - v) < 0.005 for v in nearby):
+            return model_value, "Modellwert steht beim Label", nearby
+        if len(firsts) == 1:
+            return firsts[0], "erster Betrag hinter dem Label", firsts
+        if summed or firsts:
+            return None, "mehrdeutig", summed or firsts
+    return None, "", []
+
+
+def _sum_rows(source: str) -> list[float]:
+    """Bruttobeträge aus Zeilen 'netto USt brutto' (drei Beträge direkt nacheinander, netto + USt = brutto)."""
+    text = source.replace("\u00a0", " ")
+    tokens = [(m.start(), m.end(), _parse_number(m.group(0))) for m in _AMOUNT_TOKEN_RE.finditer(text)]
+    rows: list[float] = []
+    for (s1, e1, a), (s2, e2, b), (s3, _, c) in zip(tokens, tokens[1:], tokens[2:]):
+        if None in (a, b, c) or text[e1:s2].strip() or text[e2:s3].strip():
+            continue
+        if c > 0 and abs(a + b - c) <= 0.015 and c not in rows:
+            rows.append(round(c, 2))
+    return rows
+
+
+_PAYMENT_WORDS = ("abschläge", "abschlaege", "abschlagszahlungen", "geleistete zahlungen", "gezahlte", "vorauszahlungen")
+
+
+def _saldo_from_payments(source: str, total: float) -> Optional[tuple[str, float, float]]:
+    """(Feld, Saldo, Abschläge), wenn genau eine Abschlagssumme im Text mit dem Rechnungsbetrag einen ebenfalls
+    im Text stehenden Saldo ergibt. Bei mehreren Lösungen gilt die mit den größten Abschlägen (zwölf Abschläge
+    sind in aller Regel mehr als der Restbetrag), sonst keine."""
+    text = source.replace("\u00a0", " ")
+    low = text.casefold()
+    paid_candidates: set[float] = set()
+    for word in _PAYMENT_WORDS:
+        for match in re.finditer(re.escape(word), low):
+            for token in _AMOUNT_TOKEN_RE.finditer(text, match.end(), match.end() + 120):
+                value = _parse_number(token.group(0))
+                if value:
+                    paid_candidates.add(round(abs(value), 2))
+    solutions: list[tuple[float, str, float]] = []
+    for paid in sorted(paid_candidates):
+        rest = round(abs(total - paid), 2)
+        if rest < 0.01 or abs(paid - total) < 0.005 or not _contains_number(text, rest):
+            continue
+        key = "amount_due_eur" if total > paid else "credit_eur"
+        solutions.append((paid, key, rest))
+    if not solutions:
+        return None
+    paid, key, rest = max(solutions)
+    return key, rest, paid
+
+
+def _consumption_totals(source: str, unit_re: str) -> list[float]:
+    pattern = re.compile(
+        r"(?:summe|gesamtverbrauch|verbrauch\s+(?:gesamt|insgesamt))\s*:?\s*(\d{1,3}(?:\.\d{3})*(?:,\d{1,3})?)\s*(?:"
+        + unit_re + r")(?!\w)",
+        re.IGNORECASE,
+    )
+    values: list[float] = []
+    for match in pattern.finditer(source.replace("\u00a0", " ")):
+        value = _parse_number(match.group(1))
+        if value is not None and value > 0 and value not in values:
+            values.append(value)
     return values
 
 
@@ -803,12 +943,13 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
         )
         out["base_price_eur"], out["base_price_unit"] = value, new_unit
 
-    # 7a) Neuer Abschlag: "neuer/künftiger Abschlag ... 116,00" hat Vorrang vor dem bisherigen
-    new_advances = _amounts_after_labels(source_text, _NEW_ADVANCE_LABELS, window=70)
+    # 7a) Neuer Abschlag ("neuer/künftiger Abschlag", "Abschlag für die kommende Abrechnungsperiode") hat
+    #     Vorrang vor dem bisherigen. Siehe `_new_advance`: Summenzeile vor Modellwert vor erstem Betrag.
     advance = number("monthly_advance_payment_eur")
-    if len(new_advances) == 1 and (advance is None or abs(advance - new_advances[0]) >= 0.005):
-        notes.append(f"monthly_advance_payment_eur {advance} -> {new_advances[0]} (neuer Abschlag laut Text)")
-        out["monthly_advance_payment_eur"] = new_advances[0]
+    new_value, new_reason, new_advances = _new_advance(source_text, advance)
+    if new_value is not None and (advance is None or abs(advance - new_value) >= 0.005):
+        notes.append(f"monthly_advance_payment_eur {advance} -> {new_value} (neuer Abschlag laut Text, {new_reason})")
+        out["monthly_advance_payment_eur"] = new_value
 
     # 7) Monatlicher Abschlag: eindeutiger Betrag hinter 'Abschlag' im Text
     if advance is not None and not new_advances:
@@ -823,6 +964,36 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
                     f"monthly_advance_payment_eur {advance} steht nicht hinter 'Abschlag' "
                     f"(Kandidaten: {sorted(candidates)}) - bitte prüfen"
                 )
+
+    # 8) Rechnungsbetrag = Abschlag ist fast immer eine Verwechslung (Beispiel: Gesamtbetrag 370,81, das Modell
+    #    nahm den neuen Abschlag 37,00). Dann gilt die Summenzeile "netto USt brutto" mit dem größten Betrag.
+    total, advance = number("total_gross_eur"), number("monthly_advance_payment_eur")
+    if total is not None and advance is not None and abs(total - advance) < 0.005:
+        rows = _sum_rows(source_text)
+        if rows:
+            best = max(rows)
+            notes.append(f"total_gross_eur {total} = Abschlag -> {best} (Summenzeile netto + USt = brutto im Text)")
+            out["total_gross_eur"] = best
+
+    # 9) Weder Guthaben noch Nachzahlung: Saldo aus Rechnungsbetrag und geleisteten Abschlägen, wenn genau eine
+    #    Kombination im Text steht (Abschläge 341,00 hinter "Abschläge", Rest 370,81 - 341,00 = 29,81 im Text).
+    total = number("total_gross_eur")
+    if total is not None and number("credit_eur") is None and number("amount_due_eur") is None:
+        saldo = _saldo_from_payments(source_text, total)
+        if saldo:
+            key, value, paid = saldo
+            out[key] = value
+            if number("advances_paid_eur") is None:
+                out["advances_paid_eur"] = paid
+            notes.append(f"{key}: fehlte -> {value} (Saldo: Rechnungsbetrag {total} und Abschläge {paid} im Text)")
+
+    # 10) Verbrauch fehlt: "Summe 50,000 m³" / "Gesamtverbrauch 3.512 kWh"
+    for key, unit_re in (("consumption_m3", r"m³|m3|cbm"), ("consumption_kwh", r"kwh")):
+        if number(key) is None:
+            values = _consumption_totals(source_text, unit_re)
+            if len(values) == 1:
+                out[key] = values[0]
+                notes.append(f"{key}: fehlte -> {values[0]} (Summen-/Gesamtverbrauch im Text)")
     return out, notes
 
 
@@ -1033,7 +1204,7 @@ def postprocess_facts(
         if key not in verified and fallback and str(fallback).strip().casefold() not in _EMPTY:
             # Die Parser-Metadaten stammen von einem kleinen Modell und nur von Seite 1. Nummern daraus gelten
             # nur, wenn sie im Quelltext stehen - sonst würden sie ungeprüft als "verifiziert" ausgegeben.
-            if key in ID_FIELDS and not _contains_id(compact_text, fallback):
+            if key in ID_FIELDS and not _contains_id(compact_text, fallback, source_text):
                 meta_notes.append(f"{key}: Metadaten-Wert {fallback!r} steht nicht im Text -> nicht übernommen")
                 continue
             verified[key] = fallback
