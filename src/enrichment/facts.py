@@ -652,6 +652,29 @@ def _amount_run_after(text: str, position: int) -> list[float]:
     return amounts
 
 
+_NET_AFTER_RE = re.compile(r"\s*(?:eur|€)?\s*\(?\s*netto", re.IGNORECASE)
+_GROSS_WORD = r"(?:brutto|inkl\.?\s*(?:ust|mwst|umsatzsteuer)|einschl\.?\s*(?:ust|mwst|umsatzsteuer))"
+_GROSS_NEAR_RE = re.compile(
+    r"(-?\d{1,3}(?:\.\d{3})*,\d{2})(?!\d)\s*(?:eur|€)?\s*\(?\s*" + _GROSS_WORD
+    + r"|" + _GROSS_WORD + r"\.?\)?\s*:?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})(?!\d)",
+    re.IGNORECASE,
+)
+
+
+def _is_net_amount(text: str, end: int) -> bool:
+    """Steht direkt hinter dem Betrag 'netto' ("97,48 € netto", "31,93 EUR (netto)")?"""
+    return _NET_AFTER_RE.match(text, end) is not None and _NET_AFTER_RE.match(text, end).end() - end <= 12
+
+
+def _gross_value_after(text: str, start: int, window: int = 150) -> Optional[float]:
+    """Erster ausdrücklich als brutto bezeichnete Betrag ab `start` ("116,00 € brutto", "brutto: 116,00")."""
+    match = _GROSS_NEAR_RE.search(text, start, start + window)
+    if not match:
+        return None
+    value = _parse_number(match.group(1) or match.group(2))
+    return round(abs(value), 2) if value is not None else None
+
+
 def _new_advance(source: str, model_value: Optional[float]) -> tuple[Optional[float], str, list[float]]:
     """Neuer monatlicher Abschlag laut Text: (Wert oder None, Begründung, alle Kandidaten).
 
@@ -677,11 +700,17 @@ def _new_advance(source: str, model_value: Optional[float]) -> tuple[Optional[fl
                 run = _amount_run_after(text, line.end())
                 if run and run[-1] not in summed:
                     summed.append(run[-1])
-            segment = text[match.end():segment_end]
-            nearby.extend(round(abs(v), 2) for v in (_parse_number(t) for t in _AMOUNT_TOKEN_RE.findall(segment)) if v)
-            if "netto" not in segment[:12].casefold():
+            # Netto-Beträge zählen nicht: das Feld ist der Bruttoabschlag
+            for token in _AMOUNT_TOKEN_RE.finditer(text, match.end(), segment_end):
+                value = _parse_number(token.group(0))
+                if value and not _is_net_amount(text, token.end()):
+                    nearby.append(round(abs(value), 2))
+            if "netto" not in text[match.end(): match.end() + 12].casefold():
                 first = _AMOUNT_TOKEN_RE.search(text, match.end(), match.end() + 100)
                 value = _parse_number(first.group(0)) if first else None
+                if value and _is_net_amount(text, first.end()):
+                    # "Ihr neuer Abschlag beträgt: 97,48 € netto (116,00 € brutto)" -> der Bruttobetrag
+                    value = _gross_value_after(text, first.end())
                 if value and round(abs(value), 2) not in firsts:
                     firsts.append(round(abs(value), 2))
         if len(summed) == 1:
@@ -718,12 +747,25 @@ def _saldo_from_payments(source: str, total: float) -> Optional[tuple[str, float
     text = source.replace("\u00a0", " ")
     low = text.casefold()
     paid_candidates: set[float] = set()
+    row_totals: list[float] = []
+    seen_rows: set[int] = set()
     for word in _PAYMENT_WORDS:
         for match in re.finditer(re.escape(word), low):
             for token in _AMOUNT_TOKEN_RE.finditer(text, match.end(), match.end() + 120):
                 value = _parse_number(token.group(0))
                 if value:
                     paid_candidates.add(round(abs(value), 2))
+            # Zeile "gezahlte Abschläge Wasser -174,79 -12,21 (7 %) -187,00": letzter Betrag = brutto der Zeile
+            first = _AMOUNT_TOKEN_RE.search(text, match.end(), match.end() + 40)
+            if first and first.start() not in seen_rows:
+                seen_rows.add(first.start())
+                run = _amount_run_after(text, first.start())
+                if run:
+                    row_totals.append(run[-1])
+    distinct_rows = list(dict.fromkeys(row_totals))   # dieselbe Zeile auf Übersichts- und Detailseite zählt einmal
+    if len(distinct_rows) >= 2:
+        # Abschläge stehen nach Sparten getrennt (Wasser, Abwasser): ihre Summe ist ein weiterer Kandidat
+        paid_candidates.add(round(sum(distinct_rows), 2))
     solutions: list[tuple[float, str, float]] = []
     for paid in sorted(paid_candidates):
         rest = round(abs(total - paid), 2)
@@ -989,11 +1031,13 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
 
     # 10) Verbrauch fehlt: "Summe 50,000 m³" / "Gesamtverbrauch 3.512 kWh"
     for key, unit_re in (("consumption_m3", r"m³|m3|cbm"), ("consumption_kwh", r"kwh")):
-        if number(key) is None:
+        current = number(key)
+        if current is None or not _contains_number(source_text, current):
             values = _consumption_totals(source_text, unit_re)
             if len(values) == 1:
                 out[key] = values[0]
-                notes.append(f"{key}: fehlte -> {values[0]} (Summen-/Gesamtverbrauch im Text)")
+                was = "fehlte" if current is None else f"{current} nicht im Text"
+                notes.append(f"{key}: {was} -> {values[0]} (Summen-/Gesamtverbrauch im Text)")
     return out, notes
 
 

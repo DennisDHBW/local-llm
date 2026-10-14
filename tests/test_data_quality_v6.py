@@ -81,8 +81,8 @@ def test_due_label_still_preferred():
 def test_consumption_from_summary():
     out, _ = normalize_facts({}, ZEAG_TEXT)
     assert out["consumption_m3"] == 50.0
-    out, _ = normalize_facts({"consumption_m3": 12.0}, ZEAG_TEXT)
-    assert out["consumption_m3"] == 12.0                     # vorhandener Wert bleibt
+    out, _ = normalize_facts({"consumption_m3": 30.0}, ZEAG_TEXT)
+    assert out["consumption_m3"] == 30.0                     # vorhandener Wert, der im Text steht, bleibt
 
 
 def test_total_untouched_when_not_equal_to_advance():
