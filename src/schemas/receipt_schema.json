@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "receipt",
+  "title": "Kassenbon / Kassenbeleg",
+  "description": "Stufe 1 (läuft mit der bestehenden Pipeline): Kopf- und Summenfelder eines Bons. Positionen (line_items) folgen in Stufe 2, sobald extraction_schema Arrays mit 'items' unterstützt.",
+  "document_types": [
+    "kassenbon",
+    "kassenbeleg",
+    "e-bon",
+    "ebon",
+    "digitaler bon",
+    "kaufbeleg"
+  ],
+  "keywords": [
+    "bon-nr",
+    "beleg-nr",
+    "kassennummer",
+    "tse-transaktion",
+    "tse-signatur",
+    "signaturzähler",
+    "rückgeld",
+    "girocard",
+    "kartenzahlung",
+    "mwst-satz"
+  ],
+  "agent_hints": [
+    "Kassenbons weisen Bruttobeträge aus; die Mehrwertsteuer steht je Steuersatz (7 % und 19 %) getrennt. Nenne bei Steuerbeträgen immer den Satz.",
+    "Summen über mehrere Bons nie schätzen: Werte mit get_document_facts holen und mit calculate addieren.",
+    "Pfand, Pfandrückgabe und Rabatte sind eigene Beträge; sie sind im Gesamtbetrag bereits enthalten."
+  ],
+  "properties": {
+    "merchant": {
+      "type": "string",
+      "role": "entity",
+      "label": "Händler",
+      "description": "Name des Händlers bzw. Geschäfts (ohne Adresse)"
+    },
+    "store_address": {
+      "type": "string",
+      "role": "entity",
+      "label": "Filiale",
+      "description": "Anschrift der Filiale: Straße, Hausnummer, Ort"
+    },
+    "receipt_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Bon-/Belegnummer",
+      "description": "Bon- oder Belegnummer; nur die Nummer"
+    },
+    "tse_transaction_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "TSE-Transaktionsnummer",
+      "description": "Transaktionsnummer der TSE (Technische Sicherheitseinrichtung); nur die Nummer"
+    },
+    "receipt_date": {
+      "type": "string",
+      "label": "Datum",
+      "description": "Kaufdatum, wie auf dem Bon angegeben"
+    },
+    "receipt_time": {
+      "type": "string",
+      "label": "Uhrzeit",
+      "description": "Uhrzeit des Kaufs, wie auf dem Bon angegeben"
+    },
+    "total_gross_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Gesamtbetrag",
+      "description": "Zu zahlender Gesamtbetrag (Summe) in EUR"
+    },
+    "vat_7_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "MwSt. 7 %",
+      "description": "Mehrwertsteuerbetrag zum Satz 7 % in EUR"
+    },
+    "vat_19_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "MwSt. 19 %",
+      "description": "Mehrwertsteuerbetrag zum Satz 19 % in EUR"
+    },
+    "net_7_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Netto 7 %",
+      "description": "Nettobetrag zum Steuersatz 7 % in EUR"
+    },
+    "net_19_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Netto 19 %",
+      "description": "Nettobetrag zum Steuersatz 19 % in EUR"
+    },
+    "deposit_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Pfand",
+      "description": "Summe Pfand in EUR (ohne Pfandrückgabe)"
+    },
+    "discount_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Rabatt",
+      "description": "Summe aller Rabatte und Coupons in EUR (positive Zahl)"
+    },
+    "payment_method": {
+      "type": "string",
+      "label": "Zahlart",
+      "description": "Zahlart, z. B. 'Bar', 'girocard', 'Kreditkarte', 'Mobile Payment' (keine Kartennummer)"
+    },
+    "item_count": {
+      "type": "integer",
+      "label": "Anzahl Positionen",
+      "description": "Anzahl der Artikel bzw. Positionen, falls auf dem Bon angegeben"
+    }
+  }
+}

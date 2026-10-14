@@ -1,0 +1,8 @@
+.venv/
+.cache/
+data/
+.aider*
+project_content.txt
+*.xml
+*.toml
+*.db
