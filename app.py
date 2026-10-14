@@ -1,29 +1,44 @@
-import os
+import html
+import logging
 import sys
 import time
-import json
+import traceback
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Projekt-Wurzelverzeichnis zum Python-Pfad hinzufügen
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.ingestion.parser import DocumentParser
-from src.enrichment.captioner import ImageCaptioner
-from src.enrichment.summarizer import TableSummarizer
-from src.retrieval.vector_store import VectorStore
-from src.retrieval.query_rewriter import QueryRewriter
-from src.retrieval.search import search_collection
+from src.agent.chat import ChatSession
 from src.agent.react_agent import ReActAgent
 from src.agent.synthesizer import SourceSynthesizer
 from src.agent.tools import AgentTools
+from src.config import GRAPH_PATH, PROCESSED_DIR
+from src.enrichment.captioner import ImageCaptioner
+from src.enrichment.facts import FactExtractor, load_facts
+from src.enrichment.summarizer import TableSummarizer
+from src.graph.graph_store import DocumentGraph
+from src.ingestion.parser import DocumentParser
+from src.ingestion.pipeline import prune_removed_documents
+from src.retrieval.query_rewriter import QueryRewriter
+from src.retrieval.search import search_collection
+from src.retrieval.vector_store import VectorStore
+from src.utils import SOURCE_SUFFIXES, source_files
+
+try:
+    from pyvis.network import Network
+    PYVIS_AVAILABLE = True
+except ImportError:
+    Network = None
+    PYVIS_AVAILABLE = False
 
 # Streamlit Konfiguration
 st.set_page_config(
-    page_title="Local Agentic AI - Energie & Versorgungs-Auditor",
-    page_icon="⚡",
+    page_title="Local Agentic AI - Dokumenten-Analyst",
+    page_icon="📑",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -59,40 +74,83 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Klasse zur Erfassung aller print()-Ausgaben in ECHTZEIT im UI-Terminal
+# Ausführliche Prozessprotokollierung: eigene Anwendungsmeldungen erscheinen in der
+# Konsole und werden während eines laufenden Vorgangs zusätzlich ins UI gespiegelt.
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger("src").setLevel(logging.DEBUG)
+logger = logging.getLogger("streamlit.app")
+
+
+class DynamicStreamHandler(logging.Handler):
+    """Schreibt Logger-Meldungen in den aktuell aktiven stdout-Redirector."""
+
+    def emit(self, record):
+        try:
+            sys.stdout.write(self.format(record) + "\n")
+        except Exception:
+            self.handleError(record)
+
+
+_root_logger = logging.getLogger()
+for _handler in list(_root_logger.handlers):
+    # Streamlit lädt dieses Modul bei jedem Rerun neu. Eine reine
+    # isinstance-Prüfung verfehlt dann Handler der vorherigen Modulinstanz.
+    if isinstance(_handler, logging.StreamHandler) or getattr(_handler, "_local_llm_dynamic", False):
+        _root_logger.removeHandler(_handler)
+_log_handler = DynamicStreamHandler()
+_log_handler._local_llm_dynamic = True
+_log_handler.setLevel(logging.DEBUG)
+_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+_root_logger.addHandler(_log_handler)
+
+
+# Klasse zur Erfassung aller stdout-, stderr- und Logging-Ausgaben in Echtzeit im UI-Terminal
 class LogRedirector:
-    def __init__(self, log_list, log_placeholder=None):
+    def __init__(self, log_list, target_log_placeholder=None):
         self.log_list = log_list
-        self.log_placeholder = log_placeholder
+        self.log_placeholder = target_log_placeholder
         self.stdout_orig = sys.stdout
+        self.stderr_orig = sys.stderr
         self.buffer = ""
 
     def __enter__(self):
         sys.stdout = self
+        sys.stderr = self
+        logger.info("Ausgabe-Weiterleitung aktiviert (UI und Konsole).")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         sys.stdout = self.stdout_orig
+        sys.stderr = self.stderr_orig
         if self.buffer.strip():
             self.log_list.append(self.buffer)
             self.buffer = ""
+        if exc_type is not None:
+            self.log_list.append(
+                f"FEHLER: {exc_type.__name__}: {exc_val}\n{''.join(traceback.format_exception(exc_type, exc_val, exc_tb))}"
+            )
         self._render()
 
     def _render(self):
         """Aktualisiert das Streamlit-Terminal-Element in Echtzeit."""
         if self.log_placeholder is not None:
-            log_content = "\n".join(self.log_list)
+            rendered_log_content = html.escape("\n".join(self.log_list))
             self.log_placeholder.markdown(
-                f'<div class="log-container">{log_content}</div>',
+                f'<div class="log-container">{rendered_log_content}</div>',
                 unsafe_allow_html=True
             )
 
     def write(self, text):
         self.stdout_orig.write(text)
+        self.stdout_orig.flush()
         self.buffer += text
         while "\n" in self.buffer:
             line, self.buffer = self.buffer.split("\n", 1)
-            self.log_list.append(line)
+            if line.strip():
+                self.log_list.append(line)
             self._render()
 
     def flush(self):
@@ -102,10 +160,16 @@ class LogRedirector:
             self.buffer = ""
             self._render()
 
+    def isatty(self):
+        return self.stdout_orig.isatty()
+
 
 # Session State Initialisierung
 if "import_logs" not in st.session_state:
     st.session_state.import_logs = []
+
+if "chat_logs" not in st.session_state:
+    st.session_state.chat_logs = []
 
 if "import_details" not in st.session_state:
     st.session_state.import_details = None
@@ -115,6 +179,24 @@ if "messages" not in st.session_state:
 
 if "current_prototype" not in st.session_state:
     st.session_state.current_prototype = "Agentic RAG (ReAct)"
+
+
+def _get_data_dirs() -> tuple[Path, Path]:
+    """Zentrale Hilfsfunktion zur Bereitstellung der Datenverzeichnisse."""
+    raw_dir = PROJECT_ROOT / "data" / "raw"
+    processed_dir = PROJECT_ROOT / "data" / "processed"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    return raw_dir, processed_dir
+
+
+def _log_chat_event(log_placeholder, message: str, level: int = logging.INFO) -> None:
+    """Zeigt ein Chat-Ereignis im UI und schreibt es mit Zeitstempel in die Konsole."""
+    logger.log(level, message)
+    timestamped = time.strftime("%Y-%m-%d %H:%M:%S") + f" | {logging.getLevelName(level):8} | {message}"
+    st.session_state.chat_logs.append(timestamped)
+    if log_placeholder is not None:
+        log_placeholder.code("\n".join(st.session_state.chat_logs), language="text")
 
 
 # =====================================================================
@@ -129,27 +211,27 @@ def init_import_action():
         "status": "In Bearbeitung...",
         "steps": []
     }
+    logger.info("Neuer Importprozess gestartet.")
 
 
-def run_parse_step(log_placeholder=None):
+def run_parse_step(target_log_placeholder=None):
     init_import_action()
-    raw_dir = PROJECT_ROOT / "data" / "raw"
-    processed_dir = PROJECT_ROOT / "data" / "processed"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    processed_dir.mkdir(parents=True, exist_ok=True)
-    files = [f.name for f in raw_dir.glob("*.pdf")]
+    raw_dir, processed_dir = _get_data_dirs()
+    files = source_files(raw_dir)
+    logger.info("Parsing-Einzelschritt vorbereitet: %d Datei(en), Quelle=%s, Ziel=%s",
+                len(files), raw_dir, processed_dir)
 
-    with LogRedirector(st.session_state.import_logs, log_placeholder):
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
         print("=== EINZELSCHRITT: PDF LAYOUT PARSING ===")
         if not files:
-            print("Keine PDFs in data/raw/ gefunden.")
+            print("Keine Dokumente in data/raw/ gefunden.")
             st.session_state.import_details["status"] = "Abgebrochen (Keine Dateien)"
             return
 
         parser = DocumentParser(raw_dir=raw_dir, processed_dir=processed_dir)
         total = 0
-        for f in files:
-            chunks = parser.parse_pdf(f)
+        for filename_item in files:
+            chunks = parser.parse_file(filename_item)
             total += len(chunks)
 
     st.session_state.import_details["status"] = "✅ PDF Parsing abgeschlossen"
@@ -161,11 +243,11 @@ def run_parse_step(log_placeholder=None):
     })
 
 
-def run_caption_step(log_placeholder=None):
+def run_caption_step(target_log_placeholder=None):
     init_import_action()
-    processed_dir = PROJECT_ROOT / "data" / "processed"
+    _, processed_dir = _get_data_dirs()
 
-    with LogRedirector(st.session_state.import_logs, log_placeholder):
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
         print("=== EINZELSCHRITT: MULTIMODALE BILD-ANREICHERUNG ===")
         captioner = ImageCaptioner(processed_dir=processed_dir)
         captioner.process_all_jsons()
@@ -179,11 +261,11 @@ def run_caption_step(log_placeholder=None):
     })
 
 
-def run_summary_step(log_placeholder=None):
+def run_summary_step(target_log_placeholder=None):
     init_import_action()
-    processed_dir = PROJECT_ROOT / "data" / "processed"
+    _, processed_dir = _get_data_dirs()
 
-    with LogRedirector(st.session_state.import_logs, log_placeholder):
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
         print("=== EINZELSCHRITT: TABELLEN-ZUSAMMENFASSUNG ===")
         summarizer = TableSummarizer(processed_dir=processed_dir)
         summarizer.process_all_jsons()
@@ -197,11 +279,29 @@ def run_summary_step(log_placeholder=None):
     })
 
 
-def run_vectorstore_step(rebuild_db: bool = False, log_placeholder=None):
+def run_facts_step(target_log_placeholder=None):
     init_import_action()
-    processed_dir = PROJECT_ROOT / "data" / "processed"
+    _, processed_dir = _get_data_dirs()
 
-    with LogRedirector(st.session_state.import_logs, log_placeholder):
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
+        print("=== EINZELSCHRITT: STRUKTURIERTE FAKTEN-EXTRAKTION ===")
+        extractor = FactExtractor(processed_dir=processed_dir)
+        extractor.process_all()
+
+    st.session_state.import_details["status"] = "✅ Fakten-Extraktion abgeschlossen"
+    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.import_details["steps"].append({
+        "step": "4. Fakten-Extraktion",
+        "status": "✅ Erfolgreich",
+        "info": "Strukturierte Kerndaten (_facts.json) extrahiert und verifiziert."
+    })
+
+
+def run_vectorstore_step(rebuild_db: bool = False, target_log_placeholder=None):
+    init_import_action()
+    _, processed_dir = _get_data_dirs()
+
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
         print("=== EINZELSCHRITT: VEKTORSTORE INDIZIERUNG ===")
         vector_store = VectorStore(processed_dir=processed_dir)
         vector_store.index_documents(rebuild=rebuild_db)
@@ -209,45 +309,66 @@ def run_vectorstore_step(rebuild_db: bool = False, log_placeholder=None):
     st.session_state.import_details["status"] = "✅ Vektorstore-Indizierung abgeschlossen"
     st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
     st.session_state.import_details["steps"].append({
-        "step": "4. Vektorstore Indizierung",
+        "step": "5. Vektorstore Indizierung",
         "status": "✅ Erfolgreich",
         "info": "Chunks & Metadaten in ChromaDB indiziert."
     })
 
 
-def run_import_chain(rebuild_db: bool = False, log_placeholder=None, progress_bar=None):
+def run_graph_step(target_log_placeholder=None):
+    init_import_action()
+    _, processed_dir = _get_data_dirs()
+
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
+        print("=== EINZELSCHRITT: GRAPHRAG DOKUMENTGRAPH ===")
+        DocumentGraph.build_and_save(processed_dir=processed_dir)
+
+    st.session_state.import_details["status"] = "✅ GraphRAG Dokumentgraph aufgebaut"
+    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.import_details["steps"].append({
+        "step": "6. GraphRAG Dokumentgraph",
+        "status": "✅ Erfolgreich",
+        "info": "Dokumentgraph mit Entitäten & Zeitreihen aufgebaut."
+    })
+
+
+def run_import_chain(rebuild_db: bool = False, target_log_placeholder=None, progress_bar=None,
+                     prune_removed: bool = False):
     """Führt die gesamte Import-Pipeline nacheinander aus und zeichnet Terminal-Logs in Echtzeit auf."""
     init_import_action()
 
-    raw_dir = PROJECT_ROOT / "data" / "raw"
-    processed_dir = PROJECT_ROOT / "data" / "processed"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    processed_dir.mkdir(parents=True, exist_ok=True)
-
-    files_to_process = [f.name for f in raw_dir.glob("*.pdf")]
+    raw_dir, processed_dir = _get_data_dirs()
+    files_to_process = source_files(raw_dir)
+    logger.info("Importkette vorbereitet: rebuild_db=%s, Dateien=%s", rebuild_db, files_to_process)
 
     if not files_to_process:
-        st.session_state.import_logs.append("Keine PDF-Dateien im Ordner data/raw/ gefunden.")
+        st.session_state.import_logs.append("Keine Dokumente im Ordner data/raw/ gefunden.")
         st.session_state.import_details["status"] = "Abgebrochen (Keine Dateien)"
-        if log_placeholder:
-            log_placeholder.markdown('<div class="log-container">Keine PDF-Dateien im Ordner data/raw/ gefunden.</div>',
+        if target_log_placeholder:
+            target_log_placeholder.markdown('<div class="log-container">Keine Dokumente im Ordner data/raw/ gefunden.</div>',
                                      unsafe_allow_html=True)
         return
 
-    with LogRedirector(st.session_state.import_logs, log_placeholder):
+    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
         try:
             print("==================================================")
-            print(f"START IMPORTKETTE: {len(files_to_process)} PDF(s) zu verarbeiten")
+            print(f"START IMPORTKETTE: {len(files_to_process)} Dokument(e) zu verarbeiten")
             print("==================================================")
+
+            if prune_removed:
+                removed = prune_removed_documents(
+                    raw_dir, processed_dir, VectorStore(processed_dir=processed_dir).collection
+                )
+                print(f"Entfernte Dokumente bereinigt: {', '.join(removed) if removed else 'keine'}")
 
             # Schritt 1: PDF Parsing
             if progress_bar:
-                progress_bar.progress(15, text="1/4: Parsing PDFs...")
-            print("\n--- SCHRITT 1/4: PDF Layout Parsing ---")
+                progress_bar.progress(15, text="1/6: Parsing PDFs...")
+            print("\n--- SCHRITT 1/6: PDF Layout Parsing ---")
             parser = DocumentParser(raw_dir=raw_dir, processed_dir=processed_dir)
             total_chunks = 0
             for fname in files_to_process:
-                chunks = parser.parse_pdf(fname)
+                chunks = parser.parse_file(fname)
                 total_chunks += len(chunks)
 
             st.session_state.import_details["steps"].append({
@@ -258,8 +379,8 @@ def run_import_chain(rebuild_db: bool = False, log_placeholder=None, progress_ba
 
             # Schritt 2: Bild-Anreicherung
             if progress_bar:
-                progress_bar.progress(40, text="2/4: Bildbeschreibungen...")
-            print("\n--- SCHRITT 2/4: Multimodale Bild-Anreicherung ---")
+                progress_bar.progress(30, text="2/6: Bildbeschreibungen...")
+            print("\n--- SCHRITT 2/6: Multimodale Bild-Anreicherung ---")
             captioner = ImageCaptioner(processed_dir=processed_dir)
             captioner.process_all_jsons()
 
@@ -271,8 +392,8 @@ def run_import_chain(rebuild_db: bool = False, log_placeholder=None, progress_ba
 
             # Schritt 3: Tabellen-Zusammenfassung
             if progress_bar:
-                progress_bar.progress(65, text="3/4: Tabellen-Zusammenfassung...")
-            print("\n--- SCHRITT 3/4: Tabellen-Zusammenfassung ---")
+                progress_bar.progress(45, text="3/6: Tabellen-Zusammenfassung...")
+            print("\n--- SCHRITT 3/6: Tabellen-Zusammenfassung ---")
             summarizer = TableSummarizer(processed_dir=processed_dir)
             summarizer.process_all_jsons()
 
@@ -282,17 +403,42 @@ def run_import_chain(rebuild_db: bool = False, log_placeholder=None, progress_ba
                 "info": "Komplexe Abrechnungstabellen zusammengefasst."
             })
 
-            # Schritt 4: Vektorstore Indizierung
+            # Schritt 4: Fakten-Extraktion
             if progress_bar:
-                progress_bar.progress(90, text="4/4: Vektorstore Indizierung...")
-            print("\n--- SCHRITT 4/4: ChromaDB Vektorstore Indizierung ---")
+                progress_bar.progress(60, text="4/6: Fakten-Extraktion...")
+            print("\n--- SCHRITT 4/6: Strukturierte Fakten-Extraktion ---")
+            extractor = FactExtractor(processed_dir=processed_dir)
+            extractor.process_all()
+
+            st.session_state.import_details["steps"].append({
+                "step": "4. Fakten-Extraktion",
+                "status": "✅ Erfolgreich",
+                "info": "Strukturierte Kerndaten (_facts.json) extrahiert."
+            })
+
+            # Schritt 5: Vektorstore Indizierung
+            if progress_bar:
+                progress_bar.progress(80, text="5/6: Vektorstore Indizierung...")
+            print("\n--- SCHRITT 5/6: ChromaDB Vektorstore Indizierung ---")
             vector_store = VectorStore(processed_dir=processed_dir)
             vector_store.index_documents(rebuild=rebuild_db)
 
             st.session_state.import_details["steps"].append({
-                "step": "4. Vektorstore Indizierung",
+                "step": "5. Vektorstore Indizierung",
                 "status": "✅ Erfolgreich",
                 "info": "Chunks & Metadaten in ChromaDB gespeichert."
+            })
+
+            # Schritt 6: GraphRAG Dokumentgraph
+            if progress_bar:
+                progress_bar.progress(95, text="6/6: GraphRAG Dokumentgraph...")
+            print("\n--- SCHRITT 6/6: GraphRAG Dokumentgraph aufbauen ---")
+            DocumentGraph.build_and_save(processed_dir=processed_dir)
+
+            st.session_state.import_details["steps"].append({
+                "step": "6. GraphRAG Dokumentgraph",
+                "status": "✅ Erfolgreich",
+                "info": "Entitäts- & Zeitreihen-Graph aufgebaut."
             })
 
             if progress_bar:
@@ -306,8 +452,71 @@ def run_import_chain(rebuild_db: bool = False, log_placeholder=None, progress_ba
 
         except Exception as exc:
             print(f"\n❌ FEHLER im Importprozess: {exc}")
+            logger.exception("Importprozess fehlgeschlagen.")
             st.session_state.import_details["status"] = f"❌ Fehlgeschlagen: {exc}"
             st.sidebar.error(f"Fehler beim Import: {exc}")
+
+
+def render_graph_vis(doc_graph: DocumentGraph, filter_type: str) -> None:
+    color_map = {
+        "Document": "#2B5C8F",
+        "Provider": "#E06D53",
+        "Customer": "#2A9D8F",
+        "Account": "#E9C46A",
+        "Invoice": "#F4A261",
+        "Meter": "#9B5DE5",
+        "Tariff": "#00F5D4",
+        "EnergyType": "#00BBF9",
+        "NoticePeriod": "#F15BB5",
+        "PriceGuarantee": "#FEE440",
+    }
+
+    if PYVIS_AVAILABLE and Network is not None:
+        net = Network(height="550px", width="100%", bgcolor="#ffffff", font_color="#333333", directed=True)
+        net.barnes_hut(gravity=-3000, central_gravity=0.3, spring_length=140)
+
+        G = doc_graph.graph
+        added_nodes = set()
+
+        for node_id, data in G.nodes(data=True):
+            ntype = data.get("type", "Unknown")
+            if filter_type != "Alle" and ntype != filter_type and ntype != "Document":
+                continue
+
+            label = data.get("label", node_id)
+            color = color_map.get(ntype, "#6c757d")
+            shape = "ellipse" if ntype == "Document" else "box"
+            title = f"Typ: {ntype}<br>Label: {label}"
+
+            net.add_node(node_id, label=label, title=title, color=color, shape=shape)
+            added_nodes.add(node_id)
+
+        for u, v, k, data in G.edges(keys=True, data=True):
+            if u in added_nodes and v in added_nodes:
+                rel = data.get("relation", "")
+                net.add_edge(u, v, title=rel, label=rel, color="#aaaaaa")
+
+        html_code = net.generate_html()
+        components.html(html_code, height=570, scrolling=False)
+    else:
+        G = doc_graph.graph
+        dot_lines = ["digraph G {", "  rankdir=LR;", '  node [fontname="sans-serif", fontsize=10];']
+        for node_id, data in G.nodes(data=True):
+            ntype = data.get("type", "Unknown")
+            if filter_type != "Alle" and ntype != filter_type and ntype != "Document":
+                continue
+            label = str(data.get("label", node_id)).replace('"', '\\"')
+            color = color_map.get(ntype, "#6c757d")
+            dot_lines.append(f'  "{node_id}" [label="{label}\\n({ntype})", style=filled, fillcolor="{color}", fontcolor=white];')
+
+        for u, v, data in G.edges(data=True):
+            if u in G.nodes and v in G.nodes:
+                if filter_type == "Alle" or G.nodes[u].get("type") == filter_type or G.nodes[v].get("type") == filter_type:
+                    rel = data.get("relation", "")
+                    dot_lines.append(f'  "{u}" -> "{v}" [label="{rel}"];')
+
+        dot_lines.append("}")
+        st.graphviz_chart("\n".join(dot_lines))
 
 
 # =====================================================================
@@ -328,21 +537,25 @@ with st.sidebar:
     # PDF Upload
     st.subheader("📥 Dokumente importieren")
     uploaded_files = st.file_uploader(
-        "PDF-Dateien hochladen",
-        type=["pdf"],
+        "Dokumente hochladen (PDF, Bild, Text)",
+        type=[suffix.lstrip(".") for suffix in SOURCE_SUFFIXES],
         accept_multiple_files=True
     )
 
     if uploaded_files:
-        raw_dir = PROJECT_ROOT / "data" / "raw"
-        raw_dir.mkdir(parents=True, exist_ok=True)
+        upload_raw_dir = PROJECT_ROOT / "data" / "raw"
+        upload_raw_dir.mkdir(parents=True, exist_ok=True)
         for ufile in uploaded_files:
-            save_path = raw_dir / ufile.name
-            with open(save_path, "wb") as f:
-                f.write(ufile.getbuffer())
+            save_path = upload_raw_dir / ufile.name
+            with open(save_path, "wb") as pdf_out_file:
+                pdf_out_file.write(ufile.getbuffer())
         st.success(f"{len(uploaded_files)} Datei(en) in data/raw/ gespeichert.")
 
     rebuild_option = st.checkbox("Vektordatenbank komplett neu aufbauen", value=False)
+    prune_option = st.checkbox(
+        "Gelöschte Dokumente aus dem Bestand entfernen", value=False,
+        help="Entfernt Chunks, Fakten und Vektoren von Dokumenten, deren Datei nicht mehr in data/raw/ liegt.",
+    )
 
     btn_chain = st.button("🚀 Import-Kette starten", use_container_width=True)
 
@@ -352,15 +565,17 @@ with st.sidebar:
         with col_s1:
             btn_s1 = st.button("📄 1. PDFs parsen", use_container_width=True)
             btn_s3 = st.button("📊 3. Tabellen summarisieren", use_container_width=True)
+            btn_s5 = st.button("🗄️ 5. Vektorstore indizieren", use_container_width=True)
         with col_s2:
             btn_s2 = st.button("🖼️ 2. Bilder beschreiben", use_container_width=True)
-            btn_s4 = st.button("🗄️ 4. Vektorstore indizieren", use_container_width=True)
+            btn_s4 = st.button("📋 4. Fakten extrahieren", use_container_width=True)
+            btn_s6 = st.button("🕸️ 6. GraphRAG aufbauen", use_container_width=True)
 
     # TERMINAL & IMPORT-DETAILS (DIREKT UNTER DEN BUTTONS)
     terminal_expander = st.expander(
         "🔍 Import-Prozess Details & Terminal-Log",
         expanded=True if (
-                    btn_chain or btn_s1 or btn_s2 or btn_s3 or btn_s4 or st.session_state.import_details) else False
+                    btn_chain or btn_s1 or btn_s2 or btn_s3 or btn_s4 or btn_s5 or btn_s6 or st.session_state.import_details) else False
     )
 
     with terminal_expander:
@@ -370,8 +585,8 @@ with st.sidebar:
 
         # Initiale Anzeige vorhandener Logs (falls Seite neu gerendert wird)
         if st.session_state.import_logs:
-            log_content = "\n".join(st.session_state.import_logs)
-            log_placeholder.markdown(f'<div class="log-container">{log_content}</div>', unsafe_allow_html=True)
+            initial_log_content = "\n".join(st.session_state.import_logs)
+            log_placeholder.markdown(f'<div class="log-container">{initial_log_content}</div>', unsafe_allow_html=True)
         else:
             log_placeholder.info(
                 "💡 Noch kein Importprozess durchgeführt. Klicken Sie auf 'Import-Kette starten' oder einen Einzelschritt, um Details anzuzeigen.")
@@ -379,19 +594,26 @@ with st.sidebar:
     # AKTIONEN AUSFÜHREN (mit Live-Streaming in log_placeholder)
     if btn_chain:
         pbar = st.sidebar.progress(0, text="Starte Importkette...")
-        run_import_chain(rebuild_db=rebuild_option, log_placeholder=log_placeholder, progress_bar=pbar)
+        run_import_chain(rebuild_db=rebuild_option, target_log_placeholder=log_placeholder, progress_bar=pbar,
+                         prune_removed=prune_option)
 
     if btn_s1:
-        run_parse_step(log_placeholder=log_placeholder)
+        run_parse_step(target_log_placeholder=log_placeholder)
 
     if btn_s2:
-        run_caption_step(log_placeholder=log_placeholder)
+        run_caption_step(target_log_placeholder=log_placeholder)
 
     if btn_s3:
-        run_summary_step(log_placeholder=log_placeholder)
+        run_summary_step(target_log_placeholder=log_placeholder)
 
     if btn_s4:
-        run_vectorstore_step(rebuild_db=rebuild_option, log_placeholder=log_placeholder)
+        run_facts_step(target_log_placeholder=log_placeholder)
+
+    if btn_s5:
+        run_vectorstore_step(rebuild_db=rebuild_option, target_log_placeholder=log_placeholder)
+
+    if btn_s6:
+        run_graph_step(target_log_placeholder=log_placeholder)
 
     # Status-Update nach Ausführung rendern
     if st.session_state.import_details:
@@ -417,28 +639,38 @@ with st.sidebar:
             inventory = tools.get_document_inventory()
             st.code(inventory, language="text")
         except Exception as err:
+            logger.exception("Dokumenten-Inventar konnte nicht geladen werden.")
             st.error(f"Fehler beim Laden des Inventars: {err}")
 
 # =====================================================================
 # HAUPTBEREICH
 # =====================================================================
-st.markdown('<div class="main-title">⚡ Local Agentic AI - Energie & Versorgungs-Auditor</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">📑 Local Agentic AI - Dokumenten-Analyst</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="sub-title">Aktive Architektur: <b>{st.session_state.current_prototype}</b></div>',
             unsafe_allow_html=True)
 
-tab_chat, tab_docs = st.tabs(["💬 Chat & Analyse", "📚 Indizierte Dokumente"])
+tab_chat, tab_docs, tab_graph = st.tabs(["💬 Chat & Analyse", "📚 Indizierte Dokumente & Fakten", "🕸️ GraphRAG Explorer"])
 
 # ---------------------------------------------------------------------
 # TAB 1: CHAT & ANALYSE
 # ---------------------------------------------------------------------
 with tab_chat:
+    # Der Agent lebt pro Browser-Sitzung: so kennt der Chat frühere Fragen ("Und brutto?").
+    if "chat" not in st.session_state:
+        st.session_state.chat = ChatSession(ReActAgent())
+    if st.button("🧹 Neuer Chat", help="Verlauf und Gedächtnis des Chats leeren"):
+        st.session_state.chat.reset()
+        st.session_state.messages = []
+        st.session_state.chat_logs = []
+
     # Chatverlauf anzeigen
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     # Chat Eingabe
-    if user_query := st.chat_input("Ihre Frage zu Energieabrechnungen, Preisen oder Verträgen..."):
+    if user_query := st.chat_input("Ihre Frage zu den Dokumenten (Beträge, Fristen, Verträge, Zusammenhänge)..."):
+        st.session_state.chat_logs = []
         st.session_state.messages.append({"role": "user", "content": user_query})
         with st.chat_message("user"):
             st.markdown(user_query)
@@ -449,12 +681,21 @@ with tab_chat:
                 st.markdown("🤖 **ReAct Agent verarbeitet Anfrage...**")
 
                 status_container = st.container()
-                agent = ReActAgent()
-
+                st.markdown("#### 🔎 Detailliertes Prozessprotokoll")
+                chat_log_placeholder = st.empty()
+                chat = st.session_state.chat
+                agent = chat.agent
+                _log_chat_event(chat_log_placeholder, f"Neue Anfrage: {user_query!r}")
+                _log_chat_event(chat_log_placeholder, f"Agent-Modell: {agent.model_name}")
 
                 def react_callback(step_info: dict):
                     step_type = step_info.get("type")
                     iteration = step_info.get("iteration", 1)
+                    _log_chat_event(
+                        chat_log_placeholder,
+                        f"Callback-Ereignis: type={step_type!r}, iteration={iteration}, "
+                        f"payload={step_info!r}",
+                    )
 
                     with status_container:
                         if step_type == "action_execution":
@@ -470,14 +711,29 @@ with tab_chat:
                             obs = step_info.get("observation", "")
                             with st.expander(f"📥 Observation (Iteration {iteration})", expanded=False):
                                 st.code(obs, language="text")
-
+                        elif step_type == "thinking_start":
+                            st.info(f"Iteration {iteration}: Modell wird ausgeführt …")
+                        elif step_type == "question_rewritten":
+                            st.info(
+                                f"Frage umformuliert: `{step_info.get('original')}` → "
+                                f"`{step_info.get('standalone')}`"
+                            )
+                        elif step_type == "final_answer":
+                            st.success(f"Finale Antwort nach Iteration {iteration} erstellt.")
 
                 try:
-                    final_response = agent.run(user_query, callback=react_callback)
+                    final_response = chat.ask(user_query, callback=react_callback)
+                    _log_chat_event(
+                        chat_log_placeholder,
+                        f"Agent abgeschlossen: Antwortlänge={len(final_response)} Zeichen, "
+                        f"Evidenz={len(agent.last_evidence)} Einträge.",
+                    )
                     st.markdown("### 🎯 Finale Antwort:")
                     st.markdown(final_response)
                     st.session_state.messages.append({"role": "assistant", "content": final_response})
                 except Exception as err:
+                    logger.exception("Agenten-Ausführung fehlgeschlagen.")
+                    _log_chat_event(chat_log_placeholder, f"FEHLER: {type(err).__name__}: {err}", logging.ERROR)
                     err_text = f"Fehler bei der Agenten-Ausführung: {err}"
                     st.error(err_text)
                     st.session_state.messages.append({"role": "assistant", "content": err_text})
@@ -485,6 +741,7 @@ with tab_chat:
             # PROTOTYP 1: MODULARE PIPELINE (EVIDENCE-FIRST)
             else:
                 st.markdown("🔍 **Modulare Pipeline sucht Evidenz...**")
+                _log_chat_event(None, f"Modulare Pipeline gestartet: Anfrage={user_query!r}")
                 try:
                     rewriter = QueryRewriter()
                     opt_query = rewriter.rewrite(user_query)
@@ -523,28 +780,29 @@ with tab_chat:
                         st.session_state.messages.append({"role": "assistant", "content": synthesized_ans})
 
                 except Exception as err:
+                    logger.exception("Modulare Pipeline fehlgeschlagen.")
                     err_text = f"Fehler in der Modularen Pipeline: {err}"
                     st.error(err_text)
                     st.session_state.messages.append({"role": "assistant", "content": err_text})
 
 # ---------------------------------------------------------------------
-# TAB 2: INDIZIERTE DOKUMENTE & DATEIEN
+# TAB 2: INDIZIERTE DOKUMENTE & FAKTEN
 # ---------------------------------------------------------------------
 with tab_docs:
-    st.subheader("📁 Verwaltete Dokumente in `data/raw/` und `data/processed/`")
+    st.subheader("📁 Verwaltete Dokumente & Extrahierte Fakten")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("#### 📄 Raw PDFs (`data/raw/`)")
+        st.markdown("#### 📄 Quelldokumente (`data/raw/`)")
         raw_path = PROJECT_ROOT / "data" / "raw"
         if raw_path.exists():
-            pdfs = list(raw_path.glob("*.pdf"))
-            if pdfs:
-                for pdf in pdfs:
-                    st.markdown(f"- 📄 `{pdf.name}` ({pdf.stat().st_size / 1024:.1f} KB)")
+            raw_names = source_files(raw_path)
+            if raw_names:
+                for raw_name in raw_names:
+                    st.markdown(f"- 📄 `{raw_name}` ({(raw_path / raw_name).stat().st_size / 1024:.1f} KB)")
             else:
-                st.info("Keine PDFs vorhanden.")
+                st.info("Keine Dokumente vorhanden.")
         else:
             st.info("Ordner data/raw/ existiert noch nicht.")
 
@@ -560,3 +818,68 @@ with tab_docs:
                 st.info("Keine geparsten Chunks vorhanden.")
         else:
             st.info("Ordner data/processed/ existiert noch nicht.")
+
+    st.markdown("---")
+    st.subheader("📊 Dokumentenvergleich & Kerndaten")
+
+    col_facts1, col_facts2 = st.columns([1, 1])
+
+    with col_facts1:
+        st.markdown("#### Verifizierte Kerndaten (`_facts.json`)")
+        facts_data = load_facts(PROCESSED_DIR)
+        if facts_data:
+            selected_fact_doc = st.selectbox("Fakten anzeigen für Datei:", sorted(facts_data.keys()))
+            if selected_fact_doc:
+                st.json(facts_data[selected_fact_doc].get("facts", {}))
+        else:
+            st.info("Keine Fakten-Dateien gefunden.")
+
+    with col_facts2:
+        st.markdown("#### Kennzahlen-Vergleich")
+        tools = AgentTools()
+        available_files = tools.known_filenames()
+        selected_files = st.multiselect("Dokumente zum Vergleichen auswählen:", available_files, default=available_files[:2] if len(available_files) >= 2 else available_files)
+
+        if st.button("Kennzahlen vergleichen"):
+            if selected_files:
+                comp_result = tools.compare_documents(filenames=",".join(selected_files))
+                st.markdown(comp_result.text)
+            else:
+                st.warning("Bitte mindestens ein Dokument auswählen.")
+
+# ---------------------------------------------------------------------
+# TAB 3: GRAPHRAG EXPLORER
+# ---------------------------------------------------------------------
+with tab_graph:
+    st.markdown("### 🕸️ GraphRAG: Dokument- & Entitäts-Netzwerk")
+
+    doc_graph = DocumentGraph.load_or_build(GRAPH_PATH, PROCESSED_DIR)
+    st.caption(doc_graph.stats())
+
+    st.markdown("#### Interaktive Graph-Visualisierung")
+    entity_types = sorted(
+        {data.get("type", "") for _, data in doc_graph.graph.nodes(data=True)} - {"Document", ""}
+    )
+    filter_type = st.selectbox("Nach Entitätstyp filtern:", ["Alle", *entity_types])
+
+    render_graph_vis(doc_graph, filter_type)
+
+    st.markdown("---")
+    st.markdown("#### GraphRAG Abfragen & Pfadfinder")
+
+    col_g1, col_g2 = st.columns([1, 1])
+
+    with col_g1:
+        st.subheader("Chronologische Timeline")
+        timeline_query = st.text_input("Vertrag, Kennung, Absender oder Datei für Timeline:", value="")
+        if st.button("Timeline generieren"):
+            timeline_res = doc_graph.get_timeline(timeline_query)
+            st.code(timeline_res, language="markdown")
+
+    with col_g2:
+        st.subheader("Multi-Hop Pfadfinder")
+        p_src = st.text_input("Quell-Entität / Dateiname:", value="")
+        p_tgt = st.text_input("Ziel-Entität / Dateiname:", value="")
+        if st.button("Pfade suchen"):
+            paths_res = doc_graph.find_paths(p_src, p_tgt)
+            st.code(paths_res, language="markdown")

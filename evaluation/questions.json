@@ -1,0 +1,53 @@
+[
+  {
+    "id": "inventory_count",
+    "question": "Wie viele Dokumente sind indiziert?",
+    "expected_substrings": ["6"],
+    "expected_sources": []
+  },
+  {
+    "_todo": true,
+    "id": "TODO_zeag_arbeitspreis",
+    "_hint": "Ersetze die TODO-Werte durch echte Antworten aus deinem PDF und entferne dann '_todo'. Mehrere akzeptierte Schreibweisen mit '|' trennen.",
+    "question": "Wie hoch ist der Arbeitspreis in der ZEAG-Rechnung?",
+    "expected_substrings": ["TODO: z.B. 28,45|28.45"],
+    "expected_sources": [{"filename": "ZEAG_25.pdf", "page": 1}],
+    "evidence_substrings": ["TODO: z.B. 28,45"]
+  },
+  {
+    "_todo": true,
+    "id": "TODO_montana_kuendigung",
+    "question": "Welche Kündigungsfrist gilt laut Montana-Vertragsinformation?",
+    "expected_substrings": ["TODO"],
+    "expected_sources": [{"filename": "Montana_Vertragsinformation_25.pdf"}],
+    "evidence_substrings": ["Kündigung"]
+  },
+  {
+    "_todo": true,
+    "id": "TODO_berlin_verbrauch",
+    "question": "Wie hoch war der Verbrauch im Abrechnungszeitraum der Berlin1-Rechnung?",
+    "expected_substrings": ["TODO"],
+    "expected_sources": [{"filename": "Berlin1_25.pdf"}]
+  },
+  {
+    "_todo": true,
+    "id": "TODO_simply_abschlag",
+    "question": "Wie hoch ist der monatliche Abschlag bei Simply?",
+    "expected_substrings": ["TODO"],
+    "expected_sources": [{"filename": "Simply_25.pdf"}]
+  },
+  {
+    "_todo": true,
+    "id": "TODO_compare_berlin",
+    "question": "Welche Unterschiede gibt es zwischen Berlin1_25 und Berlin2_25?",
+    "expected_substrings": ["TODO"],
+    "expected_sources": [{"filename": "Berlin1_25.pdf"}, {"filename": "Berlin2_25.pdf"}]
+  },
+  {
+    "_todo": true,
+    "id": "TODO_calc_total",
+    "question": "Wie hoch sind die jährlichen Gesamtkosten aus Grundpreis und Arbeitspreis bei ZEAG?",
+    "expected_substrings": ["TODO"],
+    "expected_sources": [{"filename": "ZEAG_25.pdf"}]
+  }
+]
