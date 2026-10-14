@@ -57,5 +57,12 @@
       "label": "Fällig am",
       "description": "Fälligkeitsdatum, wie im Dokument angegeben"
     }
-  }
+  },
+  "checks": [
+    {
+      "rule": "net_amount_eur + vat_eur == gross_amount_eur",
+      "tolerance": 0.02,
+      "label": "Nettobetrag + MwSt. = Bruttobetrag"
+    }
+  ]
 }

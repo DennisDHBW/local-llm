@@ -11,7 +11,11 @@ Aufbau einer Schema-Datei:
     keywords        weitere Hinweise, die nur im Text gesucht werden (optional)
     agent_hints     fachliche Regeln für den Agenten (optional). Sie werden dem Systemprompt nur dann
                     angehängt, wenn Dokumente dieses Schemas im Bestand sind.
-    properties      Felder; je Feld ``type``, ``description`` und optional
+    checks          Prüfregeln (optional), z. B. {"rule": "net_amount_eur + vat_eur == gross_amount_eur",
+                    "tolerance": 0.02}. Erlaubt: Feldnamen, Zahlen, + - *; "missing_as_zero": true wertet fehlende
+                    Felder als 0; "severity": "error" (Standard, setzt needs_review) oder "hint".
+    properties      Felder; je Feld ``type``, ``description`` und optional ``anchors`` (Wörter, die an der
+                    Fundstelle neben dem Wert stehen müssen, sonst gilt er als unsicher),
                     ``label`` (Anzeigename), ``unit`` (Einheit) und ``role``:
                       "identifier"  Nummer, die Dokumente verknüpft (wird im Quelltext verifiziert,
                                     Knoten im Dokumentgraphen, Grundlage der Zeitreihe)
@@ -62,6 +66,8 @@ class SchemaSpec:
     entities: frozenset[str] = frozenset()
     labels: dict[str, str] = field(default_factory=dict)
     units: dict[str, str] = field(default_factory=dict)
+    anchors: dict[str, tuple[str, ...]] = field(default_factory=dict)   # Feld -> Wörter, die neben dem Wert stehen
+    checks: tuple[dict[str, Any], ...] = ()                             # Prüfregeln, z. B. "a + b == c"
 
 
 def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -83,6 +89,13 @@ def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
             )
         if role is not None and definition["type"] != "string":
             raise SchemaConfigurationError(f"{path}: Feld {name!r} mit Rolle {role!r} muss vom Typ 'string' sein")
+    for name, definition in properties.items():
+        anchors = definition.get("anchors", [])
+        if not isinstance(anchors, list) or not all(isinstance(a, str) for a in anchors):
+            raise SchemaConfigurationError(f"{path}: 'anchors' von Feld {name!r} muss eine Liste von Strings sein")
+    checks = data.get("checks", [])
+    if not isinstance(checks, list) or not all(isinstance(c, dict) and isinstance(c.get("rule"), str) for c in checks):
+        raise SchemaConfigurationError(f"{path}: 'checks' muss eine Liste von Objekten mit 'rule' sein")
     for key in ("document_types", "keywords", "agent_hints"):
         terms = data.get(key, [])
         if not isinstance(terms, list) or not all(isinstance(item, str) for item in terms):
@@ -170,6 +183,8 @@ def schema_spec(schema: dict[str, Any]) -> SchemaSpec:
         entities=frozenset(n for n, d in properties.items() if d.get("role") == "entity"),
         labels={n: str(d.get("label") or d.get("description") or n) for n, d in properties.items()},
         units={n: str(d["unit"]) for n, d in properties.items() if d.get("unit")},
+        anchors={n: tuple(d["anchors"]) for n, d in properties.items() if d.get("anchors")},
+        checks=tuple(dict(c) for c in schema.get("checks", [])),
     )
 
 
@@ -213,3 +228,4 @@ def agent_hints(schema_ids: Any, schema_dir: Path = SCHEMAS_DIR) -> list[str]:
         if schema_id in wanted:
             hints.extend(h for h in schema.get("agent_hints", []) if h not in hints)
     return hints
+

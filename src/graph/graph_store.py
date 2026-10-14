@@ -95,7 +95,7 @@ _DATE_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})")
 
 # --- GraphRAG v2 -----------------------------------------------------------------------------------------
 # Version des gespeicherten Graphformats. Ältere Dateien (ohne Fundstellen) werden einmalig neu aufgebaut.
-GRAPH_FORMAT_VERSION = 2
+GRAPH_FORMAT_VERSION = 3   # 3: Schreibvarianten von Namen werden zusammengeführt (match_key, aliases)
 # Grundgewicht je Knotentyp: Kennungen verknüpfen stark, Namen mittel, Attribut-ähnliche Werte kaum.
 # Unbekannte Schema-Typen: Kennung (is_id) 1.0, benannte Entität 0.6.
 TYPE_WEIGHTS = {
@@ -134,6 +134,26 @@ _NAME_NOISE = {
     "gmbh", "mbh", "ag", "kg", "co", "se", "ohg", "ug", "ev", "e.v.", "und", "der", "die", "das", "für",
     "haftungsbeschränkt", "kgaa", "gbr", "inc", "ltd", "herr", "herrn", "frau", "familie",
 }
+
+
+# Benannte Entitäten, deren Schreibvarianten zu einem Knoten zusammengeführt werden
+# ("MONTANA Energieversorgung" = "MONTANA Energieversorgung GmbH & Co. KG"). Kennungen nicht: dort zählt jede Ziffer.
+MERGE_NAME_TYPES = {"Provider", "Tariff"}
+_LEGAL_FORMS = {
+    "gmbh", "mbh", "ag", "kg", "co", "se", "ohg", "ug", "ev", "kgaa", "gbr", "inc", "ltd", "llc", "haftungsbeschränkt",
+    "e", "v", "eg", "partg", "cokg",
+}
+# Großes I statt kleinem l nach einem Großbuchstaben am Wortanfang ("EIektrizität" -> "Elektrizität"):
+# typische Verwechslung in PDF-Schriften und OCR.
+_CONFUSABLE_I_RE = re.compile(r"\b([A-ZÄÖÜ])I(?=[a-zäöüß])")
+
+
+def canonical_name(value: Any) -> str:
+    """Vergleichsform eines Namens: I/l-Verwechslung korrigiert, ohne Rechtsform, Satzzeichen und Groß/klein."""
+    text = _CONFUSABLE_I_RE.sub(r"\1l", str(value or ""))
+    words = re.findall(r"[^\W_]+", text.casefold())
+    kept = [w for w in words if w not in _LEGAL_FORMS]
+    return " ".join(kept or words)
 
 
 def _is_empty(value: Any) -> bool:
@@ -303,6 +323,31 @@ class DocumentGraph:
 
         timeline_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         known_mapped_fields = {f[0] for f in FIELD_MAP}
+        # (Knotentyp, Vergleichsform) -> Knoten-ID des ersten Vorkommens. Die ID bleibt die bisherige; weitere
+        # Schreibweisen landen in `aliases` und zeigen auf denselben Knoten.
+        merged_names: dict[tuple[str, str], str] = {}
+
+        def name_node(node_type: str, value: Any, is_id: bool = False, extra: Optional[dict] = None) -> str:
+            label = str(value).strip()
+            entity_id = _node_id(node_type, label, is_id)
+            if is_id or entity_id in graph:
+                if entity_id not in graph:
+                    graph.add_node(entity_id, type=node_type, label=label, key=_key(node_type, label, is_id), **(extra or {}))
+                return entity_id
+            canon = canonical_name(label)
+            mergeable = node_type in MERGE_NAME_TYPES or (extra or {}).get("is_id") is False
+            if mergeable and canon and (node_type, canon) in merged_names:
+                target = merged_names[(node_type, canon)]
+                aliases = graph.nodes[target].setdefault("aliases", [])
+                if label != graph.nodes[target].get("label") and label not in aliases:
+                    aliases.append(label)
+                return target
+            attrs = dict(extra or {})
+            if mergeable and canon:
+                merged_names[(node_type, canon)] = entity_id
+                attrs["match_key"] = canon
+            graph.add_node(entity_id, type=node_type, label=label, key=_key(node_type, label, is_id), **attrs)
+            return entity_id
 
         for record in records:
             filename = record["filename"]
@@ -333,9 +378,7 @@ class DocumentGraph:
                 value = record.get(field_name)
                 if _is_empty(value):
                     continue
-                entity_id = _node_id(node_type, value)
-                if entity_id not in graph:
-                    graph.add_node(entity_id, type=node_type, label=str(value).strip(), key=_key(node_type, value))
+                entity_id = name_node(node_type, value)
                 graph.add_edge(doc_id, entity_id, relation=relation, origin=filename)
                 if relation in TIMELINE_RELATIONS:
                     group_keys.append(entity_id)
@@ -348,12 +391,7 @@ class DocumentGraph:
                     continue
                 is_id = role == "identifier"
                 node_type = field_name.replace("_", " ").title().replace(" ", "")
-                entity_id = _node_id(node_type, str(value), is_id)
-                if entity_id not in graph:
-                    graph.add_node(
-                        entity_id, type=node_type, label=str(value).strip(),
-                        key=_key(node_type, str(value), is_id), is_id=is_id,
-                    )
+                entity_id = name_node(node_type, str(value), is_id, {"is_id": is_id})
                 graph.add_edge(doc_id, entity_id, relation=f"HAS_{field_name.upper()}", origin=filename)
                 if is_id:
                     group_keys.append(entity_id)
@@ -481,9 +519,14 @@ class DocumentGraph:
                 elif len(compact) >= 4 and (compact in key or (len(key) >= 4 and key in compact)):
                     partial.append(node_id)
             else:
-                if text == key:
+                match_key = data.get("match_key") or ""
+                canon = canonical_name(query) if match_key else ""
+                if text == key or (match_key and canon == match_key) \
+                        or any(text == str(alias).casefold() for alias in data.get("aliases") or ()):
                     exact.append(node_id)
                 elif len(text) >= 3 and (text in key or (len(key) >= 3 and key in text)):
+                    partial.append(node_id)
+                elif match_key and len(canon) >= 3 and (canon in match_key or (len(match_key) >= 3 and match_key in canon)):
                     partial.append(node_id)
         return exact + [n for n in partial if n not in exact]
 
@@ -657,6 +700,8 @@ class DocumentGraph:
                     lines.append("  Keine verwandten Dokumente über gemeinsame Entitäten gefunden.")
             else:
                 lines = [f"{data['type']}: {data['label']}"]
+                if data.get("aliases"):
+                    lines.append(f"  Weitere Schreibweisen: {'; '.join(data['aliases'])}")
                 docs = sorted({u for u, _, _ in self.graph.in_edges(node_id, data=True)})
                 lines.append(f"  Verknüpfte Dokumente ({len(docs)}):")
                 for doc_id in docs:
@@ -877,10 +922,13 @@ class DocumentGraph:
             if node_type in ("Document", "Customer") or node_type in ID_TYPES or data.get("is_id") \
                     or node_type in ATTRIBUTE_TYPES:
                 continue
-            full = re.sub(r"\s+", " ", str(data.get("label") or "")).strip().casefold()
-            # Varianten: voller Name, Name ohne Rechtsform ("Montana Energie GmbH" -> "montana energie")
-            short = " ".join(w for w in full.split() if w.strip(".,") not in _NAME_NOISE)
-            needles = [n for n in dict.fromkeys((full, short)) if len(n) >= 3]
+            needles: list[str] = []
+            for name in (data.get("label"), *(data.get("aliases") or ())):
+                full = re.sub(r"\s+", " ", str(name or "")).strip().casefold()
+                # Varianten: voller Name, Name ohne Rechtsform ("Montana Energie GmbH" -> "montana energie")
+                short = " ".join(w for w in full.split() if w.strip(".,") not in _NAME_NOISE)
+                needles.extend(n for n in (full, short) if len(n) >= 3)
+            needles = list(dict.fromkeys(needles))
             if not needles:
                 continue
             for doc_id in self.docs_of(node_id):
@@ -1093,7 +1141,7 @@ class DocumentGraph:
         """
         raw = str(text or "")
         low = re.sub(r"\s+", " ", raw.casefold())
-        words = set(_WORD_RE.findall(low))
+        words = set(_WORD_RE.findall(low)) | set(canonical_name(raw).split())
         id_keys = {key for key, _ in _id_candidates(raw)}
         scores: dict[str, float] = {}
 
@@ -1122,7 +1170,7 @@ class DocumentGraph:
                     continue
                 if node_type in ATTRIBUTE_TYPES:
                     continue
-                tokens = _name_tokens(label)
+                tokens = _name_tokens(data.get("match_key") or label)
                 hits = sum(1 for token in tokens if token in words)
                 if tokens and hits:
                     bump(node_id, hits / len(tokens) + (0.5 if hits == len(tokens) else 0.0))

@@ -14,6 +14,8 @@ PROCESSED_DIR = DATA_DIR / "processed"
 VECTOR_DIR = DATA_DIR / "vectors"
 GRAPH_DIR = DATA_DIR / "graph"
 GRAPH_PATH = GRAPH_DIR / "document_graph.json"
+# Bilder, deren kürzere Seite kleiner ist (Pixel), werden beim Parsen übersprungen (Logos, Icons). 0 = alle.
+MIN_IMAGE_PX = int(os.getenv("ENERGY_MIN_IMAGE_PX", "100"))
 # Erzeugte Dateien der Ausgabe-Werkzeuge (Diagramme, Berichte, CSV-Exporte)
 OUTPUT_DIR = Path(os.getenv("ENERGY_OUTPUT_DIR", str(DATA_DIR / "outputs")))
 SCHEMAS_DIR = PROJECT_ROOT / "config" / "schemas"

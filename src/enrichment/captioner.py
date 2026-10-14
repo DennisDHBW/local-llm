@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import ollama
@@ -11,6 +12,26 @@ from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
 _OLLAMA_DOWN_ERRORS = OLLAMA_DOWN_ERRORS
 # Erhöhen, wenn sich Prompt oder Format der Bildbeschreibung ändern -> neue Beschreibungen.
 CAPTION_VERSION = 2
+CAPTION_PREFIX = "Bildbeschreibung: "
+# Einleitungsfloskeln kleiner Vision-Modelle ("Absolut! Hier ist eine detaillierte Analyse ...:") und Sätze, die
+# Wissen außerhalb des Bildes ankündigen. Sie verwässern Suche und Antworten und werden entfernt.
+_INTERJECTION_RE = re.compile(r"^\s*(?:absolut|gerne|klar|natürlich|sicher|okay|ok|super|selbstverständlich)\s*[!.,]\s*", re.I)
+_LEADIN_RE = re.compile(
+    r"^\s*(?:hier\s+(?:ist|sind|folgt|kommt)|im\s+folgenden|nachfolgend|ich\s+(?:beschreibe|analysiere))[^:\n]{0,200}[:.]\s*",
+    re.I,
+)
+_OWN_KNOWLEDGE_RE = re.compile(r",?\s*basierend auf meinem (?:Wissen|Fachwissen|Verständnis)[^,.:]*[,.:]?", re.I)
+
+
+def clean_caption(text: str) -> str:
+    """Entfernt Einleitungsfloskeln und Verweise auf eigenes Wissen; der Inhalt bleibt unverändert."""
+    cleaned = str(text or "").strip()
+    for _ in range(2):
+        cleaned = _INTERJECTION_RE.sub("", cleaned, count=1)
+        cleaned = _LEADIN_RE.sub("", cleaned, count=1)
+    cleaned = _OWN_KNOWLEDGE_RE.sub(" ", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    return cleaned or str(text or "").strip()
 
 
 class ImageCaptioner:
@@ -110,7 +131,9 @@ class ImageCaptioner:
             "Beschreibe es detailliert auf Deutsch. Wenn es ein Diagramm ist, nenne die Achsenbeschriftungen, "
             "die höchsten und niedrigsten Werte mit ihrem Zeitpunkt sowie den generellen Trend. "
             "Wenn es Zahlen, Messwerte, Zählerstände oder Text zeigt, lies diese genau ab. "
-            "Logos, Unterschriften und Schmuckgrafiken nur kurz benennen."
+            "Logos, Unterschriften und Schmuckgrafiken nur kurz benennen. "
+            "Beginne direkt mit der Beschreibung, ohne Einleitung. Beschreibe nur, was im Bild zu sehen ist: "
+            "keine Vermutungen, kein Wissen außerhalb des Bildes, keine Namen, die nicht im Bild stehen."
         )
 
         response = ollama.generate(
@@ -152,6 +175,15 @@ class ImageCaptioner:
                 continue
 
             updated = False
+            # Bereits vorhandene Beschreibungen bereinigen (ohne Vision-Modell; nur geänderte Chunks werden
+            # beim nächsten Indizieren neu eingebettet).
+            for chunk in chunks:
+                content = str(chunk.get("content") or "")
+                if chunk.get("chunk_type") == "image" and content.startswith(CAPTION_PREFIX):
+                    cleaned = f"{CAPTION_PREFIX}{clean_caption(content[len(CAPTION_PREFIX):])}"
+                    if cleaned != content:
+                        chunk["content"] = cleaned
+                        updated = True
             for chunk in chunks:
                 if chunk.get("chunk_type") == "image" and chunk.get("metadata", {}).get("needs_caption"):
                     if self._ollama_down:
@@ -172,7 +204,7 @@ class ImageCaptioner:
                         print(f"⚠️ Bildbeschreibung für {image_path.name} fehlgeschlagen: {exc}")
                         continue
 
-                    chunk["content"] = f"Bildbeschreibung: {caption}"
+                    chunk["content"] = f"{CAPTION_PREFIX}{clean_caption(caption)}"
                     chunk["metadata"]["needs_caption"] = False
                     updated = True
 

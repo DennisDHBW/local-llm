@@ -30,6 +30,7 @@ Qualitätscheck gegen Sollwerte:  uv run python -m evaluation.check_facts
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -127,6 +128,7 @@ LABELS = {
     "price_basis": "Preisbasis (Arbeits-/Grundpreis)",
     "monthly_advance_payment_eur": "Monatlicher Abschlag", "total_gross_eur": "Rechnungsbetrag brutto",
     "credit_eur": "Guthaben/Rückerstattung", "amount_due_eur": "Nachzahlung/zu zahlen",
+    "advances_paid_eur": "Geleistete Abschläge",
     "contract_start": "Vertragsbeginn", "contract_end": "Vertragsende", "notice_period": "Kündigungsfrist",
     "price_guarantee_until": "Preisgarantie bis",
 }
@@ -134,6 +136,7 @@ UNITS = {
     "consumption_kwh": "kWh", "consumption_m3": "m³", "working_price_ct_per_kwh": "ct/kWh",
     "base_price_eur": "EUR", "water_price_eur_per_m3": "EUR/m³", "wastewater_price_eur_per_m3": "EUR/m³",
     "monthly_advance_payment_eur": "EUR", "total_gross_eur": "EUR", "credit_eur": "EUR", "amount_due_eur": "EUR",
+    "advances_paid_eur": "EUR",   # nur aus der Normalisierung (Saldo-Rechnung), nicht vom LLM extrahiert
 }
 NUMERIC_FIELDS = set(UNITS)
 ID_FIELDS = {"contract_number", "invoice_number", "customer_number", "meter_number"}
@@ -270,7 +273,8 @@ def verify_facts(
 # ----------------------------------------------------------------------------------------------
 # Eine Nummer direkt hinter ihrem Label ist per Regex zuverlässiger zu lesen als per 7B-Modell, das
 # Vertragskonto, Kundennummer und Rechnungsnummer gern vertauscht. Reihenfolge = Priorität.
-_ID_SEP = r"[\s:.\-#]{0,6}"
+# '*' kommt in Fußnoten-Markierungen vor ("Vertragskontonummer* 2000412000 ... *bei Rückfragen bitte angeben")
+_ID_SEP = r"[\s:.\-#*]{0,6}"
 _ID_VALUE = r"([A-Za-z0-9][A-Za-z0-9/\-]{4,})"
 _ID_LABELS: dict[str, list[str]] = {
     "contract_number": [r"Vertragskonto(?:nummer|-?nr\.?)?", r"Vertrags-?(?:nummer|nr\.?)"],
@@ -584,6 +588,19 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
         out["amount_due_eur"] = out.pop("credit_eur")
         notes.append("credit_eur -> amount_due_eur (Text sagt Nachzahlung)")
 
+    # 2b) Guthaben UND Nachzahlung neben dem Rechnungsbetrag: Einer der beiden Werte sind die geleisteten
+    #     Abschläge. Die Saldo-Rechnung (Abschläge - Rechnungsbetrag = Guthaben bzw. Rechnungsbetrag - Abschläge
+    #     = Nachzahlung) zeigt, welcher. Beispiel: Rechnung 116,97, "Nachzahlung" 432,00, Guthaben 315,03
+    #     -> 432,00 - 116,97 = 315,03, also sind 432,00 die geleisteten Abschläge.
+    credit, due, total = number("credit_eur"), number("amount_due_eur"), number("total_gross_eur")
+    if credit is not None and due is not None and total is not None and number("advances_paid_eur") is None:
+        if abs(due - total - credit) < 0.015:
+            out["advances_paid_eur"] = out.pop("amount_due_eur")
+            notes.append(f"amount_due_eur {due} = geleistete Abschläge ({due} - {total} = Guthaben {credit})")
+        elif abs(credit + due - total) < 0.015:
+            out["advances_paid_eur"] = out.pop("credit_eur")
+            notes.append(f"credit_eur {credit} = geleistete Abschläge ({total} - {credit} = Nachzahlung {due})")
+
     # 3) Kündigungsfrist ist eine Dauer, kein Datum
     notice = out.get("notice_period")
     if isinstance(notice, str) and not _NOTICE_RE.search(notice):
@@ -642,6 +659,188 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
                     f"(Kandidaten: {sorted(candidates)}) - bitte prüfen"
                 )
     return out, notes
+
+
+# ----------------------------------------------------------------------------------------------
+# Label-Nähe und Prüfregeln (laufen ohne LLM über die verifizierten Fakten)
+# ----------------------------------------------------------------------------------------------
+# Eine Zahl, die irgendwo im Text steht, ist noch nicht belegt: "12" oder "142" kommen in fast jedem Dokument
+# vor. Steht an KEINER Fundstelle ein zum Feld passendes Wort in der Nähe, gilt der Wert als unsicher. Er wird
+# nicht verworfen (sonst gingen richtige Werte verloren), sondern markiert; Agent und Bericht weisen darauf hin.
+FIELD_ANCHORS: dict[str, tuple[str, ...]] = {
+    "working_price_ct_per_kwh": ("arbeitspreis", "verbrauchspreis", "energiepreis", "ct/kwh", "cent/kwh", "ct / kwh"),
+    "base_price_eur": ("grundpreis", "grundgebühr", "grundgebuehr", "leistungspreis", "grundbetrag", "messpreis",
+                       "verrechnungspreis", "jahresgrundpreis", "€/jahr", "eur/jahr", "€/monat", "eur/monat"),
+    "consumption_kwh": ("verbrauch", "kwh"),
+    "consumption_m3": ("verbrauch", "m³", "m3", "kubikmeter"),
+    "water_price_eur_per_m3": ("wasser", "m³", "m3"),
+    "wastewater_price_eur_per_m3": ("abwasser", "schmutzwasser", "m³", "m3"),
+    "monthly_advance_payment_eur": (*_ADVANCE_WORDS, "vorauszahlung"),
+    "total_gross_eur": ("gesamt", "rechnungsbetrag", "summe", "brutto", "betrag", "endbetrag", "kosten"),
+    "credit_eur": _CREDIT_WORDS,
+    "amount_due_eur": (*_DUE_WORDS, "nachberechnung"),
+    "advances_paid_eur": (*_ADVANCE_WORDS, "geleistet", "gezahlt", "bezahlt", "vorauszahlung"),
+}
+ANCHOR_BEFORE = 160
+ANCHOR_AFTER = 60
+CHECK_TOLERANCE = 0.02
+ENERGY_COST_HINT_RATIO = 0.05   # Abweichung Rechnungsbetrag vs. Verbrauch*Arbeitspreis + Grundpreis
+
+
+def field_anchors(spec: Optional[SchemaSpec] = None) -> dict[str, tuple[str, ...]]:
+    """Ankerwörter je Feld: eingebautes Energie-Schema oder `anchors` der Felder eines konfigurierten Schemas."""
+    if spec is None:
+        return FIELD_ANCHORS
+    return {key: tuple(a.casefold() for a in words) for key, words in (spec.anchors or {}).items() if words}
+
+
+# Ein anderer Betrag zwischen Label und Zahl heißt: das Label gehört zu jenem Betrag
+# ("Grundpreis: 140,43 EUR/Jahr. Zeitraum 142 Tage" -> 142 hat KEIN Grundpreis-Label). Datumsangaben zählen nicht.
+_AMOUNT_BETWEEN_RE = re.compile(r"(?<![\d.])\d{1,3}(?:\.\d{3})*,\d{1,4}(?!\d)")
+
+
+UNIT_AFTER = 20
+_UNIT_WORDS = {"kwh", "m³", "m3", "kubikmeter"}
+
+
+def _is_unit_anchor(word: str) -> bool:
+    return "/" in word or word in _UNIT_WORDS
+
+
+def _has_anchor(text: str, value: float, words: tuple[str, ...]) -> Optional[bool]:
+    """True, wenn an einer Fundstelle von `value` ein Ankerwort ohne dazwischenliegenden Betrag steht;
+    None, wenn die Zahl nicht im Text vorkommt."""
+    found = False
+    for variant in _number_variants(abs(value)):
+        for match in re.finditer(_number_pattern(variant), text):
+            found = True
+            before = text[max(0, match.start() - ANCHOR_BEFORE): match.start()].casefold()
+            after = text[match.end(): match.end() + ANCHOR_AFTER].casefold()
+            for word in words:
+                if _is_unit_anchor(word):
+                    # Einheiten stehen direkt HINTER ihrer Zahl ("28,45 ct/kWh"), nie davor
+                    position = after[:UNIT_AFTER].find(word)
+                    if position >= 0 and not _AMOUNT_BETWEEN_RE.search(after[:position]):
+                        return True
+                    continue
+                position = before.rfind(word)
+                if position >= 0 and not _AMOUNT_BETWEEN_RE.search(before[position + len(word):]):
+                    return True
+                position = after.find(word)
+                if position >= 0 and not _AMOUNT_BETWEEN_RE.search(after[:position]):
+                    return True
+    return False if found else None
+
+
+def uncertain_fields(facts: dict[str, Any], source_text: str, spec: Optional[SchemaSpec] = None) -> list[str]:
+    """Zahlenfelder, an deren Fundstellen kein passendes Label steht (siehe FIELD_ANCHORS)."""
+    anchors = field_anchors(spec)
+    text = source_text.replace("\u00a0", " ")
+    uncertain: list[str] = []
+    for key, words in anchors.items():
+        value = facts.get(key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        if _has_anchor(text, float(value), words) is False:
+            uncertain.append(key)
+    return uncertain
+
+
+_CHECK_OPS = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b, ast.Mult: lambda a, b: a * b}
+
+
+def _check_side(node: ast.AST, facts: dict[str, Any], missing_as_zero: bool) -> tuple[Optional[float], int]:
+    """Wert einer Regelseite und Anzahl vorhandener Felder; (None, 0), wenn ein Feld fehlt."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        return float(node.value), 0
+    if isinstance(node, ast.Name):
+        value = facts.get(node.id)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value), 1
+        return (0.0, 0) if missing_as_zero else (None, 0)
+    if isinstance(node, ast.BinOp) and type(node.op) in _CHECK_OPS:
+        left, n_left = _check_side(node.left, facts, missing_as_zero)
+        right, n_right = _check_side(node.right, facts, missing_as_zero)
+        if left is None or right is None:
+            return None, 0
+        return _CHECK_OPS[type(node.op)](left, right), n_left + n_right
+    raise ValueError("Erlaubt sind Feldnamen, Zahlen und + - *")
+
+
+def evaluate_rule(rule: str, facts: dict[str, Any], tolerance: float = CHECK_TOLERANCE,
+                  missing_as_zero: bool = False) -> Optional[dict[str, Any]]:
+    """Prüfregel 'a + b == c' auswerten. None, wenn Felder fehlen (Regel nicht anwendbar)."""
+    tree = ast.parse(rule, mode="eval").body
+    if not (isinstance(tree, ast.Compare) and len(tree.ops) == 1 and isinstance(tree.ops[0], ast.Eq)):
+        raise ValueError(f"Regel muss die Form 'links == rechts' haben: {rule}")
+    left, n_left = _check_side(tree.left, facts, missing_as_zero)
+    right, n_right = _check_side(tree.comparators[0], facts, missing_as_zero)
+    if left is None or right is None or n_left == 0 or n_right == 0:
+        return None
+    ok = abs(left - right) <= tolerance
+    detail = f"{round(left, 4):g} {'=' if ok else '≠'} {round(right, 4):g}"
+    return {"rule": rule, "ok": ok, "severity": "error", "detail": detail}
+
+
+def _energy_checks(facts: dict[str, Any]) -> list[dict[str, Any]]:
+    def num(key: str) -> Optional[float]:
+        value = facts.get(key)
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    results: list[dict[str, Any]] = []
+    credit, due, total, paid = num("credit_eur"), num("amount_due_eur"), num("total_gross_eur"), num("advances_paid_eur")
+    if credit is not None and due is not None:
+        results.append({"rule": "Guthaben und Nachzahlung schließen sich aus", "ok": False, "severity": "error",
+                        "detail": f"Guthaben {credit:g} und Nachzahlung {due:g} gleichzeitig"})
+    if total is not None and paid is not None and (credit is not None) != (due is not None):
+        expected = paid - total
+        actual = credit if credit is not None else -float(due)
+        results.append({"rule": "Abschläge - Rechnungsbetrag = Saldo", "ok": abs(expected - actual) <= CHECK_TOLERANCE,
+                        "severity": "error", "detail": f"{paid:g} - {total:g} = {expected:.2f}, Saldo laut Dokument {actual:.2f}"})
+    start, end = _to_date(facts.get("billing_period_start")), _to_date(facts.get("billing_period_end"))
+    if start and end and end < start:
+        results.append({"rule": "Abrechnungszeitraum: Ende nach Beginn", "ok": False, "severity": "error",
+                        "detail": f"{facts.get('billing_period_start')} bis {facts.get('billing_period_end')}"})
+    kwh, price, base = num("consumption_kwh"), num("working_price_ct_per_kwh"), num("base_price_eur")
+    days = _period_days(facts)
+    period = str(facts.get("base_price_unit") or "").casefold()
+    per_year = {"jahr": 1.0, "monat": 12.0, "tag": 365.0}
+    factor = next((f for word, f in per_year.items() if word in period), None)
+    if total and kwh is not None and price is not None and base is not None and days and factor \
+            and str(facts.get("price_basis") or "").casefold() == "brutto":
+        estimate = kwh * price / 100 + base * factor * days / 365
+        deviation = abs(estimate - total) / total
+        results.append({"rule": "Rechnungsbetrag ≈ Verbrauch × Arbeitspreis + Grundpreis", "ok": deviation <= ENERGY_COST_HINT_RATIO,
+                        "severity": "hint", "detail": f"berechnet {estimate:.2f} EUR, Dokument {total:.2f} EUR ({deviation:.0%} Abweichung)"})
+    return results
+
+
+def run_checks(facts: dict[str, Any], spec: Optional[SchemaSpec] = None) -> list[dict[str, Any]]:
+    """Prüfregeln über die Fakten: eingebaute Energie-Regeln bzw. `checks` des konfigurierten Schemas.
+
+    Rückgabe je anwendbarer Regel: {rule, ok, severity (error|hint), detail}. Nicht anwendbare Regeln fehlen.
+    """
+    if spec is None:
+        return _energy_checks(facts)
+    results: list[dict[str, Any]] = []
+    for check in spec.checks:
+        try:
+            result = evaluate_rule(str(check["rule"]), facts, float(check.get("tolerance", CHECK_TOLERANCE)),
+                                   bool(check.get("missing_as_zero", False)))
+        except (ValueError, SyntaxError, KeyError, TypeError) as exc:
+            results.append({"rule": str(check.get("rule")), "ok": False, "severity": "hint",
+                            "detail": f"Regel nicht auswertbar: {exc}"})
+            continue
+        if result is not None:
+            result["severity"] = str(check.get("severity") or "error")
+            if check.get("label"):
+                result["rule"] = str(check["label"])
+            results.append(result)
+    return results
+
+
+def needs_review(checks: list[dict[str, Any]]) -> bool:
+    return any(not c.get("ok") and c.get("severity") == "error" for c in checks)
 
 
 def postprocess_facts(
@@ -742,6 +941,13 @@ def format_facts(record: dict[str, Any]) -> str:
     unverified = [labels.get(k, k) for k in record.get("unverified", [])]
     if unverified:
         lines.append(f"- Nicht im Text auffindbar (verworfen): {', '.join(unverified)}")
+    uncertain = [labels.get(k, k) for k in record.get("uncertain") or [] if k in facts]
+    if uncertain:
+        lines.append(f"- Unsicher (kein passendes Label an der Fundstelle, bitte mit search prüfen): {', '.join(uncertain)}")
+    for check in record.get("checks") or []:
+        if not check.get("ok"):
+            kind = "Prüfung fehlgeschlagen" if check.get("severity") == "error" else "Plausibilitätshinweis"
+            lines.append(f"- {kind}: {check.get('rule')} ({check.get('detail')})")
     provenance = record.get("provenance") or {}
     if provenance:
         # Seitenangaben je Feld (nur bei Records, die mit Fundstellen gespeichert wurden)
@@ -1030,7 +1236,9 @@ class FactExtractor:
             else:
                 reused = True
 
-            verified, dropped, notes = postprocess_facts(raw, full_text, meta, configured_spec(schema_id))
+            spec = configured_spec(schema_id)
+            verified, dropped, notes = postprocess_facts(raw, full_text, meta, spec)
+            checks = run_checks(verified, spec)
             record = {
                 "filename": filename,
                 "source_hash": source_hash,
@@ -1042,15 +1250,25 @@ class FactExtractor:
                 "normalized": notes,
                 # Seite der Fundstelle je Feld (für Zitate mit Seitenzahl und Berichte)
                 "provenance": locate_pages(verified, full_text),
+                # Zahlen ohne passendes Label an der Fundstelle (markiert, nicht verworfen)
+                "uncertain": uncertain_fields(verified, full_text, spec),
+                # Prüfregeln (Saldo, netto + MwSt. = brutto, ...); needs_review bei Fehlern
+                "checks": checks,
+                "needs_review": needs_review(checks),
             }
-            if reused and old.get("facts") == verified and old.get("unverified") == dropped \
-                    and old.get("normalized") == notes and old.get("provenance") == record["provenance"]:
+            unchanged_keys = ("facts", "unverified", "normalized", "provenance", "uncertain", "checks")
+            if reused and all(old.get(k) == record[k] for k in unchanged_keys):
                 continue
             atomic_write_json(out_file, record)
             written += 1
             print(f"  -> {len(verified)} Felder gespeichert" + (f", verworfen: {', '.join(dropped)}" if dropped else ""))
             for note in notes:
                 print(f"     korrigiert: {note}")
+            for key in record["uncertain"]:
+                print(f"     unsicher: {key} (kein passendes Label an der Fundstelle)")
+            for check in checks:
+                if not check["ok"]:
+                    print(f"     {'FEHLER' if check['severity'] == 'error' else 'Hinweis'}: {check['rule']} - {check['detail']}")
         return written
 
 

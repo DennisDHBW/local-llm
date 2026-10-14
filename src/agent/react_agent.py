@@ -51,6 +51,8 @@ Vorgehen:
 - Einen Suchtreffer im Zusammenhang prüfen: read_page mit Dateiname und Seite.
 - Diagramm oder Grafik gewünscht: plot_facts. Bericht, Übersicht als Datei, Markdown oder CSV gewünscht: create_report. \
 Nenne danach den Dateipfad aus dem Werkzeugergebnis.
+- Steht bei einem Wert "Unsicher" oder "Prüfung fehlgeschlagen", prüfe ihn mit search oder read_page, bevor du ihn nennst, \
+und weise in der Antwort darauf hin.
 - Rechne immer mit calculate, nie im Kopf. Übergib nur Zahlen und Operatoren.
 - Rufe pro Schritt höchstens ein bis drei Werkzeuge auf und wiederhole keine identischen Aufrufe.
 - Sobald du genug Fakten hast, antworte ohne weiteren Werkzeugaufruf kurz mit Zahlen, Einheiten und Zeiträumen. \

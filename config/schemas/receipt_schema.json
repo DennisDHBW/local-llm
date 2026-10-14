@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "id": "receipt",
   "title": "Kassenbon / Kassenbeleg",
-  "description": "Stufe 1 (läuft mit der bestehenden Pipeline): Kopf- und Summenfelder eines Bons. Positionen (line_items) folgen in Stufe 2, sobald extraction_schema Arrays mit 'items' unterstützt.",
+  "description": "Stufe 1 (läuft mit der bestehenden Pipeline): Kopf- und Summenfelder eines Bons. Positionen (line_items) folgen in Stufe 2, sobald extraction_schema Arrays mit 'items' unterstützt. Prüfregel: Netto + MwSt. aller Steuersätze = Gesamtbetrag.",
   "document_types": [
     "kassenbon",
     "kassenbeleg",
@@ -67,43 +67,84 @@
       "type": "number",
       "unit": "EUR",
       "label": "Gesamtbetrag",
-      "description": "Zu zahlender Gesamtbetrag (Summe) in EUR"
+      "description": "Zu zahlender Gesamtbetrag (Summe) in EUR",
+      "anchors": [
+        "summe",
+        "gesamt",
+        "zu zahlen",
+        "total",
+        "betrag",
+        "bar",
+        "karte",
+        "girocard"
+      ]
     },
     "vat_7_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "MwSt. 7 %",
-      "description": "Mehrwertsteuerbetrag zum Satz 7 % in EUR"
+      "description": "Mehrwertsteuerbetrag zum Satz 7 % in EUR",
+      "anchors": [
+        "7",
+        "mwst",
+        "ust",
+        "steuer"
+      ]
     },
     "vat_19_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "MwSt. 19 %",
-      "description": "Mehrwertsteuerbetrag zum Satz 19 % in EUR"
+      "description": "Mehrwertsteuerbetrag zum Satz 19 % in EUR",
+      "anchors": [
+        "19",
+        "mwst",
+        "ust",
+        "steuer"
+      ]
     },
     "net_7_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "Netto 7 %",
-      "description": "Nettobetrag zum Steuersatz 7 % in EUR"
+      "description": "Nettobetrag zum Steuersatz 7 % in EUR",
+      "anchors": [
+        "7",
+        "netto"
+      ]
     },
     "net_19_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "Netto 19 %",
-      "description": "Nettobetrag zum Steuersatz 19 % in EUR"
+      "description": "Nettobetrag zum Steuersatz 19 % in EUR",
+      "anchors": [
+        "19",
+        "netto"
+      ]
     },
     "deposit_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "Pfand",
-      "description": "Summe Pfand in EUR (ohne Pfandrückgabe)"
+      "description": "Summe Pfand in EUR (ohne Pfandrückgabe)",
+      "anchors": [
+        "pfand",
+        "leergut"
+      ]
     },
     "discount_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "Rabatt",
-      "description": "Summe aller Rabatte und Coupons in EUR (positive Zahl)"
+      "description": "Summe aller Rabatte und Coupons in EUR (positive Zahl)",
+      "anchors": [
+        "rabatt",
+        "coupon",
+        "nachlass",
+        "aktion",
+        "preisvorteil"
+      ]
     },
     "payment_method": {
       "type": "string",
@@ -115,5 +156,13 @@
       "label": "Anzahl Positionen",
       "description": "Anzahl der Artikel bzw. Positionen, falls auf dem Bon angegeben"
     }
-  }
+  },
+  "checks": [
+    {
+      "rule": "net_7_eur + vat_7_eur + net_19_eur + vat_19_eur == total_gross_eur",
+      "tolerance": 0.03,
+      "missing_as_zero": true,
+      "label": "Netto + MwSt. je Steuersatz = Gesamtbetrag"
+    }
+  ]
 }

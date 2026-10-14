@@ -147,6 +147,13 @@ def build_report(
             shown = "; ".join(corrected[:MAX_NOTES_PER_DOC])
             more = f" (+{len(corrected) - MAX_NOTES_PER_DOC} weitere)" if len(corrected) > MAX_NOTES_PER_DOC else ""
             checks.append(f"- **{name}**: regelbasiert korrigiert: {shown}{more}")
+        uncertain = [labels.get(k, k) for k in record.get("uncertain") or []]
+        if uncertain:
+            checks.append(f"- **{name}**: unsicher (kein passendes Label an der Fundstelle): {', '.join(uncertain)}")
+        for check in record.get("checks") or []:
+            if not check.get("ok"):
+                kind = "Prüfung fehlgeschlagen" if check.get("severity") == "error" else "Plausibilitätshinweis"
+                checks.append(f"- **{name}**: {kind}: {check.get('rule')} ({check.get('detail')})")
         provenance = record.get("provenance") or {}
         if provenance:
             pages = "; ".join(f"{labels.get(k, k)} S. {p}" for k, p in provenance.items())

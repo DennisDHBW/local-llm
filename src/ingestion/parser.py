@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 import ollama
 from pydantic import BaseModel, Field
 
-from src.config import PARSER_MODEL, PROJECT_ROOT
+from src.config import MIN_IMAGE_PX, PARSER_MODEL, PROJECT_ROOT
 from src.enrichment.schema import detect_schema_id
 
 logger = logging.getLogger(__name__)
@@ -190,6 +190,16 @@ Textauszug:
         if match_iso:
             return match_iso.group(1)
         return None
+
+    @staticmethod
+    def _is_control_text(text: str) -> bool:
+        """Maschinenzeilen aus der Druckstraße ("MTA;MTA_RG_TK;B;7131020199;Heilbronn;DE;...").
+
+        Mindestens 4 Semikolons und nicht mehr Wörter als Semikolons: normaler Fließtext hat das praktisch nie.
+        Solche Zeilen verrauschen Suche und Fundstellen und werden nicht in Chunks übernommen.
+        """
+        semicolons = text.count(";")
+        return semicolons >= 4 and len(text.split()) <= semicolons
 
     def _is_valid_heading(self, text: str) -> bool:
         clean = text.strip()
@@ -401,7 +411,7 @@ Textauszug:
                     for line in block["lines"]:
                         for span in line["spans"]:
                             text = span["text"].strip()
-                            if not text:
+                            if not text or self._is_control_text(text):
                                 continue
 
                             size = span["size"]
@@ -466,6 +476,11 @@ Textauszug:
             for img_idx, img in enumerate(image_list):
                 xref = img[0]
                 base_image = doc.extract_image(xref)
+                # Logos, Icons und Linien: zu klein für eine sinnvolle Beschreibung, kosten aber je einen
+                # Vision-Aufruf und verrauschen die Suche. Grenze: ENERGY_MIN_IMAGE_PX (0 = alle Bilder).
+                width, height = int(base_image.get("width") or 0), int(base_image.get("height") or 0)
+                if MIN_IMAGE_PX and width and height and min(width, height) < MIN_IMAGE_PX:
+                    continue
                 image_bytes = base_image["image"]
                 image_ext = base_image["ext"]
 

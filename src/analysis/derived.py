@@ -41,11 +41,12 @@ METRICS: tuple[tuple[str, str, str], ...] = (
     ("total_gross_eur", "Rechnungsbetrag brutto", "EUR"),
     ("credit_eur", "Guthaben/Rückerstattung", "EUR"),
     ("amount_due_eur", "Nachzahlung/zu zahlen", "EUR"),
+    ("advances_paid_eur", "Geleistete Abschläge", "EUR"),
 )
 METRIC_LABELS = {key: (label, unit) for key, label, unit in METRICS}
 PASSTHROUGH = (
     "consumption_kwh", "consumption_m3", "water_price_eur_per_m3", "wastewater_price_eur_per_m3",
-    "monthly_advance_payment_eur", "total_gross_eur", "credit_eur", "amount_due_eur",
+    "monthly_advance_payment_eur", "total_gross_eur", "credit_eur", "amount_due_eur", "advances_paid_eur",
 )
 _WATER_WORDS = ("wasser", "abwasser")
 _MONTHS = {
@@ -192,3 +193,4 @@ def format_derived(metrics: Mapping[str, Metric]) -> str:
         value = f"{metric.value:.2f}" if metric.unit.startswith("EUR") and not metric.unit.endswith("m³") else _fmt(metric.value)
         lines.append(f"- {label}: {value} {metric.unit}" + (f"   [{metric.formula}]" if metric.formula else ""))
     return "\n".join(lines)
+
