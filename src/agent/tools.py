@@ -7,11 +7,13 @@ from typing import Any
 
 import chromadb
 
-from src.config import EMBED_MODEL, GRAPH_PATH, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR
+from src.analysis.compare import build_comparison
+from src.config import EMBED_MODEL, GRAPH_PATH, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR, graph_path_for
 from src.embeddings import embed_query
 from src.enrichment.facts import format_facts, load_facts
 from src.graph.graph_store import DocumentGraph
 from src.retrieval.search import search_collection
+from src.utils import strip_source_suffix
 
 KIND_TO_CHUNK_TYPES = {
     "all": ["text", "table_row", "image"],
@@ -46,22 +48,22 @@ TOOL_SCHEMAS: list[dict] = [
     ),
     _tool(
         "get_document_facts",
-        "Strukturierte Kerndaten pro Dokument (Zeitraum, Verbrauch, Arbeitspreis, Grundpreis, Abschlag, "
-        "Gesamtbetrag, Zählernummer, Laufzeit, Kündigungsfrist). Erste Wahl bei Fragen nach Preisen, "
-        "Beträgen, Verbrauch oder Fristen. Ohne Dateiname: alle Dokumente.",
-        {"filename": {"type": "string", "description": "Dateiname, z. B. 'ZEAG_25.pdf' (optional)."}},
+        "Strukturierte, am Quelltext geprüfte Kerndaten pro Dokument (je nach Dokumenttyp z. B. Beträge, "
+        "Preise, Mengen, Zeiträume, Nummern, Laufzeit, Kündigungsfrist). Erste Wahl bei Fragen nach Preisen, "
+        "Beträgen, Mengen oder Fristen. Ohne Dateiname: alle Dokumente.",
+        {"filename": {"type": "string", "description": "Dateiname, z. B. 'Rechnung_2025.pdf' (optional)."}},
     ),
     _tool(
         "search",
         "Durchsucht Textabsätze, Tabellenzeilen und Bildbeschreibungen der Dokumente (hybrid: semantisch + "
         "Stichwort). Gib den Dateinamen an, sobald ein bestimmtes Dokument gemeint ist.",
         {
-            "query": {"type": "string", "description": "Suchtext mit konkreten Begriffen, z. B. 'Arbeitspreis ct/kWh'."},
+            "query": {"type": "string", "description": "Suchtext mit konkreten Begriffen, z. B. 'Kündigungsfrist' oder 'Gesamtbetrag brutto'."},
             "filename": {"type": "string", "description": "Nur in dieser Datei suchen (optional)."},
             "kind": {
                 "type": "string",
                 "enum": ["all", "text", "table", "image"],
-                "description": "all (Standard), text = Klauseln, table = Preise/Positionen, image = Diagramme/Zählerfotos.",
+                "description": "all (Standard), text = Klauseln, table = Preise/Positionen, image = Diagramme/Fotos.",
             },
             "top_k": {"type": "integer", "description": "Anzahl Treffer (Standard 5, max 10)."},
         },
@@ -74,11 +76,28 @@ TOOL_SCHEMAS: list[dict] = [
     ),
     _tool(
         "graph_lookup",
-        "Dokumentgraph: zeigt, welche Dokumente über denselben Vertrag, Zähler, Tarif, Anbieter oder Kunden "
-        "zusammenhängen. Nutze das für dokumentübergreifende Fragen. Eingabe: Vertragsnummer, Zählernummer, "
-        "Anbietername, Kundenname oder Dateiname.",
+        "Dokumentgraph: zeigt, welche Dokumente über dieselbe Kennung (Vertrags-, Kunden-, Rechnungs-, "
+        "Zählernummer), denselben Absender oder dieselbe Sache zusammenhängen. Nutze das für "
+        "dokumentübergreifende Fragen. Eingabe: Nummer, Name oder Dateiname.",
         {"entity": {"type": "string", "description": "Name oder Nummer der Entität."}},
         ["entity"],
+    ),
+    _tool(
+        "graph_timeline",
+        "Zeitreihe: zeigt die Dokumente zu einem Vertrag, einer Kennung, einem Absender oder Kunden in "
+        "zeitlicher Reihenfolge (mit Zeitraum und Kennzahlen, soweit vorhanden).",
+        {"entity": {"type": "string", "description": "Vertrags-/Kennnummer, Name oder Dateiname."}},
+        ["entity"],
+    ),
+    _tool(
+        "graph_paths",
+        "Pfadfinder: findet Verbindungen zwischen zwei Dokumenten oder Entitäten (Absender, Kennungen, "
+        "Verträge).",
+        {
+            "source": {"type": "string", "description": "Quell-Entität oder Dateiname."},
+            "target": {"type": "string", "description": "Ziel-Entität oder Dateiname."},
+        },
+        ["source", "target"],
     ),
     _tool(
         "calculate",
@@ -86,6 +105,22 @@ TOOL_SCHEMAS: list[dict] = [
         "Keine Einheiten, Wörter oder Paragraphenzeichen.",
         {"expression": {"type": "string", "description": "Rechenausdruck."}},
         ["expression"],
+    ),
+    _tool(
+        "compare_documents",
+        "Stellt die Zahlen mehrerer Dokumente gleichen Typs exakt gegenüber, mit Differenz und Änderung in % "
+        "(nach Zeitraum geordnet). Bei Energiedokumenten zusätzlich umgerechnet: Arbeitspreis netto/brutto, "
+        "Grundpreis pro Jahr/Monat, Energiekosten im Zeitraum. Erste Wahl für Vergleiche: nicht selbst rechnen.",
+        {
+            "filenames": {
+                "type": "string",
+                "description": "Dateinamen, durch Komma getrennt, z. B. 'Rechnung_2024.pdf, Rechnung_2025.pdf'. Leer = alle Dokumente.",
+            },
+            "fields": {
+                "type": "string",
+                "description": "Optional: Kennzahlen, durch Komma getrennt, z. B. 'Bruttobetrag' oder 'Arbeitspreis brutto'. Leer = Standardauswahl.",
+            },
+        },
     ),
 ]
 
@@ -101,8 +136,8 @@ def resolve_name(names: list[str], wanted: str) -> tuple[str | None, str | None]
     if not wanted:
         return None, None
     low = wanted.casefold()
-    low_stem = low.removesuffix(".pdf")
-    exact = [n for n in names if low in (n.casefold(), n.casefold().removesuffix(".pdf"))]
+    low_stem = strip_source_suffix(low)
+    exact = [n for n in names if low in (n.casefold(), strip_source_suffix(n.casefold()))]
     if len(exact) == 1:
         return exact[0], None
     partial = [n for n in names if low_stem in n.casefold()]
@@ -133,11 +168,11 @@ class AgentTools:
         use_rewriter: bool = USE_QUERY_REWRITER,
         vector_dir: Path = VECTOR_DIR,
         processed_dir: Path = PROCESSED_DIR,
-        graph_path: Path = GRAPH_PATH,
+        graph_path: Path | None = None,
     ):
         self.embed_model = embed_model
         self.processed_dir = Path(processed_dir)
-        self.graph_path = Path(graph_path)
+        self.graph_path = Path(graph_path) if graph_path else graph_path_for(self.processed_dir)
         self.rewriter = None
         if use_rewriter:
             from src.retrieval.query_rewriter import QueryRewriter
@@ -149,6 +184,7 @@ class AgentTools:
         )
         self._filename_cache: tuple[int, list[str]] = (-1, [])
         self._graph: DocumentGraph | None = None
+        self._graph_mtime: float | None = None
 
     def _get_query_embedding(self, query: str) -> list[float]:
         return embed_query(query, self.embed_model)
@@ -165,23 +201,20 @@ class AgentTools:
         return resolve_name(self.known_filenames(), name)
 
     def _extract_filename_from_query(self, query: str) -> tuple[str | None, str]:
-        """Sucht im Query-Text nach bekannten Dateinamen oder eindeutigen Stämmen."""
         known = self.known_filenames()
         if not known:
             return None, query
 
         low_query = query.casefold()
 
-        # 1. Exakter Treffer auf vollen Dateinamen oder Stem (z. B. Berlin1_25.pdf)
         for fname in known:
-            stem = fname.casefold().removesuffix(".pdf")
+            stem = strip_source_suffix(fname.casefold())
             if fname.casefold() in low_query or stem in low_query:
                 return fname, query
 
-        # 2. Eindeutiger Teiltreffer auf Dateinamen-Bestandteile (z. B. Berlin1, ZEAG, Simply)
         matches = []
         for fname in known:
-            stem = fname.casefold().removesuffix(".pdf")
+            stem = strip_source_suffix(fname.casefold())
             parts = [p for p in re.split(r"[_\s.-]", stem) if p and p != "25"]
             for part in parts:
                 if len(part) >= 3 and re.search(r"\b" + re.escape(part) + r"\b", low_query):
@@ -208,6 +241,7 @@ class AgentTools:
 
     def search(self, query: str, filename: str = "", kind: str = "all", top_k: int = DEFAULT_TOP_K) -> ToolResult:
         query = self._clean_query_input(query or "")
+        filename = filename or ""
         if not query.strip():
             return ToolResult("Fehler: Die Suchanfrage darf nicht leer sein.")
         kind = (kind or "all").strip().lower()
@@ -215,7 +249,6 @@ class AgentTools:
             return ToolResult(f"Fehler: Unbekannter Typ '{kind}'. Erlaubt: {', '.join(KIND_TO_CHUNK_TYPES)}.")
         top_k = max(1, min(int(top_k), 10))
 
-        # Automatische Erkennung des Dateinamens im Anfrage-Text, falls filename leer ist
         if not filename.strip():
             extracted_file, query = self._extract_filename_from_query(query)
             if extracted_file:
@@ -350,6 +383,17 @@ class AgentTools:
                         info[key] = value
                 info["chunks"] += 1
 
+            try:
+                verified = load_facts(self.processed_dir)
+            except Exception:
+                verified = {}
+            for fname, info in docs_summary.items():
+                facts = (verified.get(fname) or {}).get("facts", {})
+                for key in ("provider", "doc_type", "doc_date", "contract_number", "invoice_number"):
+                    value = facts.get(key)
+                    if value is not None and str(value).strip().casefold() not in ("", "unbekannt", "null", "none"):
+                        info[key] = str(value).strip()
+
             output = [f"Gesamtzahl indizierter Dokumente: {len(docs_summary)}\n"]
             for fname, info in sorted(docs_summary.items()):
                 details = (
@@ -389,9 +433,51 @@ class AgentTools:
         )
         return ToolResult(text, evidence)
 
+    @staticmethod
+    def _split_list(value: Any) -> list[str]:
+        if isinstance(value, (list, tuple)):
+            items = [str(v) for v in value]
+        else:
+            items = re.split(r"[,;\n]", str(value or ""))
+        return [item.strip().strip("'\" ") for item in items if item.strip().strip("'\" ")]
+
+    def compare_documents(self, filenames: Any = "", fields: Any = "") -> ToolResult:
+        records = load_facts(self.processed_dir)
+        if not records:
+            return ToolResult(
+                "Keine strukturierten Fakten vorhanden. Bitte `python -m src.enrichment.facts` ausführen "
+                "oder stattdessen `search` verwende."
+            )
+        available = sorted(records)
+        requested = self._split_list(filenames)
+        selected: list[str] = []
+        for name in requested:
+            resolved, error = resolve_name(available, name)
+            if error:
+                return ToolResult(error)
+            if resolved not in selected:
+                selected.append(resolved)
+        if not selected:
+            selected = available
+
+        text = build_comparison(records, selected, self._split_list(fields))
+        label = f"Vergleich: {', '.join(selected)} (berechnet)"
+        key = "|".join(selected) + "|" + ",".join(self._split_list(fields))
+        return ToolResult(text, [_tool_evidence("compare_documents", label, text, key)])
+
     def _get_graph(self) -> DocumentGraph:
-        if self._graph is None:
+        # Der Agent lebt über mehrere Fragen (Chat). Nach einem Import muss der neue Graph gelten.
+        try:
+            mtime: float | None = self.graph_path.stat().st_mtime
+        except OSError:
+            mtime = None
+        stale = mtime is None or DocumentGraph._is_stale(self.graph_path, self.processed_dir)
+        if self._graph is None or stale or mtime != self._graph_mtime:
             self._graph = DocumentGraph.load_or_build(self.graph_path, self.processed_dir)
+            try:
+                self._graph_mtime = self.graph_path.stat().st_mtime
+            except OSError:
+                self._graph_mtime = None
         return self._graph
 
     def graph_lookup(self, entity: str) -> ToolResult:
@@ -399,6 +485,20 @@ class AgentTools:
             return ToolResult("Fehler: Bitte eine Entität (Vertragsnummer, Zähler, Anbieter, Dateiname) angeben.")
         text = self._get_graph().lookup(entity)
         evidence = [_tool_evidence("graph_lookup", "Dokumentgraph", text, entity.strip().casefold())]
+        return ToolResult(text, evidence)
+
+    def graph_timeline(self, entity: str) -> ToolResult:
+        if not entity or not entity.strip():
+            return ToolResult("Fehler: Bitte ein Vertragskonto, eine Zählernummer oder einen Dateinamen angeben.")
+        text = self._get_graph().get_timeline(entity)
+        evidence = [_tool_evidence("graph_timeline", "Abrechnungs-Timeline", text, entity.strip().casefold())]
+        return ToolResult(text, evidence)
+
+    def graph_paths(self, source: str, target: str) -> ToolResult:
+        if not source or not target:
+            return ToolResult("Fehler: Bitte Quell- und Zielentität angeben.")
+        text = self._get_graph().find_paths(source, target)
+        evidence = [_tool_evidence("graph_paths", "Graph-Pfade", text, f"{source}->{target}")]
         return ToolResult(text, evidence)
 
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
@@ -435,8 +535,20 @@ class AgentTools:
                 text = self.get_document_outline(str(args.get("filename") or args.get("filename_filter") or ""))
                 ok = not text.startswith(("Keine", "Unbekannte", "Dateiname"))
                 return ToolResult(text, [_tool_evidence(clean, "Dokumentgliederung", text, text[:40])] if ok else [])
+            if clean == "compare_documents":
+                return self.compare_documents(
+                    args.get("filenames") or args.get("filename") or args.get("files") or "",
+                    args.get("fields") or args.get("field") or "",
+                )
             if clean == "graph_lookup":
                 return self.graph_lookup(str(args.get("entity") or args.get("query") or ""))
+            if clean == "graph_timeline":
+                return self.graph_timeline(str(args.get("entity") or args.get("query") or ""))
+            if clean == "graph_paths":
+                return self.graph_paths(
+                    str(args.get("source") or args.get("entity1") or ""),
+                    str(args.get("target") or args.get("entity2") or "")
+                )
             if clean == "calculate":
                 expression = str(args.get("expression") or args.get("query") or "")
                 text = self.calculate(expression)

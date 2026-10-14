@@ -1,11 +1,14 @@
-import json
 import hashlib
+import json
 from pathlib import Path
-from diskcache import Cache
-import ollama
 
-# Projekt-Hauptverzeichnis dynamisch ermitteln
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+import ollama
+from diskcache import Cache
+
+from src.config import CAPTION_MODEL, PROJECT_ROOT
+from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
+
+_OLLAMA_DOWN_ERRORS = OLLAMA_DOWN_ERRORS
 
 
 class ImageCaptioner:
@@ -13,11 +16,12 @@ class ImageCaptioner:
             self,
             processed_dir: Path = PROJECT_ROOT / "data" / "processed",
             cache_dir: Path = PROJECT_ROOT / ".cache" / "image_captions",
-            model_name: str = "gemma3:4b"
+            model_name: str = CAPTION_MODEL
     ):
         self.processed_dir = processed_dir
         self.cache = Cache(cache_dir)
         self.model_name = model_name
+        self._ollama_down = False
 
     def _get_image_hash(self, image_path: Path) -> str:
         """Erzeugt einen SHA-256 Hash der Bilddatei für den Cache."""
@@ -34,8 +38,12 @@ class ImageCaptioner:
         removed_chunks = 0
 
         for json_file in sorted(json_files):
-            with open(json_file, "r", encoding="utf-8") as f:
-                chunks = json.load(f)
+            try:
+                with open(json_file, "r", encoding="utf-8") as f:
+                    chunks = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                # Beschädigte Dateien behandelt process_all_jsons; hier nur überspringen statt abzustürzen.
+                continue
 
             filtered_chunks = []
             json_changed = False
@@ -62,8 +70,7 @@ class ImageCaptioner:
                     json_changed = True
 
             if json_changed:
-                with open(json_file, "w", encoding="utf-8") as f:
-                    json.dump(filtered_chunks, f, ensure_ascii=False, indent=2)
+                atomic_write_json(json_file, filtered_chunks)
 
         for duplicate_path in duplicate_paths:
             if duplicate_path.exists():
@@ -72,7 +79,7 @@ class ImageCaptioner:
         return removed_chunks
 
     def generate_caption(self, image_path: Path) -> str:
-        """Generiert eine Bildbeschreibung mit Ollama oder lädt sie aus dem Cache[cite: 1, 23, 24]."""
+        """Generiert eine Bildbeschreibung mit Ollama oder lädt sie aus dem Cache."""
         if not image_path.exists():
             raise FileNotFoundError(f"Bilddatei nicht gefunden: {image_path}")
 
@@ -85,12 +92,12 @@ class ImageCaptioner:
 
         print(f"  -> Generiere neue Caption mit {self.model_name} (das kann einen Moment dauern)...")
 
-        # Spezifischer Prompt für Energieabrechnungen
         prompt = (
-            "Du bist ein Experte für die Analyse von Energieabrechnungen. "
-            "Beschreibe dieses Bild detailliert auf Deutsch. Wenn es ein Balken- oder Liniendiagramm ist, "
-            "nenne die Achsenbeschriftungen, die höchsten und niedrigsten Monate/Werte "
-            "sowie den generellen Verbrauchstrend. Wenn es Zählerstände zeigt, lies diese genau ab."
+            "Du analysierst ein Bild aus einem Dokument (z. B. Rechnung, Vertrag, Abrechnung, Bescheid). "
+            "Beschreibe es detailliert auf Deutsch. Wenn es ein Diagramm ist, nenne die Achsenbeschriftungen, "
+            "die höchsten und niedrigsten Werte mit ihrem Zeitpunkt sowie den generellen Trend. "
+            "Wenn es Zahlen, Messwerte, Zählerstände oder Text zeigt, lies diese genau ab. "
+            "Logos, Unterschriften und Schmuckgrafiken nur kurz benennen."
         )
 
         response = ollama.generate(
@@ -102,12 +109,16 @@ class ImageCaptioner:
         if not caption:
             raise RuntimeError(f"Ollama lieferte keine Bildbeschreibung für {image_path.name}.")
 
-        # 2. Ergebnis im Cache speichern[cite: 1, 24]
+        # 2. Ergebnis im Cache speichern
         self.cache[img_hash] = caption
         return caption
 
     def process_all_jsons(self):
-        """Durchläuft alle JSONs, sucht nach Platzhaltern und aktualisiert sie[cite: 1, 23, 24]."""
+        """Durchläuft alle JSONs, sucht nach Platzhaltern und aktualisiert sie.
+
+        Ein fehlgeschlagenes Bild stoppt weder die übrigen Bilder noch verwirft es bereits erzeugte
+        Beschreibungen: Es bleibt mit needs_caption=True markiert und wird beim nächsten Lauf erneut versucht.
+        """
         json_files = sorted(self.processed_dir.glob("*_chunks.json"))
         removed_duplicates = self._remove_duplicate_images(json_files)
         if removed_duplicates:
@@ -119,27 +130,41 @@ class ImageCaptioner:
                 with open(json_file, "r", encoding="utf-8") as f:
                     chunks = json.load(f)
             except json.JSONDecodeError:
-                print(f"⚠️ Warnung: {json_file.name} war nach einem Absturz beschädigt. Lösche defekte Datei...")
-                json_file.unlink()
+                # Nicht löschen, sondern beiseite legen: Die Datei fehlt damit für den nächsten Parse-Lauf
+                # (wie zuvor), bleibt aber zur Fehlersuche erhalten.
+                quarantine = json_file.with_name(json_file.name + ".corrupt")
+                print(f"⚠️ Warnung: {json_file.name} ist beschädigt. Verschiebe nach {quarantine.name}...")
+                json_file.replace(quarantine)
                 continue
 
             updated = False
             for chunk in chunks:
                 if chunk.get("chunk_type") == "image" and chunk.get("metadata", {}).get("needs_caption"):
+                    if self._ollama_down:
+                        break
                     image_path = Path(chunk["metadata"]["image_path"])
                     print(f"Analysiere Bild: {image_path.name}")
 
-                    # Caption via Gemma3 (oder Cache) holen[cite: 1, 23, 24]
-                    caption = self.generate_caption(image_path)
+                    try:
+                        caption = self.generate_caption(image_path)
+                    except _OLLAMA_DOWN_ERRORS as exc:
+                        self._ollama_down = True
+                        print(
+                            f"⚠️ Ollama nicht erreichbar oder abgestürzt ({type(exc).__name__}). "
+                            "Restliche Bilder bleiben unbeschriftet und werden beim nächsten Lauf nachgeholt."
+                        )
+                        break
+                    except Exception as exc:  # noqa: BLE001 - ein Bild soll nicht alle anderen blockieren
+                        print(f"⚠️ Bildbeschreibung für {image_path.name} fehlgeschlagen: {exc}")
+                        continue
 
-                    # Chunk updaten[cite: 1, 23]
                     chunk["content"] = f"Bildbeschreibung: {caption}"
                     chunk["metadata"]["needs_caption"] = False
                     updated = True
 
+            # Auch bei Teilerfolg speichern: bereits erzeugte Beschreibungen gehen nicht verloren.
             if updated:
-                with open(json_file, "w", encoding="utf-8") as f:
-                    json.dump(chunks, f, ensure_ascii=False, indent=2)
+                atomic_write_json(json_file, chunks)
                 print(f"Erfolgreich gespeichert: {json_file.name} aktualisiert.")
             else:
                 print("Keine neuen Bilder zu verarbeiten.")

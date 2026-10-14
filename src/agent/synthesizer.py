@@ -117,7 +117,7 @@ class SourceSynthesizer:
             context_str += f"[{idx}] Quelle: {where}{chapter}\nInhalt: {content}\n\n"
 
         prompt = (
-            "Du bist ein präziser Energie- und Versorgungs-Auditor. Antworte auf Deutsch, klar und knapp, "
+            "Du bist ein präziser Dokumenten-Analyst. Antworte auf Deutsch, klar und knapp, "
             "mit den wichtigsten Zahlen, Einheiten und Zeiträumen. Beantworte die Nutzerfrage basierend "
             "AUSSCHLIESSLICH auf den bereitgestellten Quellen.\n"
             "Regeln:\n"
@@ -126,7 +126,7 @@ class SourceSynthesizer:
             "2. Erfinde keine Fakten und führe keine unbelegten Annahmen ein.\n"
             "3. Wenn die Information in den Quellen fehlt, sage das ausdrücklich.\n"
             "4. Bei widersprüchlichen Angaben nenne beide Angaben mit ihrer jeweiligen Quelle.\n"
-            "5. Nenne bei Preisen immer Einheit, Brutto/Netto (falls angegeben) und Zeitraum.\n"
+            "5. Nenne bei Preisen und Beträgen immer Einheit, Brutto/Netto (falls angegeben) und Zeitraum.\n"
             "6. Gib Rechenergebnisse aus den Quellen unverändert wieder.\n\n"
             f"Quellen:\n{context_str}"
             f"Nutzerfrage: {query}\n"

@@ -1,5 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "localllm"
 version = "0.1.0"
-requires-python = ">=3.13"
-dependencies = []
+description = "Lokale KI-Agenten-Architektur für Dokumentenanalyse (RAG, GraphRAG, ReAct)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "chromadb>=0.5.0",
+    "networkx>=3.0",
+    "ollama>=0.3.0",
+    "pydantic>=2.0",
+    "pymupdf>=1.23.0",
+    "rapidocr_onnxruntime>=1.4.4",
+    "sentence-transformers>=3.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src", "evaluation"]

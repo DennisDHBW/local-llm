@@ -1,12 +1,16 @@
 import pymupdf
 import json
 import re
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import ollama
 from pydantic import BaseModel, Field
 
 from src.config import PARSER_MODEL, PROJECT_ROOT
+from src.enrichment.schema import detect_schema_id
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentChunk(BaseModel):
@@ -31,6 +35,59 @@ class DocumentParser:
         self.image_dir = self.processed_dir / "images"
         self.image_dir.mkdir(exist_ok=True)
         self.extraction_model = extraction_model
+        self._ocr_engine = None
+
+    def _ocr_page(self, page: Any) -> str:
+        """Liest eine bildbasierte Seite optional über RapidOCR aus."""
+        try:
+            if self._ocr_engine is None:
+                from rapidocr_onnxruntime import RapidOCR
+                self._ocr_engine = RapidOCR()
+
+            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+            result, _ = self._ocr_engine(pixmap.tobytes("png"))
+            if not result:
+                return ""
+            return "\n".join(
+                str(item[1]).strip() for item in result
+                if len(item) > 1 and str(item[1]).strip()
+            )
+        except ImportError:
+            logger.warning(
+                "OCR-Fallback benötigt das optionale Paket rapidocr_onnxruntime."
+            )
+        except Exception as exc:
+            logger.warning("OCR für Seite %s fehlgeschlagen: %s", page.number + 1, exc)
+        return ""
+
+    @staticmethod
+    def _split_semantically(text: str, max_chars: int = 1500) -> List[str]:
+        """Packt Absätze/Sätze in Chunks; nur überlange Einzelsätze werden hart geteilt."""
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", text) if part.strip()]
+        units: List[str] = []
+        for paragraph in paragraphs:
+            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
+            units.extend(sentences or [paragraph])
+
+        chunks: List[str] = []
+        current = ""
+        for unit in units:
+            if len(unit) > max_chars:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                for start in range(0, len(unit), max_chars):
+                    chunks.append(unit[start:start + max_chars].strip())
+            elif not current:
+                current = unit
+            elif len(current) + 1 + len(unit) <= max_chars:
+                current += " " + unit
+            else:
+                chunks.append(current)
+                current = unit
+        if current:
+            chunks.append(current)
+        return chunks
 
     @staticmethod
     def _is_header_row(first_row: List[Any]) -> bool:
@@ -63,6 +120,7 @@ class DocumentParser:
         fallback_date = self._find_fallback_date(sample_text)
         fallback_meta = {
             "doc_type": "Unbekannt",
+            "schema_id": detect_schema_id(None, sample_text),
             "provider": "Unbekannt",
             "customer_name": "Unbekannt",
             "doc_date": fallback_date or "Unbekannt",
@@ -107,8 +165,10 @@ Textauszug:
             if not extracted_date or extracted_date == "null":
                 extracted_date = fallback_date or "Unbekannt"
 
+            doc_type = str(data.get("doc_type") or "Unbekannt")
             return {
                 "doc_type": str(data.get("doc_type") or "Unbekannt"),
+                "schema_id": detect_schema_id(doc_type, sample_text),
                 "provider": str(data.get("provider") or "Unbekannt"),
                 "customer_name": str(data.get("customer_name") or "Unbekannt"),
                 "doc_date": str(extracted_date),
@@ -190,15 +250,27 @@ Textauszug:
         return current
 
     def parse_pdf(self, filename: str) -> List[DocumentChunk]:
+        """Bisheriger Name von `parse_file` (bleibt für bestehende Aufrufer erhalten)."""
+        return self.parse_file(filename)
+
+    def parse_file(self, filename: str) -> List[DocumentChunk]:
+        """Zerlegt eine Quelldatei in Chunks. Unterstützt alles in `SOURCE_SUFFIXES` (PDF, Bilder, Text);
+        Seiten ohne Textebene (Scans, Fotos) werden per OCR gelesen."""
         pdf_path = self.raw_dir / filename
         if not pdf_path.exists():
             raise FileNotFoundError(f"Datei nicht gefunden: {pdf_path}")
+        # Präfix für Chunk-IDs und Ausgabedateien. PDFs behalten den reinen Namen (bestehende Indizes bleiben
+        # gültig); andere Typen tragen die Endung mit, damit 'scan.png' nicht 'scan.pdf' überschreibt.
+        suffix = pdf_path.suffix.casefold()
+        doc_stem = pdf_path.stem if suffix == ".pdf" else f"{pdf_path.stem}_{suffix.lstrip('.')}"
 
         doc = pymupdf.open(pdf_path)
         chunks: List[DocumentChunk] = []
         heading_stack: List[str] = []
 
-        page1_text = doc[0].get_text("text") if len(doc) > 0 else ""
+        page1_text = doc[0].get_text("text").strip() if len(doc) > 0 else ""
+        if not page1_text and len(doc) > 0:
+            page1_text = self._ocr_page(doc[0])
         print(f"  -> Extrahiere Metadaten für {filename}...")
         doc_metadata = self._extract_document_metadata(page1_text, filename)
         print(
@@ -207,6 +279,7 @@ Textauszug:
         base_chunk_meta = {
             "filename": filename,
             "doc_type": doc_metadata["doc_type"],
+            "schema_id": doc_metadata["schema_id"],
             "provider": doc_metadata["provider"],
             "customer_name": doc_metadata["customer_name"],
             "doc_date": doc_metadata["doc_date"],
@@ -224,10 +297,25 @@ Textauszug:
                                 font_sizes.append(span["size"])
         base_font_size = sorted(font_sizes)[len(font_sizes) // 2] if font_sizes else 10.0
 
+        previous_table: Optional[Dict[str, Any]] = None
         for page_idx, page in enumerate(doc):
             page_num = page_idx + 1
             tables = page.find_tables()
             page_dict = page.get_text("dict")
+            page_text = page.get_text("text").strip()
+            if not page_text:
+                ocr_text = self._ocr_page(page)
+                if ocr_text:
+                    for text_idx, text_chunk in enumerate(self._split_semantically(ocr_text)):
+                        chunks.append(DocumentChunk(
+                            chunk_id=f"{doc_stem}_p{page_num}_ocr_{text_idx}",
+                            chunk_type="text",
+                            content=text_chunk,
+                            heading_stack=list(heading_stack),
+                            page_number=page_num,
+                            metadata={**base_chunk_meta, "ocr": True},
+                        ))
+                continue
             table_bboxes = []
             heading_events = (
                 self._heading_events(page_dict, [pymupdf.Rect(t.bbox) for t in tables.tables], base_font_size)
@@ -248,10 +336,25 @@ Textauszug:
                         data_rows = rows[1:]
                     else:
                         headers = [f"Spalte_{i + 1}" for i in range(len(rows[0]))]
+                        if (
+                            previous_table
+                            and previous_table["page_number"] == page_num - 1
+                            and len(previous_table["headers"]) == len(headers)
+                        ):
+                            headers = previous_table["headers"]
                         data_rows = rows
 
                     table_bboxes.append(pymupdf.Rect(table.bbox))
                     table_stack = self._stack_before(heading_stack, heading_events, table.bbox[1], base_font_size)
+                    continues_table = (
+                        previous_table is not None
+                        and previous_table["page_number"] == page_num - 1
+                        and len(previous_table["headers"]) == len(headers)
+                    )
+                    table_id = (
+                        previous_table["table_id"] if continues_table
+                        else f"table_p{page_num}_{t_idx}"
+                    )
 
                     for r_idx, row in enumerate(data_rows):
                         row_pairs = []
@@ -268,18 +371,24 @@ Textauszug:
                         row_content = " | ".join(row_pairs)
                         chunk_meta = dict(base_chunk_meta)
                         chunk_meta.update({
-                            "table_id": f"table_p{page_num}_{t_idx}",
+                            "table_id": table_id,
                             "columns": headers,
+                            "continued_from_page": previous_table["page_number"] if continues_table else None,
                         })
 
                         chunks.append(DocumentChunk(
-                            chunk_id=f"{pdf_path.stem}_p{page_num}_tbl{t_idx}_r{r_idx}",
+                            chunk_id=f"{doc_stem}_p{page_num}_tbl{t_idx}_r{r_idx}",
                             chunk_type="table_row",
                             content=row_content,
                             heading_stack=list(table_stack),
                             page_number=page_num,
                             metadata=chunk_meta
                         ))
+                    previous_table = {
+                        "page_number": page_num,
+                        "headers": headers,
+                        "table_id": table_id,
+                    }
 
             current_paragraph = ""
 
@@ -300,21 +409,22 @@ Textauszug:
                             is_heading = self._is_heading_span(size, flags, base_font_size)
 
                             if is_heading and self._is_valid_heading(text):
-                                if len(current_paragraph) >= 20:
-                                    chunks.append(DocumentChunk(
-                                        chunk_id=f"{pdf_path.stem}_p{page_num}_txt_{len(chunks)}",
-                                        chunk_type="text",
-                                        content=current_paragraph,
-                                        heading_stack=list(heading_stack),
-                                        page_number=page_num,
-                                        metadata=dict(base_chunk_meta)
-                                    ))
-                                    current_paragraph = ""
+                                for text_chunk in self._split_semantically(current_paragraph):
+                                    if len(text_chunk) >= 20:
+                                        chunks.append(DocumentChunk(
+                                            chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
+                                            chunk_type="text",
+                                            content=text_chunk,
+                                            heading_stack=list(heading_stack),
+                                            page_number=page_num,
+                                            metadata=dict(base_chunk_meta)
+                                        ))
+                                current_paragraph = ""
 
                                 heading_stack = self._push_heading(heading_stack, text, size, base_font_size)
 
                                 chunks.append(DocumentChunk(
-                                    chunk_id=f"{pdf_path.stem}_p{page_num}_hd_{len(chunks)}",
+                                    chunk_id=f"{doc_stem}_p{page_num}_hd_{len(chunks)}",
                                     chunk_type="heading",
                                     content=text,
                                     heading_stack=list(heading_stack),
@@ -327,26 +437,30 @@ Textauszug:
                                 else:
                                     current_paragraph = text
 
-                                if len(current_paragraph) >= 1500:
-                                    chunks.append(DocumentChunk(
-                                        chunk_id=f"{pdf_path.stem}_p{page_num}_txt_{len(chunks)}",
-                                        chunk_type="text",
-                                        content=current_paragraph,
-                                        heading_stack=list(heading_stack),
-                                        page_number=page_num,
-                                        metadata=dict(base_chunk_meta)
-                                    ))
-                                    current_paragraph = ""
+                    if current_paragraph:
+                        for text_chunk in self._split_semantically(current_paragraph):
+                            if len(text_chunk) >= 20:
+                                chunks.append(DocumentChunk(
+                                    chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
+                                    chunk_type="text",
+                                    content=text_chunk,
+                                    heading_stack=list(heading_stack),
+                                    page_number=page_num,
+                                    metadata=dict(base_chunk_meta)
+                                ))
+                        current_paragraph = ""
 
-            if len(current_paragraph) >= 20:
-                chunks.append(DocumentChunk(
-                    chunk_id=f"{pdf_path.stem}_p{page_num}_txt_{len(chunks)}",
-                    chunk_type="text",
-                    content=current_paragraph,
-                    heading_stack=list(heading_stack),
-                    page_number=page_num,
-                    metadata=dict(base_chunk_meta)
-                ))
+            if current_paragraph:
+                for text_chunk in self._split_semantically(current_paragraph):
+                    if len(text_chunk) >= 20:
+                        chunks.append(DocumentChunk(
+                            chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
+                            chunk_type="text",
+                            content=text_chunk,
+                            heading_stack=list(heading_stack),
+                            page_number=page_num,
+                            metadata=dict(base_chunk_meta)
+                        ))
 
             image_list = page.get_images(full=True)
             for img_idx, img in enumerate(image_list):
@@ -355,7 +469,7 @@ Textauszug:
                 image_bytes = base_image["image"]
                 image_ext = base_image["ext"]
 
-                image_filename = f"{pdf_path.stem}_p{page_num}_img_{img_idx}.{image_ext}"
+                image_filename = f"{doc_stem}_p{page_num}_img_{img_idx}.{image_ext}"
                 image_filepath = self.image_dir / image_filename
 
                 with open(image_filepath, "wb") as img_file:
@@ -369,7 +483,7 @@ Textauszug:
                 })
 
                 chunks.append(DocumentChunk(
-                    chunk_id=f"{pdf_path.stem}_p{page_num}_img_{img_idx}",
+                    chunk_id=f"{doc_stem}_p{page_num}_img_{img_idx}",
                     chunk_type="image",
                     content=f"Bilddatei zur lokalen Analyse: {image_filename}",
                     heading_stack=list(heading_stack),
@@ -379,8 +493,8 @@ Textauszug:
 
         doc.close()
 
-        out_file = self.processed_dir / f"{pdf_path.stem}_chunks.json"
-        temp_file = self.processed_dir / f"{pdf_path.stem}_chunks.json.tmp"
+        out_file = self.processed_dir / f"{doc_stem}_chunks.json"
+        temp_file = self.processed_dir / f"{doc_stem}_chunks.json.tmp"
         chunks_dict = [chunk.model_dump() for chunk in chunks]
 
         with open(temp_file, "w", encoding="utf-8") as f:

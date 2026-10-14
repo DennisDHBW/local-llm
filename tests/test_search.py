@@ -4,7 +4,6 @@ import math
 
 from src.retrieval.search import (
     _BM25Index,
-    _bm25_scores,
     invalidate_bm25_cache,
     search_collection,
 )
@@ -73,7 +72,7 @@ def test_idf_uses_log_and_prefers_rare_terms():
     common = index.scores("strom")[0]
     assert rare > common > 0
     # Ein Begriff, der in allen Dokumenten steht, darf nicht negativ/NaN werden.
-    all_docs = _bm25_scores("strom", ["strom a", "strom b"])
+    all_docs = _BM25Index([""] * 2, ["strom a", "strom b"], [{}] * 2).scores("strom")
     assert all(s > 0 and not math.isnan(s) for s in all_docs)
 
 

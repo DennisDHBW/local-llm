@@ -4,9 +4,17 @@ Ablauf: Das Modell ruft Werkzeuge auf -> Ergebnisse werden als Evidenz gesammelt
 am Ende formuliert der SourceSynthesizer die Antwort mit nummerierten Quellenangaben.
 Das Callback-Format ist unverändert (thinking_start, action_execution,
 observation_result, final_answer).
+
+Robustheit:
+- Werkzeugausgaben werden im Modellverlauf gekürzt (MAX_OBSERVATION_CHARS); der Callback und die Evidenz
+  behalten den vollen Text.
+- Die Prompt-Länge (prompt_eval_count) wird geloggt; ab CONTEXT_WARN_RATIO von num_ctx gibt es eine Warnung,
+  weil Ollama zu lange Prompts am Anfang (Systemprompt!) still abschneidet.
+- Ausfälle von Ollama beim Chat-Aufruf führen zu einer ⚠️-Antwort statt zu einer Exception.
 """
 
 import json
+import logging
 import re
 from typing import Any, Callable, Optional
 
@@ -14,25 +22,41 @@ import ollama
 
 from src.agent.synthesizer import SourceSynthesizer, number_check_note
 from src.agent.tools import TOOL_SCHEMAS, AgentTools
-from src.config import AGENT_MODEL, CHECK_NUMBERS, SYNTH_MODEL, ollama_options
+from src.config import (
+    AGENT_MODEL, CHECK_NUMBERS, CONTEXT_WARN_RATIO, MAX_OBSERVATION_CHARS, NUM_CTX, SYNTH_MODEL,
+    USE_SYNTHESIZER, ollama_options,
+)
+from src.enrichment.facts import load_facts
+from src.enrichment.schema import agent_hints
+from src.utils import OLLAMA_DOWN_ERRORS
 
-SYSTEM_PROMPT = """Du bist ein präziser Assistent zur Analyse von Energie- und Versorgungsdokumenten \
-(Rechnungen, Verträge, Tarifinformationen). Stütze dich ausschließlich auf die Ergebnisse deiner Werkzeuge.
+logger = logging.getLogger(__name__)
+
+# Domänenneutral. Fachregeln (z. B. netto/brutto bei Energiepreisen) stehen als `agent_hints` in den
+# Schema-Dateien unter config/schemas und werden angehängt, wenn solche Dokumente im Bestand sind.
+SYSTEM_PROMPT = """Du bist ein präziser Assistent zur Analyse von Dokumenten (Rechnungen, Verträge, \
+Abrechnungen, Bescheide, Schreiben). Stütze dich ausschließlich auf die Ergebnisse deiner Werkzeuge.
 
 Vorgehen:
-- Fragen zu Anzahl, Typ, Datum, Anbieter oder Nummern der Dokumente: zuerst get_document_inventory.
-- Fragen zu Preisen, Beträgen, Verbrauch, Laufzeit oder Fristen: zuerst get_document_facts, danach mit search im Text oder in Tabellen gegenprüfen.
+- Fragen zu Anzahl, Typ, Datum, Absender oder Nummern der Dokumente: zuerst get_document_inventory.
+- Fragen zu Preisen, Beträgen, Mengen, Laufzeit oder Fristen: zuerst get_document_facts, danach mit search im Text oder in Tabellen gegenprüfen.
 - Ist ein bestimmtes Dokument gemeint, übergib den Dateinamen als filename.
-- Fragen über mehrere Dokumente, Verträge oder Zähler hinweg: graph_lookup.
-- Es gibt Strom-, Wasser- und Abwasserdokumente. Prüfe die Energieart, bevor du Werte vergleichst oder addierst.
-- Preise sind mal netto, mal brutto angegeben (siehe Preisbasis in den Fakten). Nenne immer die Basis dazu und \
-vergleiche nur Preise derselben Basis; brutto = netto * 1,19.
+- Fragen über mehrere Dokumente, Verträge oder Kennungen hinweg: graph_lookup.
+- Fragen zur zeitlichen Entwicklung über mehrere Dokumente/Zeiträume hinweg: graph_timeline.
+- Fragen zu Verbindungen, Abhängigkeiten oder Pfaden zwischen zwei Dokumenten/Entitäten: graph_paths.
+- Zahlen mehrerer Dokumente gegenüberstellen (Differenz, Änderung in %): compare_documents.
 - Rechne immer mit calculate, nie im Kopf. Übergib nur Zahlen und Operatoren.
-- Rechnungsnummer (Verbrauchsabrechnungsnummer) und Vertragskonto sind verschiedene Dinge.
-- Ein Gesamt-Grundpreis enthält seine Unterpositionen bereits. Addiere nicht doppelt.
 - Rufe pro Schritt höchstens ein bis drei Werkzeuge auf und wiederhole keine identischen Aufrufe.
 - Sobald du genug Fakten hast, antworte ohne weiteren Werkzeugaufruf kurz mit Zahlen, Einheiten und Zeiträumen. \
 Fehlt eine Information in den Dokumenten, sage das ausdrücklich."""
+
+
+def build_system_prompt(hints: list[str], base: str = SYSTEM_PROMPT) -> str:
+    """Systemprompt plus Fachregeln der Dokumenttypen, die tatsächlich im Bestand sind."""
+    if not hints:
+        return base
+    return base + "\n\nFachregeln für die vorhandenen Dokumente:\n" + "\n".join(f"- {hint}" for hint in hints)
+
 
 MAX_CALLS_PER_STEP = 3
 MAX_EVIDENCE = 12
@@ -45,6 +69,7 @@ NO_TOOL_HINT = (
     "zuerst ein passendes Werkzeug auf."
 )
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_OLLAMA_ERRORS = (*OLLAMA_DOWN_ERRORS, ollama.ResponseError)
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -86,13 +111,32 @@ def _format_action_input(arguments: dict) -> str:
     return ", ".join(f"{k}={v}" for k, v in items.items())
 
 
+def _truncate_observation(text: str, limit: int = MAX_OBSERVATION_CHARS) -> str:
+    """Kürzt eine Werkzeugausgabe für den Modellverlauf (der Kopf enthält meist die besten Treffer)."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + f"\n... [gekürzt, {len(text) - limit} Zeichen ausgelassen]"
+
+
+def _check_context_usage(response: Any, iteration: int) -> None:
+    used = _get(response, "prompt_eval_count")
+    if isinstance(used, int) and not isinstance(used, bool):
+        logger.debug("Iteration %d: Prompt %d von %d Tokens", iteration, used, NUM_CTX)
+        if used > CONTEXT_WARN_RATIO * NUM_CTX:
+            logger.warning(
+                "Iteration %d: Prompt hat %d von %d Tokens (> %.0f %%). Ollama kann den Anfang (Systemprompt) "
+                "still abschneiden. ENERGY_NUM_CTX erhöhen oder ENERGY_MAX_OBSERVATION_CHARS senken.",
+                iteration, used, NUM_CTX, CONTEXT_WARN_RATIO * 100,
+            )
+
+
 class ReActAgent:
     def __init__(
         self,
         model_name: str = AGENT_MODEL,
         tools: Optional[AgentTools] = None,
         synthesizer: Optional[SourceSynthesizer] = None,
-        use_synthesizer: bool = True,
+        use_synthesizer: bool = USE_SYNTHESIZER,
     ):
         self.model_name = model_name
         self.tools = tools if tools is not None else AgentTools()
@@ -100,6 +144,15 @@ class ReActAgent:
         self.use_synthesizer = use_synthesizer
         self.system_prompt = SYSTEM_PROMPT
         self.last_evidence: list[dict] = []
+
+    def _system_prompt(self) -> str:
+        """Bei jeder Frage neu: der Bestand kann sich zwischen zwei Fragen geändert haben (Import)."""
+        try:
+            records = load_facts(self.tools.processed_dir)
+            hints = agent_hints({record.get("schema_id") for record in records.values()})
+        except Exception:  # noqa: BLE001 - ohne Fachregeln antworten ist besser als gar nicht
+            hints = []
+        return build_system_prompt(hints, self.system_prompt)
 
     @staticmethod
     def _select_evidence(evidence: list[dict]) -> list[dict]:
@@ -129,9 +182,12 @@ class ReActAgent:
         selected = self._select_evidence(evidence)
         self.last_evidence = selected
         answer = draft
-        if self.use_synthesizer and selected:
+        if selected and (self.use_synthesizer or not draft):
             try:
                 answer = self.synthesizer.generate_answer(query, selected)
+            except Exception as exc:  # noqa: BLE001
+                answer = draft or f"Die Antwort konnte nicht formuliert werden: {exc}"
+            else:
                 sources = self.synthesizer.format_sources(selected, answer)
                 if sources:
                     answer = f"{answer}\n\n{sources}"
@@ -139,8 +195,17 @@ class ReActAgent:
                     note = number_check_note(query, selected, answer)
                     if note:
                         answer = f"{answer}\n\n{note}"
-            except Exception as exc:  # noqa: BLE001
-                answer = draft or f"Die Antwort konnte nicht formuliert werden: {exc}"
+        elif selected and draft:
+            try:
+                sources = self.synthesizer.format_sources(selected, draft)
+                if sources:
+                    answer = f"{answer}\n\n{sources}"
+                if CHECK_NUMBERS:
+                    note = number_check_note(query, selected, answer)
+                    if note:
+                        answer = f"{answer}\n\n{note}"
+            except Exception:  # noqa: BLE001
+                answer = draft
         if not answer:
             answer = "Zu der Frage konnten keine belastbaren Informationen in den Dokumenten gefunden werden."
         if callback:
@@ -158,7 +223,7 @@ class ReActAgent:
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")
 
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": self._system_prompt()},
             {"role": "user", "content": user_query.strip()},
         ]
         evidence: list[dict] = []
@@ -178,12 +243,21 @@ class ReActAgent:
             if callback:
                 callback({"type": "thinking_start", "iteration": iteration})
 
-            response = ollama.chat(
-                model=self.model_name,
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                options=ollama_options(temperature=0.0),
-            )
+            try:
+                response = ollama.chat(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=TOOL_SCHEMAS,
+                    options=ollama_options(temperature=0.0),
+                )
+            except _OLLAMA_ERRORS as exc:
+                logger.error("ollama.chat fehlgeschlagen: %s: %s", type(exc).__name__, exc)
+                return (
+                    f"⚠️ Das Sprachmodell ist nicht erreichbar oder meldete einen Fehler "
+                    f"({type(exc).__name__}: {exc}). Prüfe `ollama ps` und ob das Modell '{self.model_name}' "
+                    "geladen ist."
+                )
+            _check_context_usage(response, iteration)
             message = _get(response, "message")
             content = _clean_content(_get(message, "content"))
             calls = _parse_tool_calls(_get(message, "tool_calls"))[:MAX_CALLS_PER_STEP]
@@ -230,7 +304,7 @@ class ReActAgent:
                     observation = result.text
                     evidence.extend(result.evidence)
 
-                messages.append({"role": "tool", "tool_name": name, "content": observation})
+                messages.append({"role": "tool", "tool_name": name, "content": _truncate_observation(observation)})
                 if callback:
                     callback({"type": "observation_result", "iteration": iteration, "observation": observation})
 

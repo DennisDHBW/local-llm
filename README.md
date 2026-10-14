@@ -96,6 +96,10 @@ nicht vollständig implementiert. Die generierten Verzeichnisse `data/`,
   2. *Hierarchie-Erkennung via Font-Heuristik*: Erkennung von Überschriften über Schriftgröße (`font_size`) und Schriftschnitt (`is_bold`); dynamische Führung eines Pfad-Stapels (`heading_stack`, z. B. `["Kapitel 1", "Abschnitt 1.2"]`).
   3. *Absatz-Aggregation*: Zusammenfassung zusammengehöriger Spans zu Sinnabsätzen mit Längenbegrenzung (`min_chars = 20`, `max_block_chars = 1500`) und aktivem Überschriften-Prefix.
   4. *Bildextraktion*: Extraktion von Bild-Bytes inklusive Verknüpfung mit Seitenzahl und Dokumentkoordinaten.
+* **Dynamische Fakten-Schemata**: `config/schemas/*.json` definiert die Felder für Dokumenttypen außerhalb
+  der festen Energie-Normalisierung. Die Ingestion setzt `schema_id` in die Chunk-Metadaten und fällt bei
+  unbekannten Dokumenten auf `generic_invoice_schema.json` zurück. Neue Dokumenttypen können durch eine
+  weitere Schema-Datei mit `id`, `document_types` und `properties` ergänzt werden, ohne Python-Code zu ändern.
 * **Vier typisierte Chunk-Formate**:
   * `text`: Fließtext-Absatz mit vorangestelltem `heading_stack`.
   * `heading`: Überschriftenanker zur Steuerung des hierarchischen Dokumentpfads.

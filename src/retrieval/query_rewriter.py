@@ -25,7 +25,7 @@ class QueryRewriter:
             return cleaned
 
         prompt = (
-            "Du bist ein Suchanfragen-Optimierer für Energie- und Versorgungsdokumente. "
+            "Du bist ein Suchanfragen-Optimierer für eine Dokumentensammlung (Rechnungen, Verträge, Abrechnungen). "
             "Formuliere die folgende Nutzeranfrage in eine präzise, suchoptimierte Stichwort- oder Kurzphrase um, "
             "die in einer Vektordatenbank optimale Treffer liefert. Antworte NUR mit der optimierten Suchphrase ohne Erklärung.\n\n"
             f"Nutzeranfrage: {cleaned}\n"

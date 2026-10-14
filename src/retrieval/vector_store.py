@@ -125,6 +125,16 @@ class VectorStore:
                 batch_metadatas.append(safe_metadata)
                 batch_documents.append(embed_text)
 
+            # Chunks, die es in dieser Datei nicht mehr gibt (Dokument geändert und neu geparst), würden sonst
+            # als veraltete Treffer im Index bleiben.
+            filename = (chunks[0].get("metadata") or {}).get("filename") if chunks else None
+            if filename and not rebuild:
+                stored = self.collection.get(where={"filename": str(filename)}, include=[]).get("ids", [])
+                obsolete = sorted(set(stored) - set(chunk_ids))
+                if obsolete:
+                    self.collection.delete(ids=obsolete)
+                    print(f"  {len(obsolete)} veraltete Chunks von {filename} entfernt.")
+
             if batch_ids:
                 print(f"  Füge {len(batch_ids)} Chunks in ChromaDB ein...")
                 self.collection.upsert(

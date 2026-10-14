@@ -180,7 +180,7 @@ def test_agent_strips_think_blocks_and_honours_stop(tools, monkeypatch):
          _reply(content="<think>intern</think>Vier.")],
         monkeypatch,
     )
-    assert answer == "Vier."
+    assert answer.startswith("Vier.") and "intern" not in answer
     assert "⚠️" in agent.run("x", stop_check=lambda: True)
 
 

@@ -1,11 +1,14 @@
-"""Hybride Suche: semantische Chroma-Kandidaten + BM25-Treffer, fusioniert per RRF.
+"""Hybride Suche: semantische Chroma-Kandidaten + BM25-Treffer, fusioniert per RRF, optional verfeinert per Cross-Encoder.
 
 Optimierungen:
 - Pfad-Boost ignoriert reine Zahlen (wie '25') und nutzt exakte Token-Mengenvergleiche,
   um Fehl-Boosts bei Dateinamen-Zahlen zu verhindern.
+- Tokenisierung erhält Dezimalzahlen als EIN Token ('28,45' und '28.45' -> '28.45'; '3.512,00' -> '3512.00').
+  Vorher wurde '28,45' in '28' und '45' zerlegt, die lexikalische Suche war für Preisfragen blind.
 - BM25-IDF mit Logarithmus.
 - Echte Vereinigung: Lexikalische Treffer landen verlässlich in der Ergebnisliste.
 - BM25-Index wird pro (Collection, Filter, Größe) gecacht.
+- Cross-Encoder Reranking für maximale semantische Präzision der Top-Kandidaten.
 """
 
 from __future__ import annotations
@@ -16,9 +19,9 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
-from src.config import BM25_CACHE_TTL
+from src.config import BM25_CACHE_TTL, RERANKER_MODEL, USE_RERANKER
 
 
 @dataclass(frozen=True)
@@ -29,10 +32,13 @@ class SearchHit:
     score: float
     vector_score: float = 0.0
     lexical_score: float = 0.0
+    rerank_score: float = 0.0
     chunk_id: str = ""
 
 
-_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+# Zahl mit Dezimal-/Tausendertrennern ODER Wort. Die Zahl steht zuerst, damit sie nicht zerlegt wird.
+_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)+|[^\W_]+", re.UNICODE)
+_NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)+")
 _STOPWORDS = {
     "aber", "auch", "auf", "aus", "bei", "der", "die", "das", "den", "dem",
     "des", "ein", "eine", "einer", "eines", "für", "im", "in", "ist", "mit",
@@ -43,11 +49,40 @@ VECTOR_WEIGHT = 0.5
 LEXICAL_WEIGHT = 0.5
 RRF_K = 60
 
+# --- Reranker Singleton Lazy Loader ---
+_RERANKER_MODEL_INSTANCE: Any = None
+_RERANKER_LOCK = threading.Lock()
+
+
+def _get_reranker():
+    global _RERANKER_MODEL_INSTANCE
+    if not USE_RERANKER:
+        return None
+    if _RERANKER_MODEL_INSTANCE is None:
+        with _RERANKER_LOCK:
+            if _RERANKER_MODEL_INSTANCE is None:
+                try:
+                    from sentence_transformers import CrossEncoder
+                    _RERANKER_MODEL_INSTANCE = CrossEncoder(RERANKER_MODEL)
+                except Exception:
+                    _RERANKER_MODEL_INSTANCE = False
+    return _RERANKER_MODEL_INSTANCE if _RERANKER_MODEL_INSTANCE is not False else None
+
+
+def _normalize_number(token: str) -> str:
+    """'28,45' -> '28.45'; '3.512,00' -> '3512.00'; '01.01.2025' und '3.512' bleiben unverändert."""
+    if "," in token:
+        return token.replace(".", "").replace(",", ".")
+    return token
+
 
 def _tokens(text: str) -> list[str]:
-    """Tokenize German and international text with a small stemming heuristic."""
+    """Tokenize German and international text with a small stemming heuristic; Dezimalzahlen bleiben ganz."""
     tokens = []
     for token in _TOKEN_RE.findall(text.casefold()):
+        if _NUMBER_TOKEN_RE.fullmatch(token):
+            tokens.append(_normalize_number(token))
+            continue
         if len(token) < 2 or token in _STOPWORDS:
             continue
         for suffix in ("ern", "em", "er", "en", "es", "e", "s"):
@@ -204,7 +239,19 @@ def search_collection(
     max_rrf = (VECTOR_WEIGHT + LEXICAL_WEIGHT) / (RRF_K + 1)
 
     hits: list[SearchHit] = []
-    for cid, c in candidates.items():
+    candidates_list = list(candidates.items())
+
+    # Optionales Cross-Encoder Reranking über Top-Kandidaten
+    reranker = _get_reranker()
+    rerank_scores: list[float] = []
+    if reranker is not None and candidates_list:
+        try:
+            pairs = [[query, c[1]["document"]] for c in candidates_list]
+            rerank_scores = [float(s) for s in reranker.predict(pairs)]
+        except Exception:
+            rerank_scores = []
+
+    for idx, (cid, c) in enumerate(candidates_list):
         metadata = c["metadata"] or {}
         searchable_path = " ".join(
             (str(metadata.get("filename", "")), str(metadata.get("heading_stack_str", "")))
@@ -228,14 +275,22 @@ def search_collection(
             vector_score = max(0.0, 1.0 - c["distance"]) / max(max_vector, 1e-9)
         lexical_score = c["lexical_raw"] / max_lexical if max_lexical else 0.0
 
+        final_score = base_score * path_boost * content_boost
+        r_score = 0.0
+        if rerank_scores and idx < len(rerank_scores):
+            r_score = rerank_scores[idx]
+            # Kombiniere RRF Base-Score und Reranker Score für das Endranking
+            final_score = (final_score * 0.4) + (r_score * 0.6)
+
         hits.append(
             SearchHit(
                 document=c["document"],
                 metadata=metadata,
                 distance=c["distance"],
-                score=base_score * path_boost * content_boost,
+                score=final_score,
                 vector_score=vector_score,
                 lexical_score=lexical_score,
+                rerank_score=r_score,
                 chunk_id=cid,
             )
         )

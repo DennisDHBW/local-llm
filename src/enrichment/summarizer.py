@@ -82,14 +82,14 @@ class TableSummarizer:
 
     def _build_fallback_summary(self, rows: list[str]) -> str:
         if not rows:
-            return "Die Tabelle enthält strukturierte Abrechnungsinformationen. Sie dient der geordneten Darstellung von Positionen und Zeitbezügen."
+            return "Die Tabelle enthält strukturierte Angaben. Sie dient der geordneten Darstellung von Positionen und Werten."
 
         first_row_parts = [part.split(":", 1)[0].strip() for part in rows[0].split("|") if ":" in part]
         column_hint = ", ".join([part for part in first_row_parts if part][:4]) or "mehreren Spalten"
         row_count = len(rows)
         return (
             f"Die Tabelle enthält {row_count} Zeilen mit strukturierten Angaben in den Spalten {column_hint}. "
-            "Sie dient der kompakten Gegenüberstellung von abrechnungsrelevanten Positionen über Zeiträume oder Tarifbestandteile."
+            "Sie dient der kompakten Gegenüberstellung von Positionen und Werten."
         )
 
     def _get_table_hash(self, table_content: str) -> str:
@@ -113,8 +113,8 @@ class TableSummarizer:
             "Aufgabe: Erstelle 2 bis 3 kurze Sätze auf Deutsch zur Tabellenbedeutung.\n"
             "Regeln:\n"
             "- Nenne, wofür die Tabelle steht (Positionen, Zeitraum, Spaltenbedeutung).\n"
-            "- Nenne die wichtigsten Kennzahlen (höchstens 5) mit Einheit, z. B. Arbeitspreis, Grundpreis, "
-            "Verbrauch, Gesamtbetrag, sofern in den Zeilen vorhanden.\n"
+            "- Nenne die wichtigsten Kennzahlen (höchstens 5) mit Einheit, z. B. Preise, Mengen, "
+            "Beträge, sofern in den Zeilen vorhanden.\n"
             "- Nur belegbare Aussagen aus den Zeilen. Keine Vermutungen, keine Wörter wie 'möglicherweise', "
             "'könnte', 'wahrscheinlich'.\n"
             "Tabellenzeilen:\n"
