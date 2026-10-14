@@ -14,6 +14,8 @@ PROCESSED_DIR = DATA_DIR / "processed"
 VECTOR_DIR = DATA_DIR / "vectors"
 GRAPH_DIR = DATA_DIR / "graph"
 GRAPH_PATH = GRAPH_DIR / "document_graph.json"
+# Erzeugte Dateien der Ausgabe-Werkzeuge (Diagramme, Berichte, CSV-Exporte)
+OUTPUT_DIR = Path(os.getenv("ENERGY_OUTPUT_DIR", str(DATA_DIR / "outputs")))
 SCHEMAS_DIR = PROJECT_ROOT / "config" / "schemas"
 
 # Erstelle benötigte Verzeichnisse
@@ -57,6 +59,9 @@ USE_QUERY_REWRITER = os.getenv("ENERGY_USE_REWRITER", "0") == "1"
 # Cross-Encoder Reranker für finale Re-Relevanzbewertung nach RRF
 USE_RERANKER = os.getenv("ENERGY_USE_RERANKER", "1") == "1"
 RERANKER_MODEL = os.getenv("ENERGY_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+# Nur so viele Kandidaten (nach RRF) bewertet der Reranker; spart CPU/RAM bei jeder Suche.
+# Für deutsche Dokumente empfohlen (mehrsprachig, ~0,5 GB): cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+RERANK_TOP_N = int(os.getenv("ENERGY_RERANK_TOP_N", "20"))
 
 # BM25-Index im Speicher: nach dieser Zeit (Sekunden) neu aufbauen, damit ein in einem anderen Prozess
 # neu indizierter Bestand mit gleicher Chunk-Anzahl nicht dauerhaft veraltet bleibt. 0 = kein Ablauf.

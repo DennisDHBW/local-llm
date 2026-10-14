@@ -20,8 +20,8 @@ from typing import Any, Callable, Optional
 
 import ollama
 
-from src.agent.synthesizer import SourceSynthesizer, number_check_note
-from src.agent.tools import TOOL_SCHEMAS, AgentTools
+from src.agent.synthesizer import SourceSynthesizer, number_check_note, unsupported_numbers
+from src.agent.tools import TOOL_SCHEMAS, AgentTools, select_tool_schemas
 from src.config import (
     AGENT_MODEL, CHECK_NUMBERS, CONTEXT_WARN_RATIO, MAX_OBSERVATION_CHARS, NUM_CTX, SYNTH_MODEL,
     USE_SYNTHESIZER, ollama_options,
@@ -47,6 +47,10 @@ Vorgehen:
 - Zusammenhangsfragen ohne genaue Kennung ("Gehört die Mahnung zur Rechnung?", "Was gehört alles zu Vertrag X?"): graph_context mit der Frage als query.
 - Überblicksfragen zum ganzen Bestand (welche Vorgänge, Themen, Zusammenhänge gibt es?): graph_overview.
 - Zahlen mehrerer Dokumente gegenüberstellen (Differenz, Änderung in %): compare_documents.
+- Summen, Durchschnitte, Minimum/Maximum oder Anzahl über viele Dokumente, auch je Monat/Jahr/Absender: aggregate_facts.
+- Einen Suchtreffer im Zusammenhang prüfen: read_page mit Dateiname und Seite.
+- Diagramm oder Grafik gewünscht: plot_facts. Bericht, Übersicht als Datei, Markdown oder CSV gewünscht: create_report. \
+Nenne danach den Dateipfad aus dem Werkzeugergebnis.
 - Rechne immer mit calculate, nie im Kopf. Übergib nur Zahlen und Operatoren.
 - Rufe pro Schritt höchstens ein bis drei Werkzeuge auf und wiederhole keine identischen Aufrufe.
 - Sobald du genug Fakten hast, antworte ohne weiteren Werkzeugaufruf kurz mit Zahlen, Einheiten und Zeiträumen. \
@@ -146,6 +150,7 @@ class ReActAgent:
         self.use_synthesizer = use_synthesizer
         self.system_prompt = SYSTEM_PROMPT
         self.last_evidence: list[dict] = []
+        self.last_files: list[str] = []   # in der letzten Frage erzeugte Dateien (Diagramme, Berichte, CSV)
 
     def _system_prompt(self) -> str:
         """Bei jeder Frage neu: der Bestand kann sich zwischen zwei Fragen geändert haben (Import)."""
@@ -187,6 +192,8 @@ class ReActAgent:
         if selected and (self.use_synthesizer or not draft):
             try:
                 answer = self.synthesizer.generate_answer(query, selected)
+                if CHECK_NUMBERS:
+                    answer = self._repair_unsupported_numbers(query, selected, answer)
             except Exception as exc:  # noqa: BLE001
                 answer = draft or f"Die Antwort konnte nicht formuliert werden: {exc}"
             else:
@@ -210,8 +217,35 @@ class ReActAgent:
                 answer = draft
         if not answer:
             answer = "Zu der Frage konnten keine belastbaren Informationen in den Dokumenten gefunden werden."
+        if self.last_files:
+            answer = f"{answer}\n\nErzeugte Dateien:\n" + "\n".join(f"- {path}" for path in self.last_files)
         if callback:
             callback({"type": "final_answer", "iteration": iteration, "thought": draft, "final_answer": answer})
+        return answer
+
+    def _repair_unsupported_numbers(self, query: str, selected: list[dict], answer: str) -> str:
+        """Selbstkorrektur: enthält die Antwort Zahlen, die in keiner Quelle stehen, formuliert der Synthesizer
+        einmal neu - mit der Liste dieser Zahlen als Hinweis. Die neue Fassung gilt nur, wenn sie weniger
+        unbelegte Zahlen enthält. Kostet nur dann einen zusätzlichen LLM-Aufruf, wenn ein Problem vorliegt."""
+        texts = [str(c.get("content", "")) for c in selected] + [query]
+        missing = unsupported_numbers(answer, texts)
+        if not missing:
+            return answer
+        feedback = (
+            "Deine vorige Antwort enthielt Zahlen, die in keiner Quelle stehen: " + ", ".join(missing)
+            + ". Verwende nur Zahlen, die wörtlich in den Quellen stehen oder dort als Rechenergebnis ausgewiesen sind. "
+            "Fehlt eine Zahl, sage das."
+        )
+        try:
+            repaired = self.synthesizer.generate_answer(query, selected, feedback=feedback)
+        except TypeError:   # Synthesizer ohne feedback-Parameter (z. B. eigene Implementierung)
+            return answer
+        except Exception:  # noqa: BLE001 - lieber die erste Fassung mit Hinweis als gar keine Antwort
+            return answer
+        if repaired and len(unsupported_numbers(repaired, texts)) < len(missing):
+            logger.info("Antwort korrigiert: %d -> %d unbelegte Zahlen", len(missing),
+                        len(unsupported_numbers(repaired, texts)))
+            return repaired
         return answer
 
     def run(
@@ -236,6 +270,8 @@ class ReActAgent:
         draft = ""
         iteration = 0
         self.last_evidence = []
+        self.last_files = []
+        tool_schemas = select_tool_schemas(user_query.strip(), TOOL_SCHEMAS)
 
         for i in range(max_iterations):
             iteration = i + 1
@@ -249,7 +285,7 @@ class ReActAgent:
                 response = ollama.chat(
                     model=self.model_name,
                     messages=messages,
-                    tools=TOOL_SCHEMAS,
+                    tools=tool_schemas,
                     options=ollama_options(temperature=0.0),
                 )
             except _OLLAMA_ERRORS as exc:
@@ -305,6 +341,9 @@ class ReActAgent:
                     result = self.tools.execute(name, arguments)
                     observation = result.text
                     evidence.extend(result.evidence)
+                    for path in getattr(result, "files", None) or []:
+                        if path not in self.last_files:
+                            self.last_files.append(path)
 
                 messages.append({"role": "tool", "tool_name": name, "content": _truncate_observation(observation)})
                 if callback:

@@ -18,10 +18,10 @@ import math
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from src.config import BM25_CACHE_TTL, RERANKER_MODEL, USE_RERANKER
+from src.config import BM25_CACHE_TTL, RERANK_TOP_N, RERANKER_MODEL, USE_RERANKER
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,16 @@ _STOPWORDS = {
 VECTOR_WEIGHT = 0.5
 LEXICAL_WEIGHT = 0.5
 RRF_K = 60
+
+RERANK_BASE_WEIGHT = 0.4   # Anteil des RRF-Werts am Endwert, Rest = Reranker
+
+
+def _as_probabilities(scores: list[float]) -> list[float]:
+    """Reranker-Ausgaben auf 0..1: Werte, die schon Wahrscheinlichkeiten sind, bleiben; Logits -> Sigmoid."""
+    if scores and all(0.0 <= s <= 1.0 for s in scores):
+        return list(scores)
+    return [1.0 / (1.0 + math.exp(-max(-50.0, min(50.0, s)))) for s in scores]
+
 
 # --- Reranker Singleton Lazy Loader ---
 _RERANKER_MODEL_INSTANCE: Any = None
@@ -241,16 +251,6 @@ def search_collection(
     hits: list[SearchHit] = []
     candidates_list = list(candidates.items())
 
-    # Optionales Cross-Encoder Reranking über Top-Kandidaten
-    reranker = _get_reranker()
-    rerank_scores: list[float] = []
-    if reranker is not None and candidates_list:
-        try:
-            pairs = [[query, c[1]["document"]] for c in candidates_list]
-            rerank_scores = [float(s) for s in reranker.predict(pairs)]
-        except Exception:
-            rerank_scores = []
-
     for idx, (cid, c) in enumerate(candidates_list):
         metadata = c["metadata"] or {}
         searchable_path = " ".join(
@@ -276,11 +276,6 @@ def search_collection(
         lexical_score = c["lexical_raw"] / max_lexical if max_lexical else 0.0
 
         final_score = base_score * path_boost * content_boost
-        r_score = 0.0
-        if rerank_scores and idx < len(rerank_scores):
-            r_score = rerank_scores[idx]
-            # Kombiniere RRF Base-Score und Reranker Score für das Endranking
-            final_score = (final_score * 0.4) + (r_score * 0.6)
 
         hits.append(
             SearchHit(
@@ -290,9 +285,32 @@ def search_collection(
                 score=final_score,
                 vector_score=vector_score,
                 lexical_score=lexical_score,
-                rerank_score=r_score,
+                rerank_score=0.0,
                 chunk_id=cid,
             )
         )
+
+    # Optionales Cross-Encoder-Reranking. Bisher wurden ALLE Kandidaten bewertet und die Roh-Logits (etwa -10
+    # bis +10) mit dem RRF-Wert (0 bis ~1,2) gemischt: Der Reranker entschied damit allein. Jetzt: nur die
+    # besten RERANK_TOP_N nach RRF, Reranker-Wert per Sigmoid auf 0..1, RRF-Wert auf 0..1 normiert.
+    reranker = _get_reranker()
+    if reranker is not None and hits:
+        ranked = sorted(hits, key=lambda hit: hit.score, reverse=True)
+        head, tail = ranked[:max(RERANK_TOP_N, top_k)], ranked[max(RERANK_TOP_N, top_k):]
+        try:
+            raw_scores = [float(s) for s in reranker.predict([[query, hit.document] for hit in head])]
+        except Exception:
+            raw_scores = []
+        if len(raw_scores) == len(head):
+            probabilities = _as_probabilities(raw_scores)
+            best = max(hit.score for hit in head) or 1.0
+            head = [
+                replace(hit, score=RERANK_BASE_WEIGHT * hit.score / best + (1 - RERANK_BASE_WEIGHT) * prob,
+                        rerank_score=prob)
+                for hit, prob in zip(head, probabilities)
+            ]
+            # Nicht reranked: nur Basisanteil, damit sie nie vor einem bewerteten Treffer landen
+            tail = [replace(hit, score=RERANK_BASE_WEIGHT * hit.score / best) for hit in tail]
+            hits = head + tail
 
     return sorted(hits, key=lambda hit: hit.score, reverse=True)[:top_k]

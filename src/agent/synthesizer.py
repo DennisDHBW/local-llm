@@ -97,7 +97,9 @@ class SourceSynthesizer:
         lines = [f"[{n}] {cls._source_label(usable[n - 1])}" for n in numbers]
         return "Quellen:\n" + "\n".join(lines) if lines else ""
 
-    def generate_answer(self, query: str, retrieved_chunks: Sequence[Mapping[str, Any]]) -> str:
+    def generate_answer(
+        self, query: str, retrieved_chunks: Sequence[Mapping[str, Any]], feedback: str = ""
+    ) -> str:
         """Baut aus den Evidenz-Chunks einen quellengebundenen Prompt mit Zitaten [1], [2] auf."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")
@@ -130,7 +132,8 @@ class SourceSynthesizer:
             "6. Gib Rechenergebnisse aus den Quellen unverändert wieder.\n\n"
             f"Quellen:\n{context_str}"
             f"Nutzerfrage: {query}\n"
-            "Antwort mit Quellenbelegen:"
+            + (f"Korrekturhinweis: {feedback}\n" if feedback else "")
+            + "Antwort mit Quellenbelegen:"
         )
 
         response: dict[str, Any] = ollama.generate(
@@ -142,3 +145,4 @@ class SourceSynthesizer:
         if not answer:
             raise RuntimeError("Ollama lieferte keine Antwort.")
         return answer
+

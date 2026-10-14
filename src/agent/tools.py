@@ -7,6 +7,7 @@ from typing import Any
 
 import chromadb
 
+from src.analysis.aggregate import aggregate
 from src.analysis.compare import build_comparison
 from src.config import EMBED_MODEL, GRAPH_PATH, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR, graph_path_for
 from src.embeddings import embed_query
@@ -25,6 +26,15 @@ LEGACY_SEARCH_TOOLS = {"search_documents": "text", "search_tables": "table", "se
 SNIPPET_CHARS = 900
 EVIDENCE_CHARS = 1200
 DEFAULT_TOP_K = 5
+PAGE_CHARS = 3500
+# Werkzeuge, die Dateien erzeugen. Sie werden dem Modell nur angeboten, wenn die Frage danach verlangt
+# (siehe `select_tool_schemas`): weniger Werkzeuge = weniger Fehlgriffe und mehr Platz im Kontextfenster.
+OUTPUT_TOOL_NAMES = {"plot_facts", "create_report"}
+_OUTPUT_REQUEST_RE = re.compile(
+    r"diagramm|grafik|graphik|plot|chart|visualis|zeichne|kurve|verlauf.{0,20}(zeig|darstell)|darstellung|"
+    r"bericht|report|übersicht.{0,30}(erstell|als|datei)|markdown|\.md\b|csv|export|excel|tabelle.{0,30}(erstell|datei|export)",
+    re.IGNORECASE,
+)
 _PREFIX_RE = re.compile(r"^\[[^\]\n]{0,200}\]\s*")
 
 
@@ -116,6 +126,62 @@ TOOL_SCHEMAS: list[dict] = [
         {},
     ),
     _tool(
+        "aggregate_facts",
+        "Wertet eine Kennzahl über viele Dokumente exakt aus: Summe, Mittelwert, Minimum, Maximum oder Anzahl, "
+        "optional je Monat, Jahr, Absender, Gruppe oder Dokument und gefiltert nach Zeitraum oder Begriff. "
+        "Erste Wahl für 'Wie viel insgesamt / pro Monat / im Durchschnitt?'. Nicht selbst addieren.",
+        {
+            "field": {"type": "string", "description": "Kennzahl, z. B. 'Gesamtbetrag', 'Arbeitspreis brutto', 'Verbrauch'."},
+            "agg": {"type": "string", "enum": ["sum", "avg", "min", "max", "count"], "description": "Auswertung (Standard sum)."},
+            "group_by": {
+                "type": "string",
+                "enum": ["none", "month", "year", "party", "group", "doc_type", "document"],
+                "description": "Gruppierung (Standard none). party = Absender/Händler, group = Energieart bzw. Dokumentart.",
+            },
+            "date_from": {"type": "string", "description": "Ab Datum, z. B. '01.01.2025' oder '2025' (optional)."},
+            "date_to": {"type": "string", "description": "Bis Datum (optional)."},
+            "contains": {"type": "string", "description": "Nur Dokumente, deren Absender/Dateiname/Gruppe diesen Begriff enthält (optional)."},
+            "filenames": {"type": "string", "description": "Dateinamen, durch Komma getrennt (optional, leer = alle)."},
+        },
+        ["field"],
+    ),
+    _tool(
+        "read_page",
+        "Liest den vollständigen Text einer Seite eines Dokuments (Absätze, Tabellenzeilen, Bildbeschreibungen). "
+        "Nutze das, um einen Suchtreffer im Zusammenhang zu prüfen.",
+        {
+            "filename": {"type": "string", "description": "Dateiname."},
+            "page": {"type": "integer", "description": "Seitenzahl (ab 1)."},
+        },
+        ["filename", "page"],
+    ),
+    _tool(
+        "plot_facts",
+        "Erzeugt ein Diagramm (PNG) einer Kennzahl über Dokumente, z. B. Arbeitspreis über die Jahre oder "
+        "Gesamtbetrag je Bon. Linie bei datierten Werten, sonst Balken. Gibt den Dateipfad und die Werte zurück.",
+        {
+            "field": {"type": "string", "description": "Kennzahl, z. B. 'Arbeitspreis brutto' oder 'Gesamtbetrag'."},
+            "filenames": {"type": "string", "description": "Dateinamen, durch Komma getrennt (optional, leer = alle)."},
+            "series_by": {"type": "string", "enum": ["auto", "group", "party", "none"], "description": "Eine Linie je Gruppe (Standard) oder je Absender."},
+            "kind": {"type": "string", "enum": ["auto", "line", "bar"], "description": "Diagrammtyp (Standard auto)."},
+            "title": {"type": "string", "description": "Titel (optional)."},
+            "contains": {"type": "string", "description": "Nur Dokumente mit diesem Begriff in Absender/Dateiname (optional)."},
+        },
+        ["field"],
+    ),
+    _tool(
+        "create_report",
+        "Erstellt eine Übersicht als Datei: Markdown-Bericht (Dokumentliste, Kennzahlenvergleich, Vorgänge, "
+        "Prüfhinweise, Fundstellen, optional ein Diagramm) oder CSV-Tabelle aller geprüften Felder.",
+        {
+            "format": {"type": "string", "enum": ["markdown", "csv"], "description": "markdown (Standard) oder csv."},
+            "filenames": {"type": "string", "description": "Dateinamen, durch Komma getrennt (optional, leer = alle)."},
+            "title": {"type": "string", "description": "Titel des Berichts (optional)."},
+            "plot_field": {"type": "string", "description": "Optional: Kennzahl, die als Diagramm eingebettet wird."},
+            "contains": {"type": "string", "description": "Nur Dokumente mit diesem Begriff in Absender/Dateiname (optional)."},
+        },
+    ),
+    _tool(
         "calculate",
         "Rechnet exakt. NUR Zahlen und Operatoren + - * / ** und Klammern, z. B. '15.41 + 4.89'. "
         "Keine Einheiten, Wörter oder Paragraphenzeichen.",
@@ -145,6 +211,15 @@ TOOL_SCHEMAS: list[dict] = [
 class ToolResult:
     text: str
     evidence: list[dict] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)   # vom Werkzeug erzeugte Dateien (Diagramme, Berichte)
+
+
+def select_tool_schemas(query: str, schemas: list[dict] | None = None) -> list[dict]:
+    """Werkzeuge für eine Frage: Ausgabe-Werkzeuge (Diagramm, Bericht) nur, wenn die Frage danach verlangt."""
+    schemas = TOOL_SCHEMAS if schemas is None else schemas
+    if _OUTPUT_REQUEST_RE.search(query or ""):
+        return list(schemas)
+    return [s for s in schemas if s["function"]["name"] not in OUTPUT_TOOL_NAMES]
 
 
 def resolve_name(names: list[str], wanted: str) -> tuple[str | None, str | None]:
@@ -231,7 +306,8 @@ class AgentTools:
         matches = []
         for fname in known:
             stem = strip_source_suffix(fname.casefold())
-            parts = [p for p in re.split(r"[_\s.-]", stem) if p and p != "25"]
+            # Reine Zahlen (Jahres-Suffix '25', '2024') verweisen nicht auf ein bestimmtes Dokument
+            parts = [p for p in re.split(r"[_\s.-]", stem) if p and not p.isdigit()]
             for part in parts:
                 if len(part) >= 3 and re.search(r"\b" + re.escape(part) + r"\b", low_query):
                     matches.append(fname)
@@ -265,10 +341,12 @@ class AgentTools:
             return ToolResult(f"Fehler: Unbekannter Typ '{kind}'. Erlaubt: {', '.join(KIND_TO_CHUNK_TYPES)}.")
         top_k = max(1, min(int(top_k), 10))
 
+        auto_scope = ""
         if not filename.strip():
             extracted_file, query = self._extract_filename_from_query(query)
             if extracted_file:
                 filename = extracted_file
+                auto_scope = extracted_file
 
         resolved, error = self.resolve_filename(filename)
         if error:
@@ -286,6 +364,13 @@ class AgentTools:
         hits = search_collection(
             self.collection, self._get_query_embedding(search_phrase), search_phrase, top_k, where=where
         )
+        if not hits and auto_scope:
+            # Die Datei wurde nur aus der Anfrage geraten: ohne Einschränkung erneut suchen statt nichts zu finden
+            where = self._build_where(KIND_TO_CHUNK_TYPES[kind], None)
+            hits = search_collection(
+                self.collection, self._get_query_embedding(search_phrase), search_phrase, top_k, where=where
+            )
+            resolved, auto_scope = None, ""
         scope = f" in '{resolved}'" if resolved else ""
         if not hits:
             return ToolResult(f"Keine Ergebnisse vom Typ '{kind}'{scope} gefunden.")
@@ -310,7 +395,11 @@ class AgentTools:
                 },
                 "score": hit.score,
             })
-        return ToolResult("\n\n".join(blocks), evidence)
+        hint = (
+            f"\n\nHinweis: Suche automatisch auf '{auto_scope}' beschränkt (Dateiname in der Anfrage erkannt). "
+            "Für alle Dokumente erneut ohne diesen Namen suchen."
+        ) if auto_scope else ""
+        return ToolResult("\n\n".join(blocks) + hint, evidence)
 
     def search_documents(self, query: str, filename: str = "", top_k: int = 5) -> str:
         return self.search(query, filename=filename, kind="text", top_k=top_k).text
@@ -545,6 +634,117 @@ class AgentTools:
         text = self._get_graph().overview()
         return ToolResult(text, [_tool_evidence("graph_overview", "Dokumentgraph (Überblick)", text)])
 
+    # ------------------------------------------------------------------ Auswertung und Ausgaben
+    def aggregate_facts(
+        self, field_name: str, agg: str = "sum", group_by: str = "none", filenames: Any = "",
+        date_from: str = "", date_to: str = "", contains: str = "",
+    ) -> ToolResult:
+        if not field_name or not str(field_name).strip():
+            return ToolResult("Fehler: Bitte eine Kennzahl angeben, z. B. 'Gesamtbetrag'.")
+        records = load_facts(self.processed_dir)
+        if not records:
+            return ToolResult("Keine strukturierten Fakten vorhanden. Bitte `python -m src.enrichment.facts` ausführen.")
+        selected, error = self._resolve_many(sorted(records), filenames)
+        if error:
+            return ToolResult(error)
+        result = aggregate(records, str(field_name), agg, group_by, selected, date_from or None, date_to or None,
+                           str(contains or ""))
+        key = "|".join(str(x) for x in (field_name, agg, group_by, ",".join(selected), date_from, date_to, contains))
+        return ToolResult(result.text, [_tool_evidence("aggregate_facts", "Auswertung (berechnet)", result.text, key)])
+
+    def read_page(self, filename: str, page: Any) -> ToolResult:
+        resolved, error = self.resolve_filename(filename)
+        if error or not resolved:
+            return ToolResult(error or "Fehler: Bitte einen Dateinamen angeben.")
+        try:
+            page_number = int(page)
+        except (TypeError, ValueError):
+            return ToolResult(f"Fehler: Ungültige Seitenzahl '{page}'.")
+        results = self.collection.get(
+            where={"$and": [{"filename": resolved}, {"page_number": page_number}]},
+            include=["documents", "metadatas"],
+        )
+        documents = (results or {}).get("documents") or []
+        if not documents:
+            return ToolResult(f"Seite {page_number} von '{resolved}' ist nicht im Index (Seitenzahl prüfen).")
+        metadatas = results.get("metadatas") or [{}] * len(documents)
+        parts = []
+        for meta, doc in zip(metadatas, documents):
+            ctype = (meta or {}).get("chunk_type", "text")
+            if ctype == "heading":
+                parts.append(f"## {_strip_prefix(doc)}")
+            elif ctype == "table_row":
+                parts.append(f"[Tabelle] {_strip_prefix(doc)}")
+            else:
+                parts.append(_strip_prefix(doc))
+        text = "\n".join(parts)
+        if len(text) > PAGE_CHARS:
+            text = text[:PAGE_CHARS] + "\n... [gekürzt]"
+        evidence = [{
+            "id": f"page:{resolved}:{page_number}",
+            "content": text[:EVIDENCE_CHARS * 2],
+            "page_number": page_number,
+            "metadata": {"filename": resolved, "heading_stack_str": "", "chunk_type": "page"},
+        }]
+        return ToolResult(f"[{resolved} | Seite {page_number}]\n{text}", evidence)
+
+    def plot_facts(
+        self, field_name: str, filenames: Any = "", series_by: str = "auto", kind: str = "auto",
+        title: str = "", contains: str = "",
+    ) -> ToolResult:
+        from src.output.plots import plot_metric
+
+        if not field_name or not str(field_name).strip():
+            return ToolResult("Fehler: Bitte eine Kennzahl angeben, z. B. 'Arbeitspreis brutto'.")
+        records = load_facts(self.processed_dir)
+        if not records:
+            return ToolResult("Keine strukturierten Fakten vorhanden. Bitte `python -m src.enrichment.facts` ausführen.")
+        selected, error = self._resolve_many(sorted(records), filenames)
+        if error:
+            return ToolResult(error)
+        result = plot_metric(records, str(field_name), selected, series_by, kind, str(title or ""),
+                             contains=str(contains or ""))
+        files = [str(result.path)] if result.path else []
+        evidence = [_tool_evidence("plot_facts", "Diagramm (berechnet)", result.text, str(result.path or field_name))] if files else []
+        return ToolResult(result.text, evidence, files)
+
+    def create_report(
+        self, fmt: str = "markdown", filenames: Any = "", title: str = "", plot_field: str = "", contains: str = "",
+    ) -> ToolResult:
+        from src.output.reports import build_report, export_csv
+
+        records = load_facts(self.processed_dir)
+        if not records:
+            return ToolResult("Keine strukturierten Fakten vorhanden. Bitte `python -m src.enrichment.facts` ausführen.")
+        selected, error = self._resolve_many(sorted(records), filenames)
+        if error:
+            return ToolResult(error)
+        fmt = str(fmt or "markdown").strip().casefold()
+        if fmt in ("csv", "excel", "tabelle"):
+            result = export_csv(records, selected, str(title or ""), contains=str(contains or ""))
+        elif fmt in ("markdown", "md", "bericht", "report"):
+            try:
+                graph = self._get_graph()
+            except Exception:  # noqa: BLE001 - Bericht auch ohne Graph
+                graph = None
+            result = build_report(records, graph, selected, str(title or ""), str(plot_field or ""),
+                                  contains=str(contains or ""))
+        else:
+            return ToolResult(f"Fehler: Unbekanntes Format '{fmt}'. Erlaubt: markdown, csv.")
+        files = [str(p) for p in result.files]
+        evidence = [_tool_evidence("create_report", "Bericht (aus geprüften Fakten)", result.text, ",".join(files))] if files else []
+        return ToolResult(result.text, evidence, files)
+
+    def _resolve_many(self, available: list[str], filenames: Any) -> tuple[list[str], str | None]:
+        selected: list[str] = []
+        for name in self._split_list(filenames):
+            resolved, error = resolve_name(available, name)
+            if error:
+                return [], error
+            if resolved not in selected:
+                selected.append(resolved)
+        return selected, None
+
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
         clean = re.sub(r"\(.*?\)$", "", (name or "").strip().strip("`'\"")).strip()
         args = arguments if isinstance(arguments, dict) else {}
@@ -597,6 +797,29 @@ class AgentTools:
                 return self.graph_context(str(args.get("query") or args.get("entity") or args.get("question") or ""))
             if clean == "graph_overview":
                 return self.graph_overview()
+            if clean == "aggregate_facts":
+                return self.aggregate_facts(
+                    str(args.get("field") or args.get("metric") or args.get("fields") or ""),
+                    str(args.get("agg") or args.get("aggregation") or "sum"),
+                    str(args.get("group_by") or "none"),
+                    args.get("filenames") or args.get("filename") or "",
+                    str(args.get("date_from") or ""), str(args.get("date_to") or ""),
+                    str(args.get("contains") or ""),
+                )
+            if clean == "read_page":
+                return self.read_page(str(args.get("filename") or ""), args.get("page") or args.get("page_number"))
+            if clean == "plot_facts":
+                return self.plot_facts(
+                    str(args.get("field") or args.get("metric") or args.get("fields") or ""),
+                    args.get("filenames") or args.get("filename") or "",
+                    str(args.get("series_by") or "auto"), str(args.get("kind") or "auto"),
+                    str(args.get("title") or ""), str(args.get("contains") or ""),
+                )
+            if clean == "create_report":
+                return self.create_report(
+                    str(args.get("format") or "markdown"), args.get("filenames") or args.get("filename") or "",
+                    str(args.get("title") or ""), str(args.get("plot_field") or ""), str(args.get("contains") or ""),
+                )
             if clean == "calculate":
                 expression = str(args.get("expression") or args.get("query") or "")
                 text = self.calculate(expression)

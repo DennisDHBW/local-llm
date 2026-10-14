@@ -661,11 +661,65 @@ def postprocess_facts(
     else:
         normalized, norm_notes = merged, []
     verified, dropped = verify_facts(normalized, source_text, spec)
+    meta_notes: list[str] = []
+    compact_text = re.sub(r"\s+", "", source_text.replace(" ", " ")).casefold()
     for key in METADATA_DEFAULTS:
         fallback = (meta or {}).get(key)
         if key not in verified and fallback and str(fallback).strip().casefold() not in _EMPTY:
+            # Die Parser-Metadaten stammen von einem kleinen Modell und nur von Seite 1. Nummern daraus gelten
+            # nur, wenn sie im Quelltext stehen - sonst würden sie ungeprüft als "verifiziert" ausgegeben.
+            if key in ID_FIELDS and not _contains_id(compact_text, fallback):
+                meta_notes.append(f"{key}: Metadaten-Wert {fallback!r} steht nicht im Text -> nicht übernommen")
+                continue
             verified[key] = fallback
-    return verified, dropped, det_notes + norm_notes
+    return verified, dropped, det_notes + norm_notes + meta_notes
+
+
+def locate_pages(facts: dict[str, Any], source_text: str) -> dict[str, int]:
+    """Seite der ersten Fundstelle je Feld im Quelltext (`_source_text` mit '[Seite n]'-Markern).
+
+    Zahlen werden in allen deutschen Schreibweisen gesucht, Nummern ohne Leerzeichen, Texte ohne Groß/klein.
+    Felder ohne Fundstelle fehlen im Ergebnis. Dient als Beleg mit Seitenzahl für Zitate und Berichte.
+    """
+    text = source_text.replace(" ", " ")
+    markers = [(m.start(), int(m.group(1))) for m in re.finditer(r"\[Seite (\d+)\]", text)]
+    if not markers:
+        return {}
+
+    def page_at(position: int) -> int:
+        page = markers[0][1]
+        for start, number in markers:
+            if start > position:
+                break
+            page = number
+        return page
+
+    low = text.casefold()
+    pages: dict[str, int] = {}
+    for key, value in facts.items():
+        if value is None or isinstance(value, bool):
+            continue
+        position: Optional[int] = None
+        if isinstance(value, (int, float)):
+            hits = [
+                match.start() for variant in _number_variants(float(value))
+                for match in re.finditer(_number_pattern(variant), text)
+            ]
+            position = min(hits) if hits else None
+        else:
+            needle = re.sub(r"\s+", " ", str(value)).strip().casefold()
+            if len(needle) >= 3:
+                found = low.find(needle)
+                if found < 0 and key in ID_FIELDS:
+                    # Nummer mit anderen Leerzeichen/Trennern: Ziffernfolge mit beliebigen Trennern suchen
+                    digits = re.sub(r"[\s\-/.]", "", needle)
+                    pattern = r"[\s\-/.]?".join(re.escape(ch) for ch in digits)
+                    match = re.search(pattern, low) if digits else None
+                    found = match.start() if match else -1
+                position = found if found >= 0 else None
+        if position is not None:
+            pages[key] = page_at(position)
+    return pages
 
 
 def format_facts(record: dict[str, Any]) -> str:
@@ -688,6 +742,12 @@ def format_facts(record: dict[str, Any]) -> str:
     unverified = [labels.get(k, k) for k in record.get("unverified", [])]
     if unverified:
         lines.append(f"- Nicht im Text auffindbar (verworfen): {', '.join(unverified)}")
+    provenance = record.get("provenance") or {}
+    if provenance:
+        # Seitenangaben je Feld (nur bei Records, die mit Fundstellen gespeichert wurden)
+        shown = [f"{labels.get(k, k)} S. {page}" for k, page in provenance.items() if k in facts]
+        if shown:
+            lines.append(f"- Fundstellen: {'; '.join(shown)}")
     return "\n".join(lines)
 
 
@@ -980,9 +1040,11 @@ class FactExtractor:
                 "facts": verified,
                 "unverified": dropped,
                 "normalized": notes,
+                # Seite der Fundstelle je Feld (für Zitate mit Seitenzahl und Berichte)
+                "provenance": locate_pages(verified, full_text),
             }
             if reused and old.get("facts") == verified and old.get("unverified") == dropped \
-                    and old.get("normalized") == notes:
+                    and old.get("normalized") == notes and old.get("provenance") == record["provenance"]:
                 continue
             atomic_write_json(out_file, record)
             written += 1

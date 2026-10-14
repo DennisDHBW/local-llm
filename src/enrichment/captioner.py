@@ -5,10 +5,12 @@ from pathlib import Path
 import ollama
 from diskcache import Cache
 
-from src.config import CAPTION_MODEL, PROJECT_ROOT
+from src.config import CAPTION_MODEL, PROJECT_ROOT, ollama_options
 from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
 
 _OLLAMA_DOWN_ERRORS = OLLAMA_DOWN_ERRORS
+# Erhöhen, wenn sich Prompt oder Format der Bildbeschreibung ändern -> neue Beschreibungen.
+CAPTION_VERSION = 2
 
 
 class ImageCaptioner:
@@ -22,6 +24,9 @@ class ImageCaptioner:
         self.cache = Cache(cache_dir)
         self.model_name = model_name
         self._ollama_down = False
+
+    def _cache_key(self, img_hash: str) -> str:
+        return f"v{CAPTION_VERSION}:{self.model_name}:{img_hash}"
 
     def _get_image_hash(self, image_path: Path) -> str:
         """Erzeugt einen SHA-256 Hash der Bilddatei für den Cache."""
@@ -85,10 +90,18 @@ class ImageCaptioner:
 
         img_hash = self._get_image_hash(image_path)
 
-        # 1. Cache-Check: Wurde das Bild schon einmal analysiert?
-        if img_hash in self.cache:
+        # 1. Cache-Check: Wurde das Bild mit diesem Modell und dieser Prompt-Version schon analysiert?
+        cache_key = self._cache_key(img_hash)
+        if cache_key in self.cache:
             print(f"  -> Caption aus Cache geladen (Hash: {img_hash[:8]}...)")
-            return self.cache[img_hash]
+            return self.cache[cache_key]
+        if img_hash in self.cache:
+            # Eintrag aus der Zeit vor CAPTION_VERSION 2 (Schlüssel = nur Bild-Hash): übernehmen statt neu zu
+            # rechnen; ein anderes Modell oder eine neue Version erzeugt dagegen eine neue Beschreibung.
+            caption = self.cache[img_hash]
+            self.cache[cache_key] = caption
+            print(f"  -> Caption aus altem Cache übernommen (Hash: {img_hash[:8]}...)")
+            return caption
 
         print(f"  -> Generiere neue Caption mit {self.model_name} (das kann einen Moment dauern)...")
 
@@ -103,14 +116,15 @@ class ImageCaptioner:
         response = ollama.generate(
             model=self.model_name,
             prompt=prompt,
-            images=[str(image_path)]
+            images=[str(image_path)],
+            options=ollama_options(temperature=0.0),
         )
         caption = response.get("response", "").strip()
         if not caption:
             raise RuntimeError(f"Ollama lieferte keine Bildbeschreibung für {image_path.name}.")
 
         # 2. Ergebnis im Cache speichern
-        self.cache[img_hash] = caption
+        self.cache[cache_key] = caption
         return caption
 
     def process_all_jsons(self):

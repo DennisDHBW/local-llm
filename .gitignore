@@ -32,3 +32,4 @@ data/graph/
 output*.txt
 eval_*.txt
 evaluation/results/
+data/outputs/
