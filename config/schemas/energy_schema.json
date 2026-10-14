@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "energy",
+  "title": "Energie- und Versorgungsabrechnung",
+  "description": "Eingebautes Schema: Die Felder werden über das Modell DocumentFacts (src/enrichment/facts.py) extrahiert. Diese Datei steuert nur die Erkennung des Dokumenttyps.",
+  "document_types": [
+    "verbrauchsabrechnung",
+    "energieabrechnung",
+    "stromabrechnung",
+    "gasabrechnung",
+    "wasserabrechnung",
+    "stromrechnung",
+    "gasrechnung",
+    "wasserrechnung",
+    "jahresabrechnung",
+    "stromliefervertrag",
+    "gasliefervertrag"
+  ],
+  "keywords": [
+    "kwh",
+    "arbeitspreis",
+    "grundpreis",
+    "zählernummer",
+    "zählerstand",
+    "strom",
+    "erdgas",
+    "fernwärme",
+    "abwasser",
+    "trinkwasser",
+    "abschlag"
+  ],
+  "agent_hints": [
+    "Umrechnungen und Vergleiche von Energiepreisen (netto/brutto, Grundpreis pro Monat/Jahr, Energiekosten im Zeitraum, Preisänderung zwischen Dokumenten): compare_documents. Das Werkzeug rechnet exakt; übernimm seine Werte, statt selbst umzurechnen.",
+    "Es gibt Strom-, Gas-, Wasser- und Abwasserdokumente. Prüfe die Energieart, bevor du Werte vergleichst oder addierst.",
+    "Preise sind mal netto, mal brutto angegeben (siehe Preisbasis in den Fakten). Nenne immer die Basis dazu und vergleiche nur Preise derselben Basis; brutto = netto * 1,19.",
+    "Rechnungsnummer (Verbrauchsabrechnungsnummer) und Vertragskonto sind verschiedene Dinge.",
+    "Ein Gesamt-Grundpreis enthält seine Unterpositionen bereits. Addiere nicht doppelt."
+  ],
+  "properties": {
+    "meter_number": {
+      "type": "string",
+      "description": "Zählernummer"
+    },
+    "consumption_kwh": {
+      "type": "number",
+      "description": "Verbrauch in kWh"
+    },
+    "working_price_ct_per_kwh": {
+      "type": "number",
+      "description": "Arbeitspreis in ct/kWh"
+    },
+    "base_price_eur": {
+      "type": "number",
+      "description": "Grundpreis pro Zeiteinheit in EUR"
+    }
+  }
+}

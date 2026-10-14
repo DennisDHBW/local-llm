@@ -1,53 +1,711 @@
 [
   {
-    "id": "inventory_count",
+    "id": "berlin1_verbrauch",
+    "category": "wert",
+    "question": "Wie hoch war der Stromverbrauch laut Berlin1_25 im Abrechnungszeitraum?",
+    "expected_substrings": [
+      "867"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "867"
+    ]
+  },
+  {
+    "id": "berlin2_verbrauch",
+    "category": "wert",
+    "question": "Wie hoch war der Stromverbrauch laut Berlin2_25 im Abrechnungszeitraum?",
+    "expected_substrings": [
+      "2.713|2713"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin2_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "2.713"
+    ]
+  },
+  {
+    "id": "berlin1_zaehler",
+    "category": "wert",
+    "question": "Welche Zählernummer steht auf der Rechnung Berlin1_25?",
+    "expected_substrings": [
+      "1ISK0078416661"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "1ISK0078416661"
+    ]
+  },
+  {
+    "id": "berlin1_rechnungsnr",
+    "category": "wert",
+    "question": "Wie lautet die Rechnungsnummer in Berlin1_25?",
+    "expected_substrings": [
+      "3370693"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "3370693"
+    ]
+  },
+  {
+    "id": "berlin1_vertragsnr",
+    "category": "wert",
+    "question": "Wie lautet die Vertragsnummer in Berlin1_25?",
+    "expected_substrings": [
+      "2283129"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "2283129"
+    ]
+  },
+  {
+    "id": "berlin1_guthaben",
+    "category": "wert",
+    "question": "Wie hoch ist das Guthaben in der Abrechnung Berlin1_25?",
+    "expected_substrings": [
+      "253,60|253.60"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "253,60"
+    ]
+  },
+  {
+    "id": "berlin2_guthaben",
+    "category": "wert",
+    "question": "Wie hoch ist das Guthaben in der Abrechnung Berlin2_25?",
+    "expected_substrings": [
+      "171,40|171.40"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin2_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "171,40"
+    ]
+  },
+  {
+    "id": "berlin1_abschlag",
+    "category": "wert",
+    "question": "Wie hoch ist die monatliche Abschlagszahlung bei Berlin1_25?",
+    "expected_substrings": [
+      "38,00|38.00"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "38,00"
+    ]
+  },
+  {
+    "id": "montana_zeitraum",
+    "category": "wert",
+    "question": "Für welchen Zeitraum gilt die Stromabrechnung Montana_25?",
+    "expected_substrings": [
+      "23.01.2024",
+      "31.01.2025"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "23.01.2024"
+    ]
+  },
+  {
+    "id": "montana_verbrauch",
+    "category": "wert",
+    "question": "Wie viele kWh wurden laut Montana_25 abgerechnet?",
+    "expected_substrings": [
+      "202"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "202"
+    ]
+  },
+  {
+    "id": "montana_guthaben",
+    "category": "wert",
+    "question": "Wie hoch ist das Guthaben in Montana_25?",
+    "expected_substrings": [
+      "315,03|315.03"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "315,03"
+    ]
+  },
+  {
+    "id": "montana_tarif",
+    "category": "wert",
+    "question": "Wie heißt der Tarif in der Rechnung Montana_25?",
+    "expected_substrings": [
+      "garant 12"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "garant 12"
+    ]
+  },
+  {
+    "id": "simply_verbrauch",
+    "category": "wert",
+    "question": "Wie viele kWh Strom hat Simply im Abrechnungszeitraum abgerechnet?",
+    "expected_substrings": [
+      "3.512|3512"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "3.512"
+    ]
+  },
+  {
+    "id": "simply_rueckerstattung",
+    "category": "wert",
+    "question": "Wie hoch ist die Rückerstattung in der Simply-Rechnung?",
+    "expected_substrings": [
+      "200,73|200.73"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "200,73"
+    ]
+  },
+  {
+    "id": "simply_brutto",
+    "category": "wert",
+    "question": "Wie hoch ist der Rechnungsbetrag brutto bei Simply_25?",
+    "expected_substrings": [
+      "921,27|921.27"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "921,27"
+    ]
+  },
+  {
+    "id": "simply_abschlag",
+    "category": "wert",
+    "question": "Wie hoch ist der neue Abschlag bei Simply_25 ab dem 07.03.2025?",
+    "expected_substrings": [
+      "116,00|116.00"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "116,00"
+    ]
+  },
+  {
+    "id": "simply_produkt",
+    "category": "wert",
+    "question": "Für welches Produkt gilt die Rechnung Simply_25?",
+    "expected_substrings": [
+      "SimplyGreen 12"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "SimplyGreen 12"
+    ]
+  },
+  {
+    "id": "simply_rechnungsnr",
+    "category": "wert",
+    "question": "Wie lautet die Rechnungsnummer der Simply-Rechnung?",
+    "expected_substrings": [
+      "10806/403/2025"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "10806/403/2025"
+    ]
+  },
+  {
+    "id": "berlin1_arbeitspreis",
+    "category": "preis",
+    "question": "Wie hoch ist der Arbeitspreis in Berlin1_25?",
+    "expected_substrings": [
+      "35,69|35.69"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "35,69"
+    ]
+  },
+  {
+    "id": "berlin1_grundpreis_jahr",
+    "category": "preis",
+    "question": "Wie hoch ist der Grundpreis pro Jahr in Berlin1_25?",
+    "expected_substrings": [
+      "140,43|140.43"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "140,43"
+    ]
+  },
+  {
+    "id": "berlin2_arbeitspreis",
+    "category": "preis",
+    "question": "Wie hoch ist der Arbeitspreis in Berlin2_25?",
+    "expected_substrings": [
+      "31,34|31.34"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin2_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "31,34"
+    ]
+  },
+  {
+    "id": "berlin2_grundpreis_jahr",
+    "category": "preis",
+    "question": "Wie hoch ist der Grundpreis pro Jahr in Berlin2_25?",
+    "expected_substrings": [
+      "232,78|232.78"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin2_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "232,78"
+    ]
+  },
+  {
+    "id": "simply_arbeitspreis",
+    "category": "preis",
+    "question": "Wie hoch ist der Verbrauchspreis (Arbeitspreis) bei Simply_25 in ct/kWh?",
+    "expected_substrings": [
+      "19,1597|19.1597"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "19,1597"
+    ]
+  },
+  {
+    "id": "simply_grundpreis",
+    "category": "preis",
+    "question": "Wie hoch ist der Grundpreis bei Simply_25?",
+    "expected_substrings": [
+      "0,4489|0.4489"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "0,4489"
+    ]
+  },
+  {
+    "id": "montana_arbeitspreis_netto",
+    "category": "preis",
+    "question": "Wie hoch ist der Arbeitspreis in ct/kWh auf der Rechnung Montana_25, und ist er netto oder brutto?",
+    "expected_substrings": [
+      "22,38|22.38",
+      "netto"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "22,3800"
+    ]
+  },
+  {
+    "id": "montana_arbeitspreis_alt_brutto",
+    "category": "preis",
+    "question": "Wie hoch war der Brutto-Arbeitspreis von Montana bis zum 31.03.2025?",
+    "expected_substrings": [
+      "26,63|26.63"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_Vertragsinformation_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "26,63"
+    ]
+  },
+  {
+    "id": "montana_arbeitspreis_neu",
+    "category": "preis",
+    "question": "Auf welchen Arbeitspreis (brutto) erhöht Montana zum 01.04.2025?",
+    "expected_substrings": [
+      "29,05|29.05"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_Vertragsinformation_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "29,05"
+    ]
+  },
+  {
+    "id": "montana_grundpreis_neu",
+    "category": "preis",
+    "question": "Auf welchen Grundpreis pro Monat erhöht Montana zum 01.04.2025?",
+    "expected_substrings": [
+      "15,41|15.41"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_Vertragsinformation_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "15,41"
+    ]
+  },
+  {
+    "id": "montana_erhoehung_arbeitspreis",
+    "category": "preis",
+    "question": "Um wie viele ct/kWh steigt der Arbeitspreis bei Montana?",
+    "expected_substrings": [
+      "2,42|2.42"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_Vertragsinformation_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "2,42"
+    ]
+  },
+  {
+    "id": "montana_kuendigung",
+    "category": "vertrag",
+    "question": "Mit welcher Frist und zu welchem Termin kann der Montana-Vertrag laut Montana_25 gekündigt werden?",
+    "expected_substrings": [
+      "1 Monat",
+      "22.03.2025"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "22.03.2025"
+    ]
+  },
+  {
+    "id": "simply_kuendigung",
+    "category": "vertrag",
+    "question": "Wie lang ist die Kündigungsfrist bei Simply_25?",
+    "expected_substrings": [
+      "1 Monat"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Simply_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Kündigungsfrist"
+    ]
+  },
+  {
+    "id": "berlin1_laufzeit",
+    "category": "vertrag",
+    "question": "Wie lang ist die Mindestvertragsdauer bei Berlin1_25?",
+    "expected_substrings": [
+      "12 Monate"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Berlin1_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Mindestvertragsdauer"
+    ]
+  },
+  {
+    "id": "montana_sonderkuendigung",
+    "category": "vertrag",
+    "question": "Besteht bei der Montana-Preiserhöhung ein Sonderkündigungsrecht?",
+    "expected_substrings": [
+      "Sonderkündigung|ja|Ja"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Montana_Vertragsinformation_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Sonderkündigung"
+    ]
+  },
+  {
+    "id": "zeag_zeitraum",
+    "category": "wasser",
+    "question": "Für welchen Zeitraum gilt die Abrechnung ZEAG_25?",
+    "expected_substrings": [
+      "12.06.2024",
+      "20.05.2025"
+    ],
+    "expected_sources": [
+      {
+        "filename": "ZEAG_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "12.06.2024"
+    ]
+  },
+  {
+    "id": "zeag_verbrauch",
+    "category": "wasser",
+    "question": "Wie hoch war der Wasserverbrauch laut ZEAG_25?",
+    "expected_substrings": [
+      "50 m³|50 m3|50,000|50,0|50 Kubik"
+    ],
+    "expected_sources": [
+      {
+        "filename": "ZEAG_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "50,000"
+    ]
+  },
+  {
+    "id": "zeag_nachzahlung",
+    "category": "wasser",
+    "question": "Welcher Betrag ist laut ZEAG_25 noch zu zahlen?",
+    "expected_substrings": [
+      "29,81|29.81"
+    ],
+    "expected_sources": [
+      {
+        "filename": "ZEAG_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "29,81"
+    ]
+  },
+  {
+    "id": "zeag_abschlag",
+    "category": "wasser",
+    "question": "Wie hoch ist der künftige Abschlag bei ZEAG_25?",
+    "expected_substrings": [
+      "37,00|37.00"
+    ],
+    "expected_sources": [
+      {
+        "filename": "ZEAG_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "37,00"
+    ]
+  },
+  {
+    "id": "zeag_wasserpreis",
+    "category": "wasser",
+    "question": "Wie hoch ist der Wasserpreis (Arbeitspreis) in EUR/m³ für 2024 laut ZEAG_25?",
+    "expected_substrings": [
+      "2,55|2.55"
+    ],
+    "expected_sources": [
+      {
+        "filename": "ZEAG_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "2,55"
+    ]
+  },
+  {
+    "id": "zeag_gesamt_brutto",
+    "category": "wasser",
+    "question": "Wie hoch ist der Gesamtbetrag brutto für Wasser und Abwasser in ZEAG_25?",
+    "expected_substrings": [
+      "370,81|370.81"
+    ],
+    "expected_sources": [
+      {
+        "filename": "ZEAG_25.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "370,81"
+    ]
+  },
+  {
+    "id": "inventar_anzahl",
+    "category": "ueberblick",
     "question": "Wie viele Dokumente sind indiziert?",
-    "expected_substrings": ["6"],
-    "expected_sources": []
+    "expected_substrings": [
+      "6|sechs"
+    ]
   },
   {
-    "_todo": true,
-    "id": "TODO_zeag_arbeitspreis",
-    "_hint": "Ersetze die TODO-Werte durch echte Antworten aus deinem PDF und entferne dann '_todo'. Mehrere akzeptierte Schreibweisen mit '|' trennen.",
-    "question": "Wie hoch ist der Arbeitspreis in der ZEAG-Rechnung?",
-    "expected_substrings": ["TODO: z.B. 28,45|28.45"],
-    "expected_sources": [{"filename": "ZEAG_25.pdf", "page": 1}],
-    "evidence_substrings": ["TODO: z.B. 28,45"]
+    "id": "wasser_dokument",
+    "category": "ueberblick",
+    "question": "Welches Dokument betrifft Wasser und Abwasser statt Strom?",
+    "expected_substrings": [
+      "ZEAG"
+    ]
   },
   {
-    "_todo": true,
-    "id": "TODO_montana_kuendigung",
-    "question": "Welche Kündigungsfrist gilt laut Montana-Vertragsinformation?",
-    "expected_substrings": ["TODO"],
-    "expected_sources": [{"filename": "Montana_Vertragsinformation_25.pdf"}],
-    "evidence_substrings": ["Kündigung"]
+    "id": "montana_dokumente",
+    "category": "ueberblick",
+    "question": "Welche Dokumente gehören zum Anbieter Montana?",
+    "expected_substrings": [
+      "Montana_25",
+      "Montana_Vertragsinformation_25"
+    ]
   },
   {
-    "_todo": true,
-    "id": "TODO_berlin_verbrauch",
-    "question": "Wie hoch war der Verbrauch im Abrechnungszeitraum der Berlin1-Rechnung?",
-    "expected_substrings": ["TODO"],
-    "expected_sources": [{"filename": "Berlin1_25.pdf"}]
+    "id": "calc_verbrauchsdifferenz",
+    "category": "rechnen",
+    "question": "Um wie viele kWh unterscheidet sich der Verbrauch von Berlin1_25 und Berlin2_25?",
+    "expected_substrings": [
+      "1.846|1846"
+    ]
   },
   {
-    "_todo": true,
-    "id": "TODO_simply_abschlag",
-    "question": "Wie hoch ist der monatliche Abschlag bei Simply?",
-    "expected_substrings": ["TODO"],
-    "expected_sources": [{"filename": "Simply_25.pdf"}]
+    "id": "calc_summe_guthaben",
+    "category": "rechnen",
+    "question": "Wie hoch ist die Summe aller Guthaben und Rückerstattungen der vier Stromabrechnungen Berlin1_25, Berlin2_25, Montana_25 und Simply_25?",
+    "expected_substrings": [
+      "940,76|940.76"
+    ]
   },
   {
-    "_todo": true,
-    "id": "TODO_compare_berlin",
-    "question": "Welche Unterschiede gibt es zwischen Berlin1_25 und Berlin2_25?",
-    "expected_substrings": ["TODO"],
-    "expected_sources": [{"filename": "Berlin1_25.pdf"}, {"filename": "Berlin2_25.pdf"}]
+    "id": "calc_montana_grundpreis_jahr",
+    "category": "rechnen",
+    "question": "Um wie viel Euro pro Jahr steigt der Grundpreis bei Montana durch die Erhöhung zum 01.04.2025?",
+    "expected_substrings": [
+      "42,00|42.00|42 Euro|42 EUR|42 €|42,-"
+    ]
   },
   {
-    "_todo": true,
-    "id": "TODO_calc_total",
-    "question": "Wie hoch sind die jährlichen Gesamtkosten aus Grundpreis und Arbeitspreis bei ZEAG?",
-    "expected_substrings": ["TODO"],
-    "expected_sources": [{"filename": "ZEAG_25.pdf"}]
+    "id": "vergleich_niedrigster_preis",
+    "category": "rechnen",
+    "question": "Welcher Stromanbieter hat den niedrigsten Arbeitspreis, wenn alle Preise inklusive MwSt. verglichen werden?",
+    "expected_substrings": [
+      "Simply"
+    ]
+  },
+  {
+    "id": "vergleich_hoechster_verbrauch",
+    "category": "rechnen",
+    "question": "Welche Stromabrechnung hat den höchsten Verbrauch?",
+    "expected_substrings": [
+      "Simply"
+    ]
+  },
+  {
+    "id": "ohne_antwort_gas",
+    "category": "ohne_antwort",
+    "question": "Wie hoch ist der Gaspreis in den Dokumenten?",
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
+  },
+  {
+    "id": "ohne_antwort_preisgarantie",
+    "category": "ohne_antwort",
+    "question": "Bis wann gilt die Preisgarantie bei Simply_25?",
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
   }
 ]

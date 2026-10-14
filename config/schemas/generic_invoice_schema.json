@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "generic_invoice",
+  "title": "Universelle Rechnung",
+  "document_types": [
+    "rechnung",
+    "invoice",
+    "gutschrift",
+    "zahlungsaufforderung",
+    "mahnung",
+    "quittung"
+  ],
+  "properties": {
+    "invoice_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Rechnungsnummer",
+      "description": "Rechnungsnummer, nur die Nummer"
+    },
+    "contract_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Vertrags-/Auftragsnummer",
+      "description": "Vertrags-, Auftrags- oder Bestellnummer, auf die sich die Rechnung bezieht; nur die Nummer"
+    },
+    "customer_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Kundennummer",
+      "description": "Kundennummer; nur die Nummer"
+    },
+    "recipient": {
+      "type": "string",
+      "label": "Empfänger",
+      "description": "Empfänger oder Rechnungskunde"
+    },
+    "net_amount_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Nettobetrag",
+      "description": "Nettobetrag in EUR"
+    },
+    "vat_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Mehrwertsteuer",
+      "description": "Mehrwertsteuerbetrag in EUR"
+    },
+    "gross_amount_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Bruttobetrag",
+      "description": "Bruttobetrag in EUR"
+    },
+    "due_date": {
+      "type": "string",
+      "label": "Fällig am",
+      "description": "Fälligkeitsdatum, wie im Dokument angegeben"
+    }
+  }
+}

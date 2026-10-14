@@ -100,6 +100,22 @@ TOOL_SCHEMAS: list[dict] = [
         ["source", "target"],
     ),
     _tool(
+        "graph_context",
+        "GraphRAG-Kontext zu einer Frage: erkennt Dateinamen, Nummern und Namen in der Frage und zeigt die "
+        "zugehörigen Dokumente, ihre Beziehungen (z. B. Kunde -> Vertragskonto -> Zähler), Zeitreihen und die "
+        "Fundstellen im Originaltext mit Seitenzahl. Nutze das für Zusammenhangs- und Multi-Hop-Fragen über "
+        "mehrere Dokumente, wenn keine genaue Kennung bekannt ist.",
+        {"query": {"type": "string", "description": "Die Frage oder die Begriffe, z. B. 'Gehört die Mahnung zur Rechnung 2025-0042?'."}},
+        ["query"],
+    ),
+    _tool(
+        "graph_overview",
+        "Überblick über den gesamten Dokumentbestand: fasst zusammenhängende Dokumente zu Vorgängen bzw. "
+        "Themenclustern zusammen (gemeinsame Verträge, Kennungen, Absender, Zeitreihen) mit Zeitraum, "
+        "Dokumenttypen und verbindenden Entitäten. Nutze das für Überblicksfragen ('Welche Vorgänge gibt es?').",
+        {},
+    ),
+    _tool(
         "calculate",
         "Rechnet exakt. NUR Zahlen und Operatoren + - * / ** und Klammern, z. B. '15.41 + 4.89'. "
         "Keine Einheiten, Wörter oder Paragraphenzeichen.",
@@ -501,6 +517,34 @@ class AgentTools:
         evidence = [_tool_evidence("graph_paths", "Graph-Pfade", text, f"{source}->{target}")]
         return ToolResult(text, evidence)
 
+    def graph_context(self, query: str) -> ToolResult:
+        """GraphRAG: Beziehungen aus dem Graphen plus Fundstellen mit Seitenzahl als zitierfähige Evidenz."""
+        if not query or not query.strip():
+            return ToolResult("Fehler: Bitte eine Frage oder Begriffe angeben.")
+        context = self._get_graph().graph_context(query)
+        if not context.text:
+            return ToolResult(
+                "Im Dokumentgraphen wurde zu dieser Frage keine bekannte Datei, Nummer oder Entität erkannt. "
+                "Nutze search oder get_document_inventory."
+            )
+        evidence = [_tool_evidence("graph_context", "Dokumentgraph (Beziehungen)", context.text, query.strip().casefold())]
+        for mention in context.mentions[:6]:
+            evidence.append({
+                "id": f"graph:{mention.get('chunk_id') or mention.get('filename')}",
+                "content": str(mention.get("snippet", "")),
+                "page_number": mention.get("page"),
+                "metadata": {
+                    "filename": mention.get("filename", "Dokument"),
+                    "heading_stack_str": "",
+                    "chunk_type": mention.get("chunk_type") or "text",
+                },
+            })
+        return ToolResult(context.text, evidence)
+
+    def graph_overview(self) -> ToolResult:
+        text = self._get_graph().overview()
+        return ToolResult(text, [_tool_evidence("graph_overview", "Dokumentgraph (Überblick)", text)])
+
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
         clean = re.sub(r"\(.*?\)$", "", (name or "").strip().strip("`'\"")).strip()
         args = arguments if isinstance(arguments, dict) else {}
@@ -549,6 +593,10 @@ class AgentTools:
                     str(args.get("source") or args.get("entity1") or ""),
                     str(args.get("target") or args.get("entity2") or "")
                 )
+            if clean == "graph_context":
+                return self.graph_context(str(args.get("query") or args.get("entity") or args.get("question") or ""))
+            if clean == "graph_overview":
+                return self.graph_overview()
             if clean == "calculate":
                 expression = str(args.get("expression") or args.get("query") or "")
                 text = self.calculate(expression)

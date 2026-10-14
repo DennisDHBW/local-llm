@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "generic_document",
+  "title": "Allgemeines Dokument",
+  "description": "Auffangschema für alles, was weder Rechnung noch ein Fachschema ist (Verträge, Bescheide, Policen, Schreiben).",
+  "document_types": [],
+  "properties": {
+    "subject": {
+      "type": "string",
+      "label": "Betreff",
+      "description": "Betreff oder Gegenstand des Dokuments in wenigen Worten"
+    },
+    "reference_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Aktenzeichen/Referenz",
+      "description": "Wichtigste Kennung des Dokuments: Aktenzeichen, Vertrags-, Policen-, Kunden- oder Vorgangsnummer; nur die Nummer"
+    },
+    "counterparty": {
+      "type": "string",
+      "role": "entity",
+      "label": "Vertragspartner/Absender",
+      "description": "Organisation oder Person, von der das Dokument stammt bzw. mit der der Vertrag besteht"
+    },
+    "amount_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Betrag",
+      "description": "Wichtigster Geldbetrag in EUR (z. B. Beitrag, Gebühr, Vertragssumme)"
+    },
+    "amount_period": {
+      "type": "string",
+      "label": "Betrag bezieht sich auf",
+      "description": "Bezug des Betrags, z. B. 'pro Monat', 'pro Jahr' oder 'einmalig'"
+    },
+    "valid_from": {
+      "type": "string",
+      "label": "Gültig ab",
+      "description": "Beginn (Vertragsbeginn, Gültigkeit), wie im Dokument angegeben"
+    },
+    "valid_until": {
+      "type": "string",
+      "label": "Gültig bis",
+      "description": "Ende (Vertragsende, Ablauf, Frist), wie im Dokument angegeben"
+    },
+    "notice_period": {
+      "type": "string",
+      "label": "Kündigungsfrist",
+      "description": "Kündigungsfrist als Dauer, z. B. '3 Monate'"
+    },
+    "due_date": {
+      "type": "string",
+      "label": "Frist/Fällig am",
+      "description": "Datum, bis zu dem etwas zu tun oder zu zahlen ist"
+    }
+  }
+}

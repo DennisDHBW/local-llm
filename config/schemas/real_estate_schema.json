@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "real_estate",
+  "title": "Miet- und Immobilienunterlagen",
+  "document_types": [
+    "mietvertrag",
+    "mietabrechnung",
+    "immobilie",
+    "wohnungsangebot",
+    "nebenkostenabrechnung",
+    "betriebskostenabrechnung",
+    "mieterhöhung"
+  ],
+  "keywords": [
+    "kaltmiete",
+    "warmmiete",
+    "nebenkosten",
+    "betriebskosten",
+    "kaution",
+    "vermieter",
+    "mieter",
+    "wohnfläche"
+  ],
+  "agent_hints": [
+    "Kaltmiete, Nebenkosten(vorauszahlung) und Warmmiete sind verschiedene Beträge. Nenne immer, welcher gemeint ist, und ob er pro Monat oder pro Jahr gilt."
+  ],
+  "properties": {
+    "property_address": {
+      "type": "string",
+      "role": "entity",
+      "label": "Objekt",
+      "description": "Anschrift des Miet-/Kaufobjekts (Straße, Hausnummer, Ort)"
+    },
+    "landlord": {
+      "type": "string",
+      "role": "entity",
+      "label": "Vermieter",
+      "description": "Vermieter oder Eigentümer (Name)"
+    },
+    "tenant": {
+      "type": "string",
+      "label": "Mieter",
+      "description": "Mieter (Name)"
+    },
+    "contract_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Vertrags-/Mieternummer",
+      "description": "Vertrags-, Mieter- oder Objektnummer; nur die Nummer"
+    },
+    "cold_rent_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Kaltmiete",
+      "description": "Kaltmiete pro Monat in EUR"
+    },
+    "additional_costs_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Nebenkosten",
+      "description": "Nebenkosten(vorauszahlung) in EUR"
+    },
+    "living_area_sqm": {
+      "type": "number",
+      "unit": "m²",
+      "label": "Wohnfläche",
+      "description": "Wohnfläche in Quadratmetern"
+    },
+    "deposit_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Kaution",
+      "description": "Kaution in EUR"
+    },
+    "contract_start": {
+      "type": "string",
+      "label": "Mietbeginn",
+      "description": "Mietbeginn, wie im Dokument angegeben"
+    },
+    "notice_period": {
+      "type": "string",
+      "label": "Kündigungsfrist",
+      "description": "Kündigungsfrist als Dauer, z. B. '3 Monate'"
+    }
+  }
+}

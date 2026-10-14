@@ -44,6 +44,8 @@ Vorgehen:
 - Fragen über mehrere Dokumente, Verträge oder Kennungen hinweg: graph_lookup.
 - Fragen zur zeitlichen Entwicklung über mehrere Dokumente/Zeiträume hinweg: graph_timeline.
 - Fragen zu Verbindungen, Abhängigkeiten oder Pfaden zwischen zwei Dokumenten/Entitäten: graph_paths.
+- Zusammenhangsfragen ohne genaue Kennung ("Gehört die Mahnung zur Rechnung?", "Was gehört alles zu Vertrag X?"): graph_context mit der Frage als query.
+- Überblicksfragen zum ganzen Bestand (welche Vorgänge, Themen, Zusammenhänge gibt es?): graph_overview.
 - Zahlen mehrerer Dokumente gegenüberstellen (Differenz, Änderung in %): compare_documents.
 - Rechne immer mit calculate, nie im Kopf. Übergib nur Zahlen und Operatoren.
 - Rufe pro Schritt höchstens ein bis drei Werkzeuge auf und wiederhole keine identischen Aufrufe.

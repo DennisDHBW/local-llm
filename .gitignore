@@ -1,0 +1,34 @@
+.venv/
+.cache/
+data/
+.aider*
+project_content.txt
+*.xml
+*.toml
+*.db
+# --- Ergänzung (Claude, 2026-10-14) -----------------------------------------
+# Python / Werkzeuge
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE und Assistenten
+.idea/
+.vscode/
+
+# Laufzeit-Caches (werden aus den Dokumenten neu erzeugt)
+
+# Daten: echte Dokumente, Ableitungen, Indizes (personenbezogen, groß, reproduzierbar)
+data/raw/
+data/processed/
+data/vectors/
+data/graph/
+*.tmp
+*.corrupt
+
+# Projekt-Dumps und Ausgaben von Evaluationsläufen
+output*.txt
+eval_*.txt
+evaluation/results/
