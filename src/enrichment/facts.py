@@ -42,7 +42,7 @@ from typing import Any, Optional
 import ollama
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.config import FACTS_MODEL, PROCESSED_DIR, ollama_options
+from src.config import FACTS_MODEL, PROCESSED_DIR, VAT_RATE, ollama_options
 from src.enrichment.schema import (
     BUILTIN_SCHEMA_ID, SchemaSpec, configured_spec, extraction_schema, get_schema, schema_fields,
 )
@@ -284,8 +284,15 @@ _ID_LABELS: dict[str, list[str]] = {
         r"[A-Za-zäöüÄÖÜ]*abrechnungs-?(?:nummer|nr\.?)",
         r"[A-Za-zäöüÄÖÜ]*abrechnung\s+(?:nummer|nr\.?)",
     ],
-    "meter_number": [r"Z[äa]hler-?(?:nummer|nr\.?)"],
+    "meter_number": [
+        r"Z[äa]hler-?(?:nummer|nr\.?)",
+        r"Z[äa]hler\s+(?:Nr\.?|Nummer)",
+        r"Ger[äa]te-?(?:nummer|nr\.?)",
+    ],
 }
+# Zählernummer nach DIN 43863-5 ("1EMH0013278786", "8HTL5623212259"): Ziffer, 3 Buchstaben, 10 Ziffern.
+# Rückfall, wenn kein Label gefunden wurde und das Modell keine im Text stehende Nummer geliefert hat.
+_METER_FORMAT_RE = re.compile(r"(?<![A-Za-z0-9])(\d[A-Z]{3}\d{10})(?![A-Za-z0-9])")
 _MIN_ID_DIGITS = 4
 _DATE_PART = r"(\d{1,2}\.\d{1,2}\.(?:\d{4}|\d{2}))"
 _PERIOD_RES = (
@@ -318,6 +325,19 @@ def _labeled_ids(text: str, label_patterns: list[str]) -> list[str]:
         if found:
             return found
     return []
+
+
+def _find_periods(text: str) -> list[tuple[str, str]]:
+    """Alle plausiblen Zeiträume mit Label (in Textreihenfolge, ohne Duplikate)."""
+    periods: list[tuple[str, str]] = []
+    for pattern in _PERIOD_RES:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            start, end = _to_date(match[1]), _to_date(match[2])
+            if start and end and start <= end and (end - start).days <= 800:
+                pair = (match[1], match[2])
+                if not any(_to_date(a) == start and _to_date(b) == end for a, b in periods):
+                    periods.append(pair)
+    return periods
 
 
 def _find_period(text: str) -> Optional[tuple[str, str]]:
@@ -359,6 +379,30 @@ def apply_deterministic(
 
     def compact(value: Any) -> str:
         return re.sub(r"\s+", "", str(value)).casefold()
+
+    text = source_text.replace("\u00a0", " ")
+    # Zeitraum: Nennt das Dokument mehrere (z. B. Vorjahresvergleich), behält ein Modellwert, der selbst als
+    # gelabelter Zeitraum im Text steht, Vorrang; sonst gilt der zuletzt endende (der abgerechnete) Zeitraum.
+    if "billing_period_start" in found:
+        periods = _find_periods(text)
+        model = (_to_date(out.get("billing_period_start")), _to_date(out.get("billing_period_end")))
+        if any((_to_date(a), _to_date(b)) == model for a, b in periods):
+            found.pop("billing_period_start")
+            found.pop("billing_period_end", None)
+        elif len(periods) > 1:
+            latest = max(periods, key=lambda pair: (_to_date(pair[1]), _to_date(pair[0])))
+            found["billing_period_start"], found["billing_period_end"] = latest
+            notes.append(f"Zeitraum: {len(periods)} im Text, gewählt der zuletzt endende {latest[0]} - {latest[1]}")
+
+    # Zählernummer im Normformat, wenn kein Label sie liefert und der Modellwert nicht im Text steht
+    if (spec is None or "meter_number" in spec.fields) and "meter_number" not in found:
+        old_meter = out.get("meter_number")
+        compact_text = re.sub(r"\s+", "", text).casefold()
+        if old_meter is None or not _contains_id(compact_text, old_meter):
+            meters = list(dict.fromkeys(_METER_FORMAT_RE.findall(text)))
+            if meters:
+                found["meter_number"] = meters[-1]
+                notes.append(f"meter_number: Normformat im Text gefunden ({', '.join(meters)})")
 
     for key, value in found.items():
         old = out.get(key)
@@ -537,6 +581,95 @@ def _advance_candidates(source: str) -> set[float]:
     return values
 
 
+_AMOUNT_TOKEN_RE = re.compile(r"(?<![\d.,])-?\d{1,3}(?:\.\d{3})*,\d{2}(?!\d)")
+_DUE_LABELS = ("nachzahlung", "nachforderung", "zu zahlender betrag", "zu zahlen", "restbetrag", "offener betrag")
+_CREDIT_LABELS = ("guthaben", "erstattungsbetrag", "rückerstattung", "gutschrift", "zu ihren gunsten")
+_NEW_ADVANCE_LABELS = (
+    "neuer abschlag", "neue abschlag", "neuer monatlicher abschlag", "neue monatliche abschlag",
+    "künftiger abschlag", "zukünftiger abschlag", "künftige abschlag", "zukünftige abschlag",
+    "neuer abschlagsbetrag", "ihr neuer abschlag", "neue abschlagszahlung",
+)
+
+
+def _amounts_after_labels(source: str, labels: tuple[str, ...], window: int = 40) -> list[float]:
+    """Beträge (mit Komma-Dezimalen), die als erster Betrag innerhalb von `window` Zeichen hinter einem Label stehen.
+
+    Ein Datum oder eine Zahl ohne Nachkommastellen dazwischen ist erlaubt ("Abschlag ab 01.03.2025: 116,00").
+    """
+    text = source.replace("\u00a0", " ")
+    low = text.casefold()
+    values: list[float] = []
+    for label in labels:
+        for match in re.finditer(re.escape(label), low):
+            amount = _AMOUNT_TOKEN_RE.search(text, match.end(), match.end() + window)
+            if amount:
+                value = _parse_number(amount.group(0))
+                if value is not None and abs(value) >= 0.01:
+                    value = round(abs(value), 2)
+                    if value not in values:
+                        values.append(value)
+    return values
+
+
+def _base_price_candidates(source: str) -> list[tuple[float, str]]:
+    """Mit 'Grundpreis' beschriftete Preise und ihre Zeiteinheit (Einheit direkt hinter der Zahl)."""
+    text = source.replace("\u00a0", " ")
+    words = FIELD_ANCHORS["base_price_eur"]
+    found: list[tuple[float, str]] = []
+    for match in _NUM_TOKEN_RE.finditer(text):
+        value = _parse_number(match.group(0))
+        if value is None or value <= 0:
+            continue
+        after = text[match.end(): match.end() + 25].casefold()
+        unit = next((u for u, markers in _UNIT_MARKERS.items() if any(m in after for m in markers)), None)
+        if not unit:
+            continue
+        before = text[max(0, match.start() - ANCHOR_BEFORE): match.start()].casefold()
+        anchored = any(
+            (pos := before.rfind(word)) >= 0 and not _AMOUNT_BETWEEN_RE.search(before[pos + len(word):])
+            for word in words if not _is_unit_anchor(word)
+        )
+        if anchored and (value, unit) not in found:
+            found.append((value, unit))
+    return found
+
+
+def _energy_estimate(facts: dict[str, Any], base: float, unit: str) -> Optional[float]:
+    """Verbrauch x Arbeitspreis + Grundpreis für den Zeitraum, brutto (netto-Preise x (1 + MwSt))."""
+    def num(key: str) -> Optional[float]:
+        value = facts.get(key)
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    kwh, price, days = num("consumption_kwh"), num("working_price_ct_per_kwh"), _period_days(facts)
+    factor = {"pro jahr": 1.0, "pro monat": 12.0, "pro tag": 365.0}.get(str(unit or "").casefold())
+    basis = str(facts.get("price_basis") or "").casefold()
+    if kwh is None or price is None or not days or factor is None or basis not in ("brutto", "netto"):
+        return None
+    estimate = kwh * price / 100 + base * factor * days / 365
+    return estimate * (1 + VAT_RATE) if basis == "netto" else estimate
+
+
+def _repair_base_price(facts: dict[str, Any], source: str) -> Optional[tuple[float, str, float, float]]:
+    total, base = facts.get("total_gross_eur"), facts.get("base_price_eur")
+    if not isinstance(total, (int, float)) or not isinstance(base, (int, float)) or total <= 0:
+        return None
+    current = _energy_estimate(facts, float(base), str(facts.get("base_price_unit") or ""))
+    if current is None:
+        return None
+    before = abs(current - total) / total
+    if before <= 0.20:
+        return None
+    best: Optional[tuple[float, str, float]] = None
+    for value, unit in _base_price_candidates(source):
+        estimate = _energy_estimate(facts, value, unit)
+        if estimate is None:
+            continue
+        error = abs(estimate - total) / total
+        if error <= 0.01 and (best is None or error < best[2]):
+            best = (value, unit, error)
+    return (best[0], best[1], before, best[2]) if best else None
+
+
 def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, Any], list[str]]:
     """Korrigiert systematische Modellfehler per Regel. Rückgabe: (Fakten, Änderungsprotokoll).
 
@@ -593,13 +726,26 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
     #     = Nachzahlung) zeigt, welcher. Beispiel: Rechnung 116,97, "Nachzahlung" 432,00, Guthaben 315,03
     #     -> 432,00 - 116,97 = 315,03, also sind 432,00 die geleisteten Abschläge.
     credit, due, total = number("credit_eur"), number("amount_due_eur"), number("total_gross_eur")
-    if credit is not None and due is not None and total is not None and number("advances_paid_eur") is None:
+    # Nur mit Werten, die im Text stehen: ein vom Modell errechneter Betrag (z. B. Rechnung - Guthaben) würde
+    # sonst eine scheinbar stimmige Saldo-Rechnung ergeben und einen richtigen Wert umdeuten.
+    in_text = all(_contains_number(source_text, v) for v in (credit, due, total) if v is not None)
+    if credit is not None and due is not None and total is not None and number("advances_paid_eur") is None \
+            and in_text:
         if abs(due - total - credit) < 0.015:
             out["advances_paid_eur"] = out.pop("amount_due_eur")
             notes.append(f"amount_due_eur {due} = geleistete Abschläge ({due} - {total} = Guthaben {credit})")
         elif abs(credit + due - total) < 0.015:
             out["advances_paid_eur"] = out.pop("credit_eur")
             notes.append(f"credit_eur {credit} = geleistete Abschläge ({total} - {credit} = Nachzahlung {due})")
+
+    # 2c) Weder Guthaben noch Nachzahlung extrahiert: genau ein Betrag direkt hinter dem Label im Text
+    if number("credit_eur") is None and number("amount_due_eur") is None:
+        for key, words in (("amount_due_eur", _DUE_LABELS), ("credit_eur", _CREDIT_LABELS)):
+            values = _amounts_after_labels(source_text, words)
+            if len(values) == 1:
+                out[key] = values[0]
+                notes.append(f"{key}: fehlte -> {values[0]} (einziger Betrag hinter dem Label im Text)")
+                break
 
     # 3) Kündigungsfrist ist eine Dauer, kein Datum
     notice = out.get("notice_period")
@@ -633,7 +779,9 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
             if out.get("base_price_unit") != unit:
                 notes.append(f"base_price_unit {out.get('base_price_unit')!r} -> {unit!r} (Text)")
                 out["base_price_unit"] = unit
-        else:
+        if not unit or _has_anchor(source_text.replace("\u00a0", " "), base, FIELD_ANCHORS["base_price_eur"]) is False:
+            # Ohne Einheit oder ohne Grundpreis-Label am Wert: Ist der Wert die Summe für den Zeitraum
+            # (Einzelpreis x Tage), gilt der Einzelpreis mit seiner Einheit.
             days = _period_days(out)
             alternative = _find_unit_price(source_text, base, days) if days else None
             if alternative:
@@ -644,9 +792,26 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
                 )
                 out["base_price_eur"], out["base_price_unit"] = value, new_unit
 
-    # 7) Monatlicher Abschlag: eindeutiger Betrag hinter 'Abschlag' im Text
+    # 6b) Grundpreis gegen den Rechnungsbetrag prüfen: weicht Verbrauch x Arbeitspreis + Grundpreis um mehr als
+    #     20 % ab und passt ein anderer, mit "Grundpreis" beschrifteter Preis mit Zeiteinheit auf 1 %, gilt dieser.
+    repaired = _repair_base_price(out, source_text)
+    if repaired:
+        value, new_unit, before, after = repaired
+        notes.append(
+            f"base_price_eur {out.get('base_price_eur')} {out.get('base_price_unit')} -> {value} {new_unit} "
+            f"(Rechnungsbetrag passt: Abweichung {before:.0%} -> {after:.1%})"
+        )
+        out["base_price_eur"], out["base_price_unit"] = value, new_unit
+
+    # 7a) Neuer Abschlag: "neuer/künftiger Abschlag ... 116,00" hat Vorrang vor dem bisherigen
+    new_advances = _amounts_after_labels(source_text, _NEW_ADVANCE_LABELS, window=70)
     advance = number("monthly_advance_payment_eur")
-    if advance is not None:
+    if len(new_advances) == 1 and (advance is None or abs(advance - new_advances[0]) >= 0.005):
+        notes.append(f"monthly_advance_payment_eur {advance} -> {new_advances[0]} (neuer Abschlag laut Text)")
+        out["monthly_advance_payment_eur"] = new_advances[0]
+
+    # 7) Monatlicher Abschlag: eindeutiger Betrag hinter 'Abschlag' im Text
+    if advance is not None and not new_advances:
         candidates = _advance_candidates(source_text)
         if candidates and not any(abs(advance - c) < 0.005 for c in candidates):
             if len(candidates) == 1:
@@ -677,7 +842,8 @@ FIELD_ANCHORS: dict[str, tuple[str, ...]] = {
     "wastewater_price_eur_per_m3": ("abwasser", "schmutzwasser", "m³", "m3"),
     "monthly_advance_payment_eur": (*_ADVANCE_WORDS, "vorauszahlung"),
     "total_gross_eur": ("gesamt", "rechnungsbetrag", "summe", "brutto", "betrag", "endbetrag", "kosten"),
-    "credit_eur": _CREDIT_WORDS,
+    "credit_eur": (*_CREDIT_WORDS, "gunsten", "überzahlung", "ueberzahlung", "gutgeschrieben", "erstatten",
+                   "zurück", "differenz"),
     "amount_due_eur": (*_DUE_WORDS, "nachberechnung"),
     "advances_paid_eur": (*_ADVANCE_WORDS, "geleistet", "gezahlt", "bezahlt", "vorauszahlung"),
 }
@@ -806,9 +972,9 @@ def _energy_checks(facts: dict[str, Any]) -> list[dict[str, Any]]:
     period = str(facts.get("base_price_unit") or "").casefold()
     per_year = {"jahr": 1.0, "monat": 12.0, "tag": 365.0}
     factor = next((f for word, f in per_year.items() if word in period), None)
-    if total and kwh is not None and price is not None and base is not None and days and factor \
-            and str(facts.get("price_basis") or "").casefold() == "brutto":
-        estimate = kwh * price / 100 + base * factor * days / 365
+    estimate = _energy_estimate(facts, base, f"pro {next((w for w in per_year if w in period), '')}") \
+        if base is not None else None
+    if total and estimate is not None and kwh is not None and price is not None and days and factor:
         deviation = abs(estimate - total) / total
         results.append({"rule": "Rechnungsbetrag ≈ Verbrauch × Arbeitspreis + Grundpreis", "ok": deviation <= ENERGY_COST_HINT_RATIO,
                         "severity": "hint", "detail": f"berechnet {estimate:.2f} EUR, Dokument {total:.2f} EUR ({deviation:.0%} Abweichung)"})
