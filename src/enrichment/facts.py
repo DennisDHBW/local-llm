@@ -737,6 +737,14 @@ def _sum_rows(source: str) -> list[float]:
     return rows
 
 
+def _row_total(run: list[float]) -> Optional[float]:
+    """Bruttobetrag einer Zeile 'netto USt brutto'. Läuft die Zahlenkette in die nächste Spalte weiter
+    ("-154,00 0,00 (0 %) -154,00 29,81"), zählt der Betrag, der netto + USt ergibt, nicht der letzte."""
+    if len(run) >= 3 and abs(run[0] + run[1] - run[2]) <= 0.015:
+        return run[2]
+    return run[-1] if run else None
+
+
 _PAYMENT_WORDS = ("abschläge", "abschlaege", "abschlagszahlungen", "geleistete zahlungen", "gezahlte", "vorauszahlungen")
 
 
@@ -755,13 +763,13 @@ def _saldo_from_payments(source: str, total: float) -> Optional[tuple[str, float
                 value = _parse_number(token.group(0))
                 if value:
                     paid_candidates.add(round(abs(value), 2))
-            # Zeile "gezahlte Abschläge Wasser -174,79 -12,21 (7 %) -187,00": letzter Betrag = brutto der Zeile
+            # Zeile "gezahlte Abschläge Wasser -174,79 -12,21 (7 %) -187,00": brutto der Zeile
             first = _AMOUNT_TOKEN_RE.search(text, match.end(), match.end() + 40)
             if first and first.start() not in seen_rows:
                 seen_rows.add(first.start())
-                run = _amount_run_after(text, first.start())
-                if run:
-                    row_totals.append(run[-1])
+                row_total = _row_total(_amount_run_after(text, first.start()))
+                if row_total is not None:
+                    row_totals.append(row_total)
     distinct_rows = list(dict.fromkeys(row_totals))   # dieselbe Zeile auf Übersichts- und Detailseite zählt einmal
     if len(distinct_rows) >= 2:
         # Abschläge stehen nach Sparten getrennt (Wasser, Abwasser): ihre Summe ist ein weiterer Kandidat
@@ -850,6 +858,59 @@ def _repair_base_price(facts: dict[str, Any], source: str) -> Optional[tuple[flo
         if error <= 0.01 and (best is None or error < best[2]):
             best = (value, unit, error)
     return (best[0], best[1], before, best[2]) if best else None
+
+
+_NET_SUM_LABELS = ("nettobetrag", "summe netto", "netto gesamt", "gesamt netto", "betrag netto", "zwischensumme netto")
+_GROSS_SUM_LABELS = ("bruttobetrag", "summe brutto", "brutto gesamt", "gesamt brutto", "betrag brutto",
+                     "enthaltene umsatzsteuer", "enthaltene ust", "darin enthalten")
+LINE_LABEL_WINDOW = 400
+
+
+def _basis_from_line_amount(facts: dict[str, Any], source: str) -> tuple[Optional[str], str]:
+    """Netto/brutto der Preise aus der Entgeltzeile 'Verbrauch x Arbeitspreis = Betrag'.
+
+    1. Stehen der Zeilenbetrag E und E x (1 + MwSt) im Text, ist E netto; stehen E und E / (1 + MwSt) im Text,
+       ist E brutto (Tabellen mit Netto- und Bruttospalte).
+    2. Sonst entscheidet das erste Summenlabel hinter E: "Nettobetrag" -> netto, "Bruttobetrag"/"enthaltene
+       Umsatzsteuer" -> brutto (Beispiel: Entgelte 45,21 / 123,08 / -70,00, dann "Nettobetrag 98,29").
+    Ohne Zeilenbetrag im Text: keine Aussage.
+    """
+    kwh, price = facts.get("consumption_kwh"), facts.get("working_price_ct_per_kwh")
+    if not isinstance(kwh, (int, float)) or not isinstance(price, (int, float)) or kwh <= 0 or price <= 0:
+        return None, ""
+    line = round(kwh * price / 100, 2)
+    text = source.replace("\u00a0", " ")
+    # Nur Beträge, nicht Preise: "30,00 ct/kWh" ist der Arbeitspreis, auch wenn 100 kWh x 30 ct = 30,00 EUR wären
+    occurrences = [
+        m for variant in _number_variants(line) if "," in variant
+        for m in re.finditer(_number_pattern(variant), text)
+        if not re.match(r"\s*(?:ct|cent)\b", text[m.end(): m.end() + 8], re.IGNORECASE)
+    ]
+    if not occurrences:
+        return None, ""
+    factor = 1 + VAT_RATE
+    # ±1 Cent: Versorger runden Netto- bzw. Bruttospalte unterschiedlich (309,43 brutto -> 260,02 oder 260,03 netto)
+    has_gross = any(_contains_number(text, round(line * factor + d, 2)) for d in (-0.01, 0.0, 0.01))
+    has_net = any(_contains_number(text, round(line / factor + d, 2)) for d in (-0.01, 0.0, 0.01))
+    if has_gross and not has_net:
+        return "netto", f"Zeilenbetrag {line} und {round(line * factor, 2)} brutto im Text"
+    if has_net and not has_gross:
+        return "brutto", f"Zeilenbetrag {line} und {round(line / factor, 2)} netto im Text"
+    votes: dict[str, int] = {"netto": 0, "brutto": 0}
+    for match in occurrences:
+        after = text[match.end(): match.end() + LINE_LABEL_WINDOW].casefold()
+        positions = {
+            basis: min((p for p in (after.find(label) for label in labels) if p >= 0), default=-1)
+            for basis, labels in (("netto", _NET_SUM_LABELS), ("brutto", _GROSS_SUM_LABELS))
+        }
+        found = {basis: pos for basis, pos in positions.items() if pos >= 0}
+        if found:
+            votes[min(found, key=found.get)] += 1
+    if votes["netto"] != votes["brutto"]:
+        winner = max(votes, key=votes.get)
+        label = "Nettobetrag" if winner == "netto" else "Bruttobetrag"
+        return winner, f"Zeilenbetrag {line}, danach zuerst {label}"
+    return None, ""
 
 
 def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, Any], list[str]]:
@@ -942,6 +1003,13 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
         if detected and detected != out.get("price_basis"):
             notes.append(f"price_basis {out.get('price_basis')!r} -> {detected!r} (Text)")
             out["price_basis"] = detected
+
+    # 4b) Preisbasis aus der Entgeltzeile: Steht Verbrauch x Arbeitspreis als Betrag im Text, zeigt die Tabelle,
+    #     ob die Zeilenbeträge netto oder brutto sind (siehe `_basis_from_line_amount`).
+    line_basis, line_reason = _basis_from_line_amount(out, source_text)
+    if line_basis and line_basis != out.get("price_basis"):
+        notes.append(f"price_basis {out.get('price_basis')!r} -> {line_basis!r} ({line_reason})")
+        out["price_basis"] = line_basis
 
     # 5) Dokumenttyp
     if (
