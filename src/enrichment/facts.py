@@ -1249,7 +1249,30 @@ def evaluate_rule(rule: str, facts: dict[str, Any], tolerance: float = CHECK_TOL
     return {"rule": rule, "ok": ok, "severity": "error", "detail": detail}
 
 
-def _energy_checks(facts: dict[str, Any]) -> list[dict[str, Any]]:
+_DISCOUNT_LABEL_RE = re.compile(r"(bonus|rabatt|nachlass|prämie|praemie|preisvorteil)", re.IGNORECASE)
+DISCOUNT_WINDOW = 120   # Betrag höchstens so weit hinter dem Wort ("Neukundenbonus 07.01.2025 - 07.01.2025 -70,00")
+
+
+def _discounts_in_text(source_text: str) -> list[float]:
+    """Negative Beträge hinter 'Bonus'/'Rabatt'/'Nachlass' (z. B. Neukundenbonus -70,00 EUR), als positive Zahlen.
+
+    Gutschriften zählen nicht: das Wort steht oft beim Guthaben selbst.
+    """
+    text = source_text.replace("\u00a0", " ")
+    found: list[float] = []
+    seen: set[int] = set()
+    for label in _DISCOUNT_LABEL_RE.finditer(text):
+        amount = _AMOUNT_TOKEN_RE.search(text, label.end(), label.end() + DISCOUNT_WINDOW)
+        if not amount or not amount.group(0).startswith("-") or amount.start() in seen:
+            continue
+        seen.add(amount.start())
+        value = _parse_number(amount.group(0))
+        if value:
+            found.append(round(abs(value), 2))
+    return found
+
+
+def _energy_checks(facts: dict[str, Any], source_text: str = "") -> list[dict[str, Any]]:
     def num(key: str) -> float | None:
         value = facts.get(key)
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
@@ -1277,18 +1300,30 @@ def _energy_checks(facts: dict[str, Any]) -> list[dict[str, Any]]:
         if base is not None else None
     if total and estimate is not None and kwh is not None and price is not None and days and factor:
         deviation = abs(estimate - total) / total
+        detail = f"berechnet {estimate:.2f} EUR, Dokument {total:.2f} EUR ({deviation:.0%} Abweichung)"
+        if deviation > ENERGY_COST_HINT_RATIO and source_text:
+            # Boni/Rabatte (z. B. Neukundenbonus) mindern den Rechnungsbetrag; sie stehen im Text, nicht in den Fakten.
+            discounts = _discounts_in_text(source_text)
+            vat = 1 + VAT_RATE if str(facts.get("price_basis") or "").casefold() == "netto" else 1.0
+            adjusted = estimate - sum(discounts) * vat
+            if discounts and abs(adjusted - total) / total <= ENERGY_COST_HINT_RATIO:
+                deviation = abs(adjusted - total) / total
+                shown = ", ".join(f"-{d:.2f}" for d in discounts)
+                detail = (f"berechnet {estimate:.2f} EUR abzüglich Bonus/Rabatt ({shown} EUR) = {adjusted:.2f} EUR, "
+                          f"Dokument {total:.2f} EUR ({deviation:.0%} Abweichung)")
         results.append({"rule": "Rechnungsbetrag ≈ Verbrauch × Arbeitspreis + Grundpreis", "ok": deviation <= ENERGY_COST_HINT_RATIO,
-                        "severity": "hint", "detail": f"berechnet {estimate:.2f} EUR, Dokument {total:.2f} EUR ({deviation:.0%} Abweichung)"})
+                        "severity": "hint", "detail": detail})
     return results
 
 
-def run_checks(facts: dict[str, Any], spec: SchemaSpec | None = None) -> list[dict[str, Any]]:
+def run_checks(facts: dict[str, Any], spec: SchemaSpec | None = None, source_text: str = "") -> list[dict[str, Any]]:
     """Prüfregeln über die Fakten: eingebaute Energie-Regeln bzw. `checks` des konfigurierten Schemas.
 
     Rückgabe je anwendbarer Regel: {rule, ok, severity (error|hint), detail}. Nicht anwendbare Regeln fehlen.
+    `source_text` (optional) erlaubt Regeln, Angaben aus dem Text zu berücksichtigen (z. B. Boni).
     """
     if spec is None:
-        return _energy_checks(facts)
+        return _energy_checks(facts, source_text)
     results: list[dict[str, Any]] = []
     for check in spec.checks:
         try:
@@ -1705,7 +1740,7 @@ class FactExtractor:
 
             spec = configured_spec(schema_id)
             verified, dropped, notes = postprocess_facts(raw, full_text, meta, spec)
-            checks = run_checks(verified, spec)
+            checks = run_checks(verified, spec, full_text)
             record = {
                 "filename": filename,
                 "source_hash": source_hash,

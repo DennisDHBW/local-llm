@@ -44,3 +44,17 @@ def test_contains_number_near_respects_window():
     anchor = [text.index("45,21")]
     assert not _contains_number_near(text, 38.0, anchor, 120)
     assert _contains_number_near(text, 38.0, anchor, 400)
+
+
+def test_energy_hint_accounts_for_bonus_in_text():
+    # Montana_25: (45,21 + 123,08 - 70,00 Neukundenbonus) * 1,19 = 116,97. Ohne Bonus 72 % "Abweichung".
+    from src.enrichment.facts import _discounts_in_text, run_checks
+
+    facts = {"consumption_kwh": 202.0, "working_price_ct_per_kwh": 22.38, "base_price_eur": 120.12,
+             "base_price_unit": "pro Jahr", "price_basis": "netto", "total_gross_eur": 116.97,
+             "billing_period_start": "23.01.2024", "billing_period_end": "31.01.2025"}
+    assert _discounts_in_text(MONTANA_PAGE2) == [70.0]
+    without_text = [c for c in run_checks(facts) if c["severity"] == "hint"][0]
+    with_text = [c for c in run_checks(facts, source_text=MONTANA_PAGE2) if c["severity"] == "hint"][0]
+    assert not without_text["ok"]
+    assert with_text["ok"] and "Bonus" in with_text["detail"]

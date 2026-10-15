@@ -51,6 +51,29 @@ RRF_K = 60
 
 RERANK_BASE_WEIGHT = 0.4   # Anteil des RRF-Werts am Endwert, Rest = Reranker
 
+# Deutsche Komposita in der Stichwortsuche (siehe _BM25Index.term_matches)
+COMPOUND_MIN_CHARS = 6
+COMPOUND_WEIGHT = 0.6
+# Nennt die Frage einen Dateinamen vollständig ('Montana_25'), zählen Treffer aus genau dieser Datei mehr.
+# Wirkt nach dem Reranking, damit 'Montana_Vertragsinformation_25' nicht wegen 'montana' und '25' gleichzieht.
+NAMED_FILE_BOOST = 1.5
+_SEPARATORS_RE = re.compile(r"[\s_\-]+")
+
+
+def _named_stems(query: str, filenames: Any) -> set[str]:
+    """Dateinamen (ohne Endung, normalisiert), die in der Frage vollständig als eigenes Wort vorkommen."""
+    text = _SEPARATORS_RE.sub("_", str(query).casefold())
+    found: set[str] = set()
+    for name in filenames:
+        stem = _SEPARATORS_RE.sub("_", str(name).casefold().rsplit(".", 1)[0])
+        if len(stem) >= 3 and re.search(rf"(?<![a-z0-9äöüß]){re.escape(stem)}(?![a-z0-9äöüß])", text):
+            found.add(stem)
+    return found
+
+
+def _stem_of(metadata: dict[str, Any]) -> str:
+    return _SEPARATORS_RE.sub("_", str(metadata.get("filename", "")).casefold().rsplit(".", 1)[0])
+
 
 def _as_probabilities(scores: list[float]) -> list[float]:
     """Reranker-Ausgaben auf 0..1: Werte, die schon Wahrscheinlichkeiten sind, bleiben; Logits -> Sigmoid."""
@@ -123,24 +146,52 @@ class _BM25Index:
             for term in freqs:
                 self.doc_freq[term] = self.doc_freq.get(term, 0) + 1
         self.avg_length = max(sum(self.lengths) / max(len(self.lengths), 1), 1.0)
+        self._expansions: dict[str, dict[str, float]] = {}
+
+    def term_matches(self, term: str) -> dict[str, float]:
+        """Indexbegriffe, die zu `term` passen, mit Gewicht: exakt 1.0, Wortbestandteil COMPOUND_WEIGHT.
+
+        Deutsche Komposita: 'zeitraum' passt zu 'abrechnungszeitraum', 'sonderkündigungsrecht' zu
+        'sonderkündigung'. Gezählt wird nur ein Anfang oder Ende des längeren Wortes mit mindestens
+        COMPOUND_MIN_CHARS Zeichen, keine Zahlen.
+        """
+        cached = self._expansions.get(term)
+        if cached is not None:
+            return cached
+        matches: dict[str, float] = {term: 1.0} if term in self.doc_freq else {}
+        if len(term) >= COMPOUND_MIN_CHARS and not term[0].isdigit():
+            for vocab in self.doc_freq:
+                if vocab == term or vocab[0].isdigit():
+                    continue
+                shorter, longer = (term, vocab) if len(term) <= len(vocab) else (vocab, term)
+                if len(shorter) >= COMPOUND_MIN_CHARS and (longer.startswith(shorter) or longer.endswith(shorter)):
+                    matches[vocab] = COMPOUND_WEIGHT
+        self._expansions[term] = matches
+        return matches
 
     def scores(self, query: str) -> list[float]:
         n_docs = len(self.documents)
         terms = set(_tokens(query))
         if not terms or n_docs == 0:
             return [0.0] * n_docs
+        expansions = {term: self.term_matches(term) for term in terms}
+        idf = {
+            vocab: math.log(1.0 + (n_docs - self.doc_freq[vocab] + 0.5) / (self.doc_freq[vocab] + 0.5))
+            for matches in expansions.values() for vocab in matches
+        }
 
         scores = []
         for freqs, length in zip(self.term_freqs, self.lengths, strict=True):
+            norm = self.K1 * (1 - self.B + self.B * length / self.avg_length)
             score = 0.0
-            for term in terms:
-                frequency = freqs.get(term, 0)
-                if not frequency:
-                    continue
-                df = self.doc_freq.get(term, 0)
-                idf = math.log(1.0 + (n_docs - df + 0.5) / (df + 0.5))
-                denominator = frequency + self.K1 * (1 - self.B + self.B * length / self.avg_length)
-                score += idf * (frequency * (self.K1 + 1) / denominator)
+            for matches in expansions.values():
+                # je Suchbegriff zählt der beste passende Indexbegriff (kein Mehrfachzählen von Varianten)
+                best = 0.0
+                for vocab, weight in matches.items():
+                    frequency = freqs.get(vocab, 0)
+                    if frequency:
+                        best = max(best, weight * idf[vocab] * (frequency * (self.K1 + 1) / (frequency + norm)))
+                score += best
             scores.append(score)
         return scores
 
@@ -312,5 +363,12 @@ def search_collection(
             # Nicht reranked: nur Basisanteil, damit sie nie vor einem bewerteten Treffer landen
             tail = [replace(hit, score=RERANK_BASE_WEIGHT * hit.score / best) for hit in tail]
             hits = head + tail
+
+    named = _named_stems(query, {str((hit.metadata or {}).get("filename", "")) for hit in hits})
+    if named:
+        hits = [
+            replace(hit, score=hit.score * NAMED_FILE_BOOST) if _stem_of(hit.metadata or {}) in named else hit
+            for hit in hits
+        ]
 
     return sorted(hits, key=lambda hit: hit.score, reverse=True)[:top_k]
