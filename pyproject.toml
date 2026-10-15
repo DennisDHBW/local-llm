@@ -21,3 +21,8 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src", "evaluation"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.1",
+]
