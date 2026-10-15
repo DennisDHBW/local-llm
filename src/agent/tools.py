@@ -30,6 +30,8 @@ PAGE_CHARS = 3500
 # Werkzeuge, die Dateien erzeugen. Sie werden dem Modell nur angeboten, wenn die Frage danach verlangt
 # (siehe `select_tool_schemas`): weniger Werkzeuge = weniger Fehlgriffe und mehr Platz im Kontextfenster.
 OUTPUT_TOOL_NAMES = {"plot_facts", "create_report"}
+# Werkzeuge für einen Dokumenttyp: nur angeboten, wenn Dokumente dieses Schemas im Bestand sind.
+SCHEMA_TOOL_NAMES = {"receipt_items": "receipt"}
 _OUTPUT_REQUEST_RE = re.compile(
     r"diagramm|grafik|graphik|plot|chart|visualis|zeichne|kurve|verlauf.{0,20}(zeig|darstell)|darstellung|"
     r"bericht|report|übersicht.{0,30}(erstell|als|datei)|markdown|\.md\b|csv|export|excel|tabelle.{0,30}(erstell|datei|export)",
@@ -146,6 +148,20 @@ TOOL_SCHEMAS: list[dict] = [
         ["field"],
     ),
     _tool(
+        "receipt_items",
+        "Kassenbons: sucht Artikel in den Bonpositionen und summiert exakt (nach Rabatten), optional je Artikel, "
+        "Händler, Monat oder Bon und gefiltert nach Zeitraum oder Händler. Erste Wahl für 'Wie viel habe ich "
+        "für X ausgegeben?', 'Wann habe ich X gekauft?', 'Was kostet X bei Lidl?'.",
+        {
+            "query": {"type": "string", "description": "Artikelname(n), mehrere durch Komma = oder, z. B. 'Hähnchen, Pute'. Leer = alle Positionen."},
+            "group_by": {"type": "string", "enum": ["none", "item", "merchant", "month", "document"], "description": "none = Positionen auflisten (Standard)."},
+            "date_from": {"type": "string", "description": "Ab Datum, z. B. '01.01.2026' oder '2026' (optional)."},
+            "date_to": {"type": "string", "description": "Bis Datum (optional)."},
+            "contains": {"type": "string", "description": "Nur Bons, deren Händler/Dateiname diesen Begriff enthält, z. B. 'Lidl' (optional)."},
+            "filenames": {"type": "string", "description": "Dateinamen, durch Komma getrennt (optional, leer = alle Bons)."},
+        },
+    ),
+    _tool(
         "read_page",
         "Liest den vollständigen Text einer Seite eines Dokuments (Absätze, Tabellenzeilen, Bildbeschreibungen). "
         "Nutze das, um einen Suchtreffer im Zusammenhang zu prüfen.",
@@ -214,9 +230,16 @@ class ToolResult:
     files: list[str] = field(default_factory=list)   # vom Werkzeug erzeugte Dateien (Diagramme, Berichte)
 
 
-def select_tool_schemas(query: str, schemas: list[dict] | None = None) -> list[dict]:
-    """Werkzeuge für eine Frage: Ausgabe-Werkzeuge (Diagramm, Bericht) nur, wenn die Frage danach verlangt."""
+def select_tool_schemas(query: str, schemas: list[dict] | None = None, schema_ids: Any = None) -> list[dict]:
+    """Werkzeuge für eine Frage: Ausgabe-Werkzeuge (Diagramm, Bericht) nur, wenn die Frage danach verlangt.
+
+    `schema_ids`: Schemata der Dokumente im Bestand. Damit fallen Werkzeuge für fehlende Dokumenttypen weg
+    (z. B. `receipt_items` ohne Kassenbons). None = keine Einschränkung.
+    """
     schemas = TOOL_SCHEMAS if schemas is None else schemas
+    if schema_ids is not None:
+        present = {str(sid) for sid in schema_ids if sid}
+        schemas = [s for s in schemas if SCHEMA_TOOL_NAMES.get(s["function"]["name"], "") in present | {""}]
     if _OUTPUT_REQUEST_RE.search(query or ""):
         return list(schemas)
     return [s for s in schemas if s["function"]["name"] not in OUTPUT_TOOL_NAMES]
@@ -648,6 +671,24 @@ class AgentTools:
         key = "|".join(str(x) for x in (field_name, agg, group_by, ",".join(selected), date_from, date_to, contains))
         return ToolResult(result.text, [_tool_evidence("aggregate_facts", "Auswertung (berechnet)", result.text, key)])
 
+    def receipt_items(
+        self, query: str = "", group_by: str = "none", filenames: Any = "", date_from: str = "", date_to: str = "",
+        contains: str = "",
+    ) -> ToolResult:
+        from src.analysis.receipts import receipt_items
+
+        records = load_facts(self.processed_dir)
+        if not records:
+            return ToolResult("Keine strukturierten Fakten vorhanden. Bitte `python -m src.enrichment.facts` ausführen.")
+        selected, error = self._resolve_many(sorted(records), filenames)
+        if error:
+            return ToolResult(error)
+        result = receipt_items(records, str(query or ""), str(group_by or "none"), selected, date_from or None,
+                               date_to or None, str(contains or ""))
+        key = "|".join(str(x) for x in (query, group_by, ",".join(selected), date_from, date_to, contains))
+        evidence = [_tool_evidence("receipt_items", "Bonpositionen (berechnet)", result.text, key)] if result.rows else []
+        return ToolResult(result.text, evidence)
+
     def read_page(self, filename: str, page: Any) -> ToolResult:
         resolved, error = self.resolve_filename(filename)
         if error or not resolved:
@@ -826,6 +867,11 @@ TOOL_HANDLERS: dict[str, Callable[[AgentTools, dict[str, Any]], ToolResult]] = {
         _arg(a, "filenames", "filename"),
         str(_arg(a, "date_from")), str(_arg(a, "date_to")),
         str(_arg(a, "contains")),
+    ),
+    "receipt_items": lambda t, a: t.receipt_items(
+        str(_arg(a, "query", "item", "article", "name")), str(_arg(a, "group_by", default="none")),
+        _arg(a, "filenames", "filename"), str(_arg(a, "date_from")), str(_arg(a, "date_to")),
+        str(_arg(a, "contains", "merchant")),
     ),
     "read_page": lambda t, a: t.read_page(str(_arg(a, "filename")), _arg(a, "page", "page_number", default=None)),
     "plot_facts": lambda t, a: t.plot_facts(

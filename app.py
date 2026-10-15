@@ -18,6 +18,7 @@ from src.agent.synthesizer import SourceSynthesizer
 from src.agent.tools import AgentTools
 from src.config import GRAPH_PATH, PROCESSED_DIR
 from src.enrichment.facts import load_facts
+from src.enrichment.schema import spec_for
 from src.graph.graph_store import DocumentGraph
 from src.ingestion.pipeline import STAGE_KEYS, IngestionContext, get_stage, run_stage
 from src.retrieval.query_rewriter import QueryRewriter
@@ -726,7 +727,16 @@ with tab_docs:
         if facts_data:
             selected_fact_doc = st.selectbox("Fakten anzeigen für Datei:", sorted(facts_data.keys()))
             if selected_fact_doc:
-                st.json(facts_data[selected_fact_doc].get("facts", {}))
+                shown_facts = facts_data[selected_fact_doc].get("facts", {})
+                fact_spec = spec_for(facts_data[selected_fact_doc].get("schema_id"))
+                fact_labels = fact_spec.labels if fact_spec else {}
+                # Listen (Positionen und MwSt-Tabelle eines Kassenbons) als Tabelle statt als langes JSON
+                tables = {key: value for key, value in shown_facts.items()
+                          if isinstance(value, list) and value and all(isinstance(v, dict) for v in value)}
+                st.json({key: value for key, value in shown_facts.items() if key not in tables})
+                for key, rows in tables.items():
+                    st.markdown(f"**{fact_labels.get(key, key)} ({len(rows)})**")
+                    st.dataframe(rows, hide_index=True)
         else:
             st.info("Keine Fakten-Dateien gefunden.")
 

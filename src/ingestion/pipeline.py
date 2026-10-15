@@ -13,6 +13,7 @@ Kommandozeile (aus dem Projektstamm):
     uv run python -m src.ingestion.pipeline                  # komplette Kette, nur geänderte Dateien parsen
     uv run python -m src.ingestion.pipeline --stage facts    # nur ein Schritt (parse, caption, summarize, ...)
     uv run python -m src.ingestion.pipeline --force-parse --rebuild --prune
+    uv run python -m src.ingestion.pipeline --force-parse --file Bon_Lidl.png   # nur diese Datei(en) neu parsen
 """
 
 from __future__ import annotations
@@ -495,10 +496,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--rebuild", action="store_true", help="Vektordatenbank komplett neu aufbauen")
     parser.add_argument("--force-parse", action="store_true", help="auch unveränderte Dateien neu parsen")
     parser.add_argument("--prune", action="store_true", help="Dokumente ohne Quelldatei aus dem Bestand entfernen")
+    parser.add_argument("--file", action="append", dest="files", metavar="DATEINAME",
+                        help="nur diese Quelldatei(en) parsen (mehrfach möglich); die übrigen Schritte "
+                             "laufen wie immer über den ganzen Bestand")
     args = parser.parse_args(argv)
 
     ctx = IngestionContext(Path(args.raw_dir), Path(args.processed_dir), rebuild=args.rebuild,
-                           force_parse=args.force_parse, prune=args.prune)
+                           force_parse=args.force_parse, prune=args.prune, filenames=args.files)
     stages = args.stage or STAGE_KEYS
     try:
         results = run_pipeline(ctx, stages)

@@ -3,14 +3,48 @@ import json
 import re
 import logging
 from pathlib import Path
+from statistics import median
 from typing import Any
 import ollama
 from pydantic import BaseModel, Field
 
 from src.config import MIN_IMAGE_PX, PARSER_MODEL, PROJECT_ROOT
-from src.enrichment.schema import detect_schema_id
+from src.enrichment.schema import detect_schema_id, schema_layout
 
 logger = logging.getLogger(__name__)
+
+# OCR: Seiten werden mit bis zu 2-facher Auflösung gerendert, die längere Bildseite aber auf OCR_MAX_SIDE Pixel
+# begrenzt. Ein Handyfoto (4000 x 3000) würde sonst auf 8000 x 6000 Pixel vergrößert: langsam und viel RAM.
+OCR_ZOOM = 2.0
+OCR_MAX_SIDE = 4000
+# Zeilenmodus (Schemata mit "layout": "lines", z. B. Kassenbons): so viele Zeichen fasst ein Chunk höchstens.
+LINE_CHUNK_CHARS = 800
+# Zwei Textstücke gehören zur selben Zeile, wenn ihre Mitten höchstens so weit (x Zeilenhöhe) auseinanderliegen.
+ROW_TOLERANCE = 0.5
+# OCR liest "1,25" gern als "1, 25". Im Zeilenmodus (Beträge in Spalten) wird das zusammengezogen.
+_OCR_SPLIT_AMOUNT_RE = re.compile(r"(\d),\s+(\d{2})(?!\d)")
+
+
+def group_rows(items: list[tuple[float, float, float, str]], tolerance: float = ROW_TOLERANCE) -> list[str]:
+    """Textstücke (y-Mitte, Höhe, x-Anfang, Text) zu Zeilen zusammensetzen, von oben nach unten, links nach rechts.
+
+    OCR und PDF-Textebene liefern Spalten oft als getrennte Stücke ("Gurken" ... "0,98 A"). Für tabellarische
+    Dokumente wie Kassenbons gehört beides in EINE Zeile, sonst ist die Zuordnung Name -> Betrag verloren.
+    """
+    pieces = [item for item in items if str(item[3]).strip()]
+    if not pieces:
+        return []
+    height = median(max(item[1], 1e-6) for item in pieces)
+    rows: list[list[tuple[float, float, float, str]]] = []
+    for item in sorted(pieces, key=lambda i: (i[0], i[2])):
+        if rows:
+            row = rows[-1]
+            center = sum(member[0] for member in row) / len(row)
+            if abs(item[0] - center) <= tolerance * height:
+                row.append(item)
+                continue
+        rows.append([item])
+    return [" ".join(str(member[3]).strip() for member in sorted(row, key=lambda m: m[2])) for row in rows]
 
 
 class DocumentChunk(BaseModel):
@@ -36,22 +70,57 @@ class DocumentParser:
         self.image_dir.mkdir(exist_ok=True)
         self.extraction_model = extraction_model
         self._ocr_engine = None
+        self._ocr_cache: dict[int, str] = {}     # Seite -> OCR-Text des aktuellen Dokuments (OCR ist teuer)
+
+    @staticmethod
+    def _ocr_zoom(page: Any) -> float:
+        """Render-Faktor für OCR: 2-fach, aber die längere Seite höchstens OCR_MAX_SIDE Pixel."""
+        longest = max(float(page.rect.width), float(page.rect.height), 1.0)
+        return max(min(OCR_ZOOM, OCR_MAX_SIDE / longest), 0.1)
+
+    @staticmethod
+    def _ocr_rows(result: Any) -> str:
+        """RapidOCR-Ergebnis [(Box, Text, Konfidenz), ...] -> Text mit einer Zeile je Bildzeile.
+
+        Box = vier Eckpunkte. Stücke auf gleicher Höhe (Name links, Betrag rechts) werden zu einer Zeile verbunden;
+        vorher stand jedes Stück in einer eigenen Zeile.
+        """
+        items: list[tuple[float, float, float, str]] = []
+        for entry in result or []:
+            if len(entry) < 2 or not str(entry[1]).strip():
+                continue
+            try:
+                xs = [float(point[0]) for point in entry[0]]
+                ys = [float(point[1]) for point in entry[0]]
+            except (TypeError, ValueError, IndexError):
+                continue
+            items.append(((min(ys) + max(ys)) / 2, max(ys) - min(ys), min(xs), str(entry[1]).strip()))
+        return "\n".join(group_rows(items))
+
+    @staticmethod
+    def _text_rows(page: Any) -> str:
+        """Textebene einer PDF-Seite zeilenweise (Wortkoordinaten), z. B. für digitale Kassenbons im Spaltenlayout."""
+        words = page.get_text("words") or []
+        items = [((w[1] + w[3]) / 2, w[3] - w[1], w[0], str(w[4])) for w in words if len(w) >= 5]
+        return "\n".join(group_rows(items))
 
     def _ocr_page(self, page: Any) -> str:
-        """Liest eine bildbasierte Seite optional über RapidOCR aus."""
+        """Liest eine bildbasierte Seite optional über RapidOCR aus (eine Zeile je Bildzeile)."""
+        number = getattr(page, "number", None)
+        if number is not None and number in self._ocr_cache:
+            return self._ocr_cache[number]
         try:
             if self._ocr_engine is None:
                 from rapidocr_onnxruntime import RapidOCR
                 self._ocr_engine = RapidOCR()
 
-            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+            zoom = self._ocr_zoom(page)
+            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
             result, _ = self._ocr_engine(pixmap.tobytes("png"))
-            if not result:
-                return ""
-            return "\n".join(
-                str(item[1]).strip() for item in result
-                if len(item) > 1 and str(item[1]).strip()
-            )
+            text = self._ocr_rows(result)
+            if number is not None:
+                self._ocr_cache[number] = text
+            return text
         except ImportError:
             logger.warning(
                 "OCR-Fallback benötigt das optionale Paket rapidocr_onnxruntime."
@@ -135,13 +204,13 @@ class DocumentParser:
         if not sample_text.strip():
             return {**fallback_meta, "metadata_source": "no_text"}
 
-        prompt = f"""Du bist ein präziser Dokumenten-Analyst für Verträge, Rechnungen und geschäftliche Schreiben.
+        prompt = f"""Du bist ein präziser Dokumenten-Analyst für Verträge, Rechnungen, Kassenbons und geschäftliche Schreiben.
 Analysiere den folgenden Textauszug der ersten Seite von '{filename}' und extrahiere die Kerndaten im JSON-Format.
 
 WICHTIGE REGELN:
 - provider: Der Versorger/Absender/die ausstellende Organisation.
 - customer_name: Der Kunde/Empfänger des Schreibens.
-- doc_type: Bestimme den Typ exakt (z. B. 'Rechnung', 'Verbrauchsabrechnung', 'Vertragsinformation', 'Tarifinformation', 'Kündigung', 'Schreiben').
+- doc_type: Bestimme den Typ exakt (z. B. 'Rechnung', 'Verbrauchsabrechnung', 'Vertragsinformation', 'Tarifinformation', 'Kündigung', 'Schreiben', 'Kassenbon' für Einkaufsbelege eines Geschäfts).
 - doc_date: Das Ausstellungs- oder Rechnungsdatum des Dokuments (Format: DD.MM.YYYY oder YYYY-MM-DD). Falls nicht auffindbar: null.
 - contract_number: Vertragsnummer, Vertragskonto oder Aktenzeichen (String oder null).
 - invoice_number: Rechnungsnummer (String oder null).
@@ -262,16 +331,72 @@ Textauszug:
             current = self._push_heading(current, text, size, base_font_size)
         return current
 
+    @staticmethod
+    def _line_chunks(lines: list[str], max_chars: int = LINE_CHUNK_CHARS) -> list[str]:
+        """Zeilen zu Chunks bündeln, ohne eine Zeile zu teilen; die Zeilenumbrüche bleiben erhalten."""
+        chunks: list[str] = []
+        current: list[str] = []
+        size = 0
+        for line in lines:
+            if current and size + len(line) + 1 > max_chars:
+                chunks.append("\n".join(current))
+                current, size = [], 0
+            current.append(line)
+            size += len(line) + 1
+        if current:
+            chunks.append("\n".join(current))
+        return chunks
+
+    def _page_lines(self, page: Any) -> tuple[list[str], bool]:
+        """Zeilen einer Seite im Zeilenmodus: Textebene über Wortkoordinaten, sonst OCR. Rückgabe: (Zeilen, OCR?)."""
+        text = self._text_rows(page) if page.get_text("text").strip() else ""
+        ocr = not text
+        if ocr:
+            text = _OCR_SPLIT_AMOUNT_RE.sub(r"\1,\2", self._ocr_page(page))
+        lines = [line.strip() for line in text.splitlines()]
+        return [line for line in lines if line and not self._is_control_text(line)], ocr
+
+    def _parse_lines(self, doc: Any, doc_stem: str, base_chunk_meta: dict[str, Any]) -> list[DocumentChunk]:
+        """Zeilenmodus für tabellarische Belege (Schema mit "layout": "lines", z. B. Kassenbons).
+
+        Jede Zeile bleibt eine Zeile ("Gurken 0,49 x 2 0,98 A"); keine Tabellen-, Überschriften- oder
+        Bilderkennung (Logos und Strichcodes kosten nur Vision-Aufrufe). Gilt für Fotos, Scans und digitale PDFs.
+        """
+        chunks: list[DocumentChunk] = []
+        for page_idx, page in enumerate(doc):
+            page_num = page_idx + 1
+            lines, ocr = self._page_lines(page)
+            for index, content in enumerate(self._line_chunks(lines)):
+                chunks.append(DocumentChunk(
+                    chunk_id=f"{doc_stem}_p{page_num}_lines_{index}",
+                    chunk_type="text",
+                    content=content,
+                    heading_stack=[],
+                    page_number=page_num,
+                    metadata={**base_chunk_meta, "layout": "lines", **({"ocr": True} if ocr else {})},
+                ))
+        return chunks
+
     def _parse_document(self, doc: Any, filename: str, doc_stem: str) -> list[DocumentChunk]:
         """Zerlegt ein geöffnetes PyMuPDF-Dokument in Chunks (Text, Überschriften, Tabellenzeilen, Bilder)."""
         chunks: list[DocumentChunk] = []
         heading_stack: list[str] = []
+        self._ocr_cache = {}     # OCR von Seite 1 wird für Metadaten und Inhalt nur einmal ausgeführt
 
         page1_text = doc[0].get_text("text").strip() if len(doc) > 0 else ""
+        page1_rows = ""
         if not page1_text and len(doc) > 0:
             page1_text = self._ocr_page(doc[0])
+        elif page1_text:
+            page1_rows = self._text_rows(doc[0])
         print(f"  -> Extrahiere Metadaten für {filename}...")
         doc_metadata = self._extract_document_metadata(page1_text, filename)
+        # Digitale Belege (PDF mit Textebene) im Spaltenlayout: die Zeilenansicht kann einen Zeilenmodus-Typ
+        # (z. B. Kassenbon) erkennen, den der spaltenweise Text verdeckt. Andere Zuordnungen bleiben unverändert.
+        if page1_rows and schema_layout(doc_metadata.get("schema_id")) != "lines":
+            candidate = detect_schema_id(doc_metadata.get("doc_type"), page1_rows)
+            if schema_layout(candidate) == "lines":
+                doc_metadata = {**doc_metadata, "schema_id": candidate}
         print(
             f"     [Typ: {doc_metadata['doc_type']} | Datum: {doc_metadata['doc_date']} | Anbieter: {doc_metadata['provider']}]")
 
@@ -286,6 +411,8 @@ Textauszug:
             "invoice_number": doc_metadata["invoice_number"],
             "metadata_source": doc_metadata.get("metadata_source", "llm"),
         }
+        if schema_layout(doc_metadata["schema_id"]) == "lines":
+            return self._parse_lines(doc, doc_stem, base_chunk_meta)
 
         font_sizes = []
         for page in doc:

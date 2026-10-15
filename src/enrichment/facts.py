@@ -47,8 +47,8 @@ from typing import Any
 import ollama
 
 from src.config import FACTS_MODEL, PROCESSED_DIR, ollama_options
-from src.enrichment.schema import (
-    SchemaSpec, domain_of, extraction_schema, get_schema, resolve_spec, schema_fields,
+from src.enrichment.schema import (  # noqa: F401 - schema_fields bleibt hier importierbar
+    SchemaSpec, domain_of, extracted_fields, extraction_schema, get_schema, resolve_spec, schema_fields,
     spec_for,
 )
 from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
@@ -178,10 +178,13 @@ def verify_facts(
     """Behält nur Zahlen/Nummern, die im Quelltext wiederzufinden sind. Rückgabe: (verifiziert, verworfen).
 
     Geprüft werden die Zahlen- und Nummernfelder des Schemas; ohne `spec` die des Standard-Schemas.
+    Berechnete Felder ("derived", z. B. Summe der Pfandpositionen) stehen nicht wörtlich im Text; für sie bürgt
+    die Fachdomäne, die sie aus den geprüften Zeilen errechnet. Sie werden unverändert übernommen.
     """
     spec = resolve_spec(spec)
     numeric_fields = spec.numeric if spec is not None else NUMERIC_FIELDS     # Rückfall: Schema-Dateien fehlen
     id_fields = spec.identifiers if spec is not None else ID_FIELDS
+    derived = spec.derived if spec is not None else frozenset()
     haystack = source_text.replace("\u00a0", " ")
     compact = re.sub(r"\s+", "", haystack).casefold()
     verified: dict[str, Any] = {}
@@ -189,7 +192,9 @@ def verify_facts(
     for key, value in facts.items():
         if value is None or (isinstance(value, str) and value.strip().casefold() in _EMPTY):
             continue
-        if key in numeric_fields and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if key in derived:
+            verified[key] = value
+        elif key in numeric_fields and isinstance(value, (int, float)) and not isinstance(value, bool):
             if _contains_number(haystack, float(value)):
                 verified[key] = value
             else:
@@ -364,9 +369,17 @@ def field_anchors(spec: SchemaSpec | None = None) -> dict[str, tuple[str, ...]]:
 def uncertain_fields(facts: dict[str, Any], source_text: str, spec: SchemaSpec | None = None) -> list[str]:
     """Zahlenfelder, an deren Fundstellen kein passendes Label steht (siehe FIELD_ANCHORS)."""
     anchors = field_anchors(spec)
+    resolved = resolve_spec(spec)
+    domain = domain_of(resolved)
+    # Berechnete Felder und solche, die die Fachdomäne selbst gegengeprüft hat, brauchen kein Label am Wert.
+    exempt = set(resolved.derived) if resolved is not None else set()
+    if domain is not None and domain.trusted is not None:
+        exempt |= set(domain.trusted(facts))
     text = source_text.replace("\u00a0", " ")
     uncertain: list[str] = []
     for key, words in anchors.items():
+        if key in exempt:
+            continue
         value = facts.get(key)
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             continue
@@ -501,7 +514,7 @@ def locate_pages(facts: dict[str, Any], source_text: str) -> dict[str, int]:
     low = text.casefold()
     pages: dict[str, int] = {}
     for key, value in facts.items():
-        if value is None or isinstance(value, bool):
+        if value is None or isinstance(value, (bool, list, dict)):
             continue
         position: int | None = None
         if isinstance(value, (int, float)):
@@ -533,16 +546,24 @@ def format_facts(record: dict[str, Any]) -> str:
     labels = {**LABELS, **(spec.labels if spec else {})}
     units = {**UNITS, **(spec.units if spec else {})}
     lines = [f"Datei: {record.get('filename', 'Unbekannt')}"]
+
+    def shown(value: Any) -> bool:
+        # Listen/Objekte (z. B. Positionen eines Bons) stellt die Fachdomäne lesbar dar (`render`), nicht als Rohdaten
+        return value is not None and not isinstance(value, (list, dict)) and str(value).strip() != ""
+
     for key, label in labels.items():
         value = facts.get(key)
-        if value is None or str(value).strip() == "":
+        if not shown(value):
             continue
         unit = f" {units[key]}" if key in units else ""
         lines.append(f"- {label}: {value}{unit}")
     # Felder ohne bekannte Bezeichnung (z. B. Schema-Datei wurde inzwischen geändert) trotzdem anzeigen
     for key, value in facts.items():
-        if key not in labels and value is not None and str(value).strip() != "":
+        if key not in labels and shown(value):
             lines.append(f"- {key}: {value}")
+    domain = domain_of(spec)
+    if domain is not None and domain.render is not None:
+        lines.extend(domain.render(facts))
     unverified = [labels.get(k, k) for k in record.get("unverified", [])]
     if unverified:
         lines.append(f"- Nicht im Text auffindbar (verworfen): {', '.join(unverified)}")
@@ -651,13 +672,19 @@ class FactExtractor:
             print(f"  ⚠️ Durchgang '{group_name}': Antwort war abgeschnitten/ungültig; vollständige Felder gerettet.")
         return facts
 
-    def _extract_configured(self, schema_id: str, source_text: str, filename: str) -> dict[str, Any]:
-        """Extrahiert ein extern konfiguriertes Schema ohne Python-Modelländerung."""
+    def _extract_configured(
+        self, schema_id: str, source_text: str, filename: str, fields: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Extrahiert ein extern konfiguriertes Schema ohne Python-Modelländerung.
+
+        `fields`: nur diese Felder abfragen (z. B. von einer Fachdomäne, die den Rest selbst liest).
+        Standard: alle Felder ohne "extract": false / "derived": true.
+        """
         schema = get_schema(schema_id)
-        fields = schema_fields(schema)
+        fields = [name for name in fields if name in schema["properties"]] if fields is not None \
+            else extracted_fields(schema)
         descriptions = "\n".join(
-            f"- {name}: {definition.get('description', name)}"
-            for name, definition in schema["properties"].items()
+            f"- {name}: {schema['properties'][name].get('description', name)}" for name in fields
         )
         prompt = (
             f"Dokument '{filename}' ({schema.get('title') or schema_id}; Text kann gekürzt sein):\n"
@@ -668,7 +695,7 @@ class FactExtractor:
         response = ollama.generate(
             model=self.model_name,
             prompt=prompt,
-            format=extraction_schema(schema),
+            format=extraction_schema(schema, fields),
             options=ollama_options(temperature=0.0, num_predict=450, repeat_penalty=1.1),
         )
         try:
@@ -736,8 +763,12 @@ class FactExtractor:
         except (OSError, json.JSONDecodeError):
             return {}
 
-    def process_all(self, force: bool = False) -> int:
-        """Gibt die Anzahl geschriebener Records zurück (LLM-Extraktion ODER geänderte Neu-Normalisierung)."""
+    def process_all(self, force: bool = False, only: Any = None) -> int:
+        """Gibt die Anzahl geschriebener Records zurück (LLM-Extraktion ODER geänderte Neu-Normalisierung).
+
+        `only`: nur diese Dateinamen bearbeiten (z. B. `--force` nur für einzelne Bons statt für den ganzen Bestand).
+        """
+        wanted = {str(name).casefold() for name in only} if only else None
         written = 0
         for chunk_file in sorted(self.processed_dir.glob("*_chunks.json")):
             stem = chunk_file.name.removesuffix("_chunks.json")
@@ -752,6 +783,8 @@ class FactExtractor:
 
             meta = chunks[0].get("metadata", {})
             filename = meta.get("filename") or f"{stem}.pdf"
+            if wanted is not None and str(filename).casefold() not in wanted:
+                continue
             full_text = self._source_text(chunks, clip=False)
             schema_id = meta.get("schema_id")
             source_hash = self._source_hash(full_text, str(schema_id) if schema_id else None)
@@ -793,7 +826,10 @@ class FactExtractor:
                 "unverified": dropped,
                 "normalized": notes,
                 # Seite der Fundstelle je Feld (für Zitate mit Seitenzahl und Berichte)
-                "provenance": locate_pages(verified, full_text),
+                "provenance": {
+                    key: page for key, page in locate_pages(verified, full_text).items()
+                    if key not in (resolve_spec(spec).derived if resolve_spec(spec) is not None else ())
+                },
                 # Zahlen ohne passendes Label an der Fundstelle (markiert, nicht verworfen)
                 "uncertain": uncertain_fields(verified, full_text, spec),
                 # Prüfregeln (Saldo, netto + MwSt. = brutto, ...); needs_review bei Fehlern
@@ -819,4 +855,7 @@ class FactExtractor:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true", help="Alle Dokumente neu per LLM extrahieren")
-    FactExtractor().process_all(force=parser.parse_args().force)
+    parser.add_argument("--file", action="append", dest="files", metavar="DATEINAME",
+                        help="nur diese Datei(en) bearbeiten, z. B. --force --file Bon_Lidl.png (mehrfach möglich)")
+    arguments = parser.parse_args()
+    FactExtractor().process_all(force=arguments.force, only=arguments.files)

@@ -191,8 +191,9 @@ def export_csv(
     by_name = {str(rec.get("filename") or name): rec for name, rec in records.items()}
     keys: list[str] = []
     for row in rows:
-        for key in ((by_name.get(row.filename) or {}).get("facts") or {}):
-            if key not in keys:
+        for key, value in ((by_name.get(row.filename) or {}).get("facts") or {}).items():
+            # Listen (z. B. Bonpositionen) passen nicht in eine Zelle; sie stehen im Markdown-Bericht bzw. im Agenten
+            if key not in keys and not isinstance(value, (list, dict)):
                 keys.append(key)
     order = {key: i for i, key in enumerate(LABELS)}
     keys.sort(key=lambda k: (order.get(k, len(order)), k))

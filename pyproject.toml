@@ -45,8 +45,6 @@ markers = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-# Veraltete Code-Kopien im Testordner (keine Tests); siehe Hinweise zur Bereinigung
-extend-exclude = ["tests/vector_store.py", "tests/test_facts_deterministic.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "UP", "SIM"]

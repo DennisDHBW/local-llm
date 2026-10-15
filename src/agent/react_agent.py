@@ -158,13 +158,16 @@ class ReActAgent:
         self.system_prompt = SYSTEM_PROMPT
         self.last_evidence: list[dict] = []
         self.last_files: list[str] = []   # in der letzten Frage erzeugte Dateien (Diagramme, Berichte, CSV)
+        self._schema_ids: set[str] | None = None   # Schemata im Bestand (für typbezogene Werkzeuge)
 
     def _system_prompt(self) -> str:
         """Bei jeder Frage neu: der Bestand kann sich zwischen zwei Fragen geändert haben (Import)."""
         try:
             records = load_facts(self.tools.processed_dir)
-            hints = agent_hints({record.get("schema_id") for record in records.values()})
+            self._schema_ids = {record.get("schema_id") or "energy" for record in records.values()}
+            hints = agent_hints(self._schema_ids)
         except Exception:  # noqa: BLE001 - ohne Fachregeln antworten ist besser als gar nicht
+            self._schema_ids = None
             hints = []
         return build_system_prompt(hints, self.system_prompt)
 
@@ -278,7 +281,7 @@ class ReActAgent:
         iteration = 0
         self.last_evidence = []
         self.last_files = []
-        tool_schemas = select_tool_schemas(user_query.strip(), TOOL_SCHEMAS)
+        tool_schemas = select_tool_schemas(user_query.strip(), TOOL_SCHEMAS, self._schema_ids)
 
         for i in range(max_iterations):
             iteration = i + 1

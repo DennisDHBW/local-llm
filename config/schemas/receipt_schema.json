@@ -2,14 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "id": "receipt",
   "title": "Kassenbon / Kassenbeleg",
-  "description": "Stufe 1 (läuft mit der bestehenden Pipeline): Kopf- und Summenfelder eines Bons. Positionen (line_items) folgen in Stufe 2, sobald extraction_schema Arrays mit 'items' unterstützt. Prüfregel: Netto + MwSt. aller Steuersätze = Gesamtbetrag.",
+  "description": "Kassenbon / Kassenbeleg (Foto, Scan oder digitaler PDF-Bon). Die Fachdomäne 'receipt' (src/domains/receipt.py) liest die Bonzeilen deterministisch: Positionen mit Menge, Einzelpreis, Gewicht und Rabatt, Summe, Zahlart und MwSt-Tabelle je Steuerkennzeichen; das Sprachmodell ergänzt nur Lücken. Prüfregeln: Positionen = Summe, je Steuersatz Positionen = Brutto, Netto + MwSt = Brutto.",
+  "domain": "receipt",
+  "layout": "lines",
   "document_types": [
     "kassenbon",
     "kassenbeleg",
     "e-bon",
     "ebon",
     "digitaler bon",
-    "kaufbeleg"
+    "kaufbeleg",
+    "einkaufsbeleg"
   ],
   "keywords": [
     "bon-nr",
@@ -21,12 +24,24 @@
     "rückgeld",
     "girocard",
     "kartenzahlung",
-    "mwst-satz"
+    "mwst-satz",
+    "zu zahlen",
+    "mwst%",
+    "steuer%",
+    "eur/kg",
+    "preisvorteil",
+    "gesamter preisvorteil",
+    "kassenbon",
+    "bonnr",
+    "lidl pay",
+    "kaufland pay"
   ],
   "agent_hints": [
     "Kassenbons weisen Bruttobeträge aus; die Mehrwertsteuer steht je Steuersatz (7 % und 19 %) getrennt. Nenne bei Steuerbeträgen immer den Satz.",
     "Summen über mehrere Bons nie schätzen: Werte mit get_document_facts holen und mit calculate addieren.",
-    "Pfand, Pfandrückgabe und Rabatte sind eigene Beträge; sie sind im Gesamtbetrag bereits enthalten."
+    "Pfand, Pfandrückgabe und Rabatte sind eigene Beträge; sie sind im Gesamtbetrag bereits enthalten.",
+    "Fragen nach einzelnen Artikeln ('Wie viel habe ich für Hähnchen ausgegeben?', 'Wann habe ich zuletzt Milch gekauft?') beantwortet receipt_items exakt aus den Bonpositionen; nicht selbst addieren.",
+    "Das Steuerkennzeichen (A, B) bedeutet je Händler einen anderen Satz (Lidl: A = 7 %, Kaufland: A = 19 %); maßgeblich ist der Satz in der Position bzw. MwSt-Tabelle."
   ],
   "properties": {
     "merchant": {
@@ -55,7 +70,7 @@
     },
     "receipt_date": {
       "type": "string",
-      "label": "Datum",
+      "label": "Kaufdatum",
       "description": "Kaufdatum, wie auf dem Bon angegeben"
     },
     "receipt_time": {
@@ -127,24 +142,26 @@
       "type": "number",
       "unit": "EUR",
       "label": "Pfand",
-      "description": "Summe Pfand in EUR (ohne Pfandrückgabe)",
+      "description": "Summe der Pfandpositionen in EUR (ohne Pfandrückgabe), aus den Bonzeilen berechnet",
       "anchors": [
         "pfand",
         "leergut"
-      ]
+      ],
+      "derived": true
     },
     "discount_eur": {
       "type": "number",
       "unit": "EUR",
       "label": "Rabatt",
-      "description": "Summe aller Rabatte und Coupons in EUR (positive Zahl)",
+      "description": "Summe aller Rabatte und Preisvorteile der Positionen in EUR (positive Zahl), aus den Bonzeilen berechnet",
       "anchors": [
         "rabatt",
         "coupon",
         "nachlass",
         "aktion",
         "preisvorteil"
-      ]
+      ],
+      "derived": true
     },
     "payment_method": {
       "type": "string",
@@ -153,8 +170,34 @@
     },
     "item_count": {
       "type": "integer",
-      "label": "Anzahl Positionen",
-      "description": "Anzahl der Artikel bzw. Positionen, falls auf dem Bon angegeben"
+      "label": "Anzahl Artikelpositionen (ohne Pfand)",
+      "description": "Anzahl der Positionen ohne Pfand (aus den Bonzeilen gezählt)",
+      "derived": true
+    },
+    "savings_eur": {
+      "type": "number",
+      "unit": "EUR",
+      "label": "Gesamter Preisvorteil",
+      "description": "Gesamter Preisvorteil bzw. gespart laut Bon in EUR (positive Zahl)",
+      "anchors": [
+        "preisvorteil",
+        "gespart",
+        "ersparnis"
+      ]
+    },
+    "line_items": {
+      "type": "array",
+      "label": "Positionen",
+      "description": "Positionen: name, amount (EUR), tax_code, vat_rate, quantity, unit_price, weight_kg, price_per_kg, discount, deposit",
+      "extract": false,
+      "derived": true
+    },
+    "vat_table": {
+      "type": "array",
+      "label": "MwSt-Tabelle",
+      "description": "MwSt-Tabelle je Steuerkennzeichen: code, rate, net, vat, gross",
+      "extract": false,
+      "derived": true
     }
   },
   "checks": [

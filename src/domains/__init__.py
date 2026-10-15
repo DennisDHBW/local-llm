@@ -9,12 +9,15 @@ steckt in einer Domäne, auf die das Schema mit "domain": "<name>" verweist:
     anchors        Wörter, die an der Fundstelle eines Werts stehen müssen (sonst "unsicher")
     metrics/group  abgeleitete Kennzahlen und Gruppierung für Dokumentvergleiche
     compare_keys, format_metrics, comparison_footer   Darstellung im Vergleich
+    render         zusätzliche Anzeigezeilen (z. B. Positionen und MwSt-Tabelle eines Kassenbons)
+    detect         erkennt Dokumente am Aufbau des Textes (z. B. Bonzeilen "Gurken 0,98 A"), unabhängig von Wörtern
+    trusted        Felder, die die Domäne selbst gegengeprüft hat (werden nicht als "unsicher" markiert)
 
 Der Kern (Fakten, Vergleich, Graph, Berichte) ruft Fachlogik nur über diese Schnittstelle auf und enthält selbst
 keine Sonderfälle für einzelne Dokumenttypen mehr. Ohne Domäne gelten die allgemeinen Regeln des Schemas
 (Verifikation, `checks`-Formeln, `anchors`), was für die meisten Dokumenttypen genügt.
 
-Neue Domäne (z. B. Kassenbons mit Positionen):
+Neue Domäne (Beispiel: src/domains/receipt.py für Kassenbons):
     1. Modul src/domains/<name>.py mit `DOMAIN = Domain(name="<name>", ...)` anlegen
     2. hier in `_REGISTRY` eintragen (oder zur Laufzeit `register_domain(...)`)
     3. im Schema "domain": "<name>" setzen
@@ -45,11 +48,19 @@ class Domain:
     compare_keys: tuple[str, ...] = ()
     format_metrics: Callable[[Mapping[str, Any]], str] | None = None
     comparison_footer: str = ""
+    # Fakten -> zusätzliche Anzeigezeilen (z. B. Positionen eines Bons); Listenfelder zeigt der Kern sonst nicht an.
+    render: Callable[[Mapping[str, Any]], list[str]] | None = None
+    # Text -> True, wenn er am Aufbau als Dokument dieser Domäne erkennbar ist (Zusatzpunkte bei der Schema-Wahl)
+    detect: Callable[[str], bool] | None = None
+    # Fakten -> Felder, die die Domäne selbst belegt hat (z. B. aus einer rechnerisch geprüften Tabelle). Sie werden
+    # nicht als "unsicher" markiert, auch wenn ihr Label nur im Spaltenkopf steht.
+    trusted: Callable[[Mapping[str, Any]], set[str]] | None = None
 
 
 # Name -> "modul:attribut" (lazy) oder bereits geladene Domain
 _REGISTRY: dict[str, str | Domain] = {
     "energy": "src.domains.energy:DOMAIN",
+    "receipt": "src.domains.receipt:DOMAIN",
 }
 
 

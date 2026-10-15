@@ -9,6 +9,9 @@ Aufbau einer Schema-Datei:
     id              eindeutige Kennung (Dateiname ohne Bedeutung)
     domain          Fachdomäne mit eigener Logik (optional), z. B. "energy" -> src/domains/energy.py.
                     Ohne Domäne gelten nur die allgemeinen Regeln (Verifikation, checks, anchors).
+                    Eine Domäne mit `detect` erkennt ihre Dokumente zusätzlich am Aufbau des Textes.
+    layout          "lines" (optional): der Parser liest Dokumente dieses Typs zeilenweise (Spalten einer Zeile
+                    bleiben zusammen, keine Tabellen-/Überschriften-/Bilderkennung), z. B. für Kassenbons.
     document_types  Begriffe, die im Dokumenttyp oder Text auf dieses Schema hinweisen
     keywords        weitere Hinweise, die nur im Text gesucht werden (optional)
     agent_hints     fachliche Regeln für den Agenten (optional). Sie werden dem Systemprompt nur dann
@@ -18,7 +21,10 @@ Aufbau einer Schema-Datei:
                     Felder als 0; "severity": "error" (Standard, setzt needs_review) oder "hint".
     properties      Felder; je Feld ``type``, ``description`` und optional ``anchors`` (Wörter, die an der
                     Fundstelle neben dem Wert stehen müssen, sonst gilt er als unsicher),
-                    ``label`` (Anzeigename), ``unit`` (Einheit) und ``role``:
+                    ``label`` (Anzeigename), ``unit`` (Einheit), ``extract`` (false: das Sprachmodell wird
+                    nicht danach gefragt), ``derived`` (true: die Fachdomäne berechnet den Wert, z. B. eine Summe
+                    über Positionen; er steht nicht wörtlich im Text und wird deshalb nicht am Text verifiziert -
+                    nur mit "domain" erlaubt) und ``role``:
                       "identifier"  Nummer, die Dokumente verknüpft (wird im Quelltext verifiziert,
                                     Knoten im Dokumentgraphen, Grundlage der Zeitreihe)
                       "entity"      benannte Partei/Sache, die Dokumente verknüpft (Knoten im Graphen)
@@ -72,6 +78,8 @@ class SchemaSpec:
     anchors: dict[str, tuple[str, ...]] = field(default_factory=dict)   # Feld -> Wörter, die neben dem Wert stehen
     checks: tuple[dict[str, Any], ...] = ()                             # Prüfregeln, z. B. "a + b == c"
     domain: str | None = None                                           # Fachdomäne (src/domains), z. B. "energy"
+    derived: frozenset[str] = frozenset()                               # von der Domäne berechnet, nicht im Text
+    layout: str | None = None                                           # "lines": zeilenweise parsen
 
 
 def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -93,6 +101,13 @@ def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
             )
         if role is not None and definition["type"] != "string":
             raise SchemaConfigurationError(f"{path}: Feld {name!r} mit Rolle {role!r} muss vom Typ 'string' sein")
+        for flag in ("extract", "derived"):
+            if flag in definition and not isinstance(definition[flag], bool):
+                raise SchemaConfigurationError(f"{path}: '{flag}' von Feld {name!r} muss true oder false sein")
+        if definition.get("derived") and not data.get("domain"):
+            raise SchemaConfigurationError(
+                f"{path}: Feld {name!r} ist 'derived', das Schema hat aber keine Fachdomäne, die es berechnet"
+            )
     for name, definition in properties.items():
         anchors = definition.get("anchors", [])
         if not isinstance(anchors, list) or not all(isinstance(a, str) for a in anchors):
@@ -105,6 +120,8 @@ def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
             raise SchemaConfigurationError(
                 f"{path}: unbekannte Fachdomäne {domain!r} (registriert: {', '.join(sorted(domain_names()))})"
             )
+    if data.get("layout") not in (None, "lines"):
+        raise SchemaConfigurationError(f"{path}: 'layout' muss \"lines\" sein oder fehlen")
     checks = data.get("checks", [])
     if not isinstance(checks, list) or not all(isinstance(c, dict) and isinstance(c.get("rule"), str) for c in checks):
         raise SchemaConfigurationError(f"{path}: 'checks' muss eine Liste von Objekten mit 'rule' sein")
@@ -143,10 +160,29 @@ def get_schema(schema_id: str, schema_dir: Path = SCHEMAS_DIR) -> dict[str, Any]
         raise SchemaConfigurationError(f"Unbekanntes Dokument-Schema: {schema_id}") from exc
 
 
-def _schema_score(schema: dict[str, Any], type_text: str, body: str) -> int:
+# Punkte, wenn die Fachdomäne das Dokument an seinem Aufbau erkennt (wie ein Treffer im Dokumenttyp)
+DOMAIN_DETECT_SCORE = 3
+
+
+def _domain_detects(schema: dict[str, Any], text: str) -> bool:
+    """True, wenn die Fachdomäne des Schemas den Text als ihren Dokumenttyp erkennt (z. B. Bonzeilen)."""
+    if not schema.get("domain") or not text:
+        return False
+    from src.domains import get_domain
+
+    try:
+        domain = get_domain(schema["domain"])
+        return bool(domain is not None and domain.detect is not None and domain.detect(text))
+    except Exception:  # noqa: BLE001 - eine fehlerhafte Erkennung darf die Zuordnung nicht verhindern
+        return False
+
+
+def _schema_score(schema: dict[str, Any], type_text: str, body: str, text: str = "") -> int:
     types = [term.casefold() for term in schema.get("document_types", [])]
     keywords = [term.casefold() for term in schema.get("keywords", [])]
     score = 3 if any(term in type_text for term in types) else 0
+    if _domain_detects(schema, text):
+        score += DOMAIN_DETECT_SCORE
     return score + sum(1 for term in dict.fromkeys([*types, *keywords]) if term in body)
 
 
@@ -164,7 +200,7 @@ def detect_schema_id(doc_type: str | None, text: str = "", schema_dir: Path = SC
     for schema_id, schema in schemas.items():
         if schema_id in (GENERIC_INVOICE, GENERIC_DOCUMENT):
             continue
-        score = _schema_score(schema, type_text, body)
+        score = _schema_score(schema, type_text, body, text[:4000])
         if score > best_score:
             best_id, best_score = schema_id, score
     if best_id is not None and best_score >= MIN_SCHEMA_SCORE:
@@ -198,7 +234,27 @@ def schema_spec(schema: dict[str, Any]) -> SchemaSpec:
         anchors={n: tuple(d["anchors"]) for n, d in properties.items() if d.get("anchors")},
         checks=tuple(dict(c) for c in schema.get("checks", [])),
         domain=schema.get("domain"),
+        derived=frozenset(n for n, d in properties.items() if d.get("derived")),
+        layout=schema.get("layout"),
     )
+
+
+def schema_layout(schema_id: Any, schema_dir: Path = SCHEMAS_DIR) -> str | None:
+    """Parser-Modus eines Schemas ("lines") oder None (Standard: Absätze, Tabellen, Überschriften, Bilder)."""
+    if not schema_id:
+        return None
+    try:
+        return get_schema(str(schema_id), schema_dir).get("layout")
+    except SchemaConfigurationError:
+        return None
+
+
+def extracted_fields(schema: dict[str, Any]) -> list[str]:
+    """Felder, nach denen das Sprachmodell gefragt wird (ohne "extract": false und ohne berechnete Felder)."""
+    return [
+        name for name, definition in schema["properties"].items()
+        if definition.get("extract", True) and not definition.get("derived")
+    ]
 
 
 def spec_for(schema_id: Any, schema_dir: Path = SCHEMAS_DIR) -> SchemaSpec | None:
@@ -242,14 +298,16 @@ def configured_spec(schema_id: Any, schema_dir: Path = SCHEMAS_DIR) -> SchemaSpe
         return None
 
 
-def extraction_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def extraction_schema(schema: dict[str, Any], fields: list[str] | None = None) -> dict[str, Any]:
     """Reines JSON-Schema für die strukturierte LLM-Ausgabe.
 
     Jedes Feld ist Pflicht, darf aber null sein: das Modell muss sich pro Feld entscheiden, statt Felder
-    stillschweigend auszulassen. Eigene Schlüssel (role, unit, label, document_types) bleiben außen vor.
+    stillschweigend auszulassen. Eigene Schlüssel (role, unit, label, document_types) bleiben außen vor,
+    ebenso Felder mit "extract": false oder "derived": true. `fields` (optional) gibt die Felder explizit vor.
     """
     properties: dict[str, Any] = {}
-    for name, definition in schema["properties"].items():
+    for name in (fields if fields is not None else extracted_fields(schema)):
+        definition = schema["properties"][name]
         branch: dict[str, Any] = {"type": definition["type"]}
         if definition["type"] == "string":
             branch["maxLength"] = MAX_STRING_CHARS
