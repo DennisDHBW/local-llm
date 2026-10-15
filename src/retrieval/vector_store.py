@@ -1,16 +1,15 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import List
 
-import chromadb
-
-from src.config import EMBED_MODEL, PROCESSED_DIR, VECTOR_DIR
-from src.embeddings import document_prefix, embed_document
+from src.config import COLLECTION_NAME, EMBED_MODEL, PROCESSED_DIR, VECTOR_DIR
+from src.embeddings import EMBED_API, document_prefix, embed_document, embed_documents
+from src.retrieval.collection import open_collection
 from src.retrieval.search import invalidate_bm25_cache
 
 # Erhöhen, wenn sich die Art der Embeddings ändert -> alle Chunks werden neu eingebettet.
-EMBED_SCHEMA_VERSION = "v2-nomic-prefix"
+# v3: Ollama /api/embed (Batches) statt /api/embeddings; der Einbettungsweg steht zusätzlich im Hash.
+EMBED_SCHEMA_VERSION = "v3-embed-api"
 
 
 class VectorStore:
@@ -19,26 +18,34 @@ class VectorStore:
             processed_dir: Path = PROCESSED_DIR,
             vector_dir: Path = VECTOR_DIR,
             embed_model: str = EMBED_MODEL,
-            collection_name: str = "energy_docs"
+            collection_name: str = COLLECTION_NAME
     ):
         self.processed_dir = Path(processed_dir)
         self.vector_dir = Path(vector_dir)
         self.vector_dir.mkdir(parents=True, exist_ok=True)
         self.embed_model = embed_model
 
-        self.client = chromadb.PersistentClient(path=str(self.vector_dir))
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.client, self.collection = open_collection(self.vector_dir, collection_name)
 
-    def _get_embedding(self, text: str) -> List[float]:
+    def _get_embedding(self, text: str) -> list[float]:
+        """Einzelner Chunk (bisherige Schnittstelle)."""
         return embed_document(text, self.embed_model)
+
+    def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Mehrere Chunks in wenigen Ollama-Aufrufen (Batches); Reihenfolge wie `texts`.
+
+        Wer `_get_embedding` überschreibt (Unterklasse oder Instanz, z. B. in Tests), behält sein Verhalten:
+        dann wird weiterhin Chunk für Chunk über diese Methode eingebettet.
+        """
+        overridden = "_get_embedding" in vars(self) or type(self)._get_embedding is not VectorStore._get_embedding
+        if overridden:
+            return [self._get_embedding(text) for text in texts]
+        return embed_documents(texts, self.embed_model)
 
     def _embedding_hash(self, text: str) -> str:
         """Identifiziert Embedding-Eingabe, Modell, Prefix und Schema-Version eines Chunks."""
         prefix = document_prefix(self.embed_model)
-        payload = f"{EMBED_SCHEMA_VERSION}\0{self.embed_model}\0{prefix}\0{text}".encode("utf-8")
+        payload = f"{EMBED_SCHEMA_VERSION}\0{EMBED_API}\0{self.embed_model}\0{prefix}\0{text}".encode()
         return hashlib.sha256(payload).hexdigest()
 
     def index_documents(self, rebuild: bool = False) -> int:
@@ -60,7 +67,7 @@ class VectorStore:
         skipped_count = 0
         for json_file in json_files:
             print(f"\nStarte Vektorisierung für: {json_file.name}...")
-            with open(json_file, "r", encoding="utf-8") as f:
+            with open(json_file, encoding="utf-8") as f:
                 chunks = json.load(f)
 
             chunk_ids = [chunk["chunk_id"] for chunk in chunks]
@@ -75,6 +82,7 @@ class VectorStore:
                     zip(
                         existing_result.get("ids", []),
                         existing_result.get("metadatas", []),
+                        strict=True,
                     )
                 )
 
@@ -112,18 +120,22 @@ class VectorStore:
                     "doc_date": str(meta.get("doc_date") or "Unbekannt"),
                     "contract_number": str(meta.get("contract_number") or ""),
                     "invoice_number": str(meta.get("invoice_number") or ""),
+                    # Dokumenttyp-Schema (energy, generic_invoice, receipt, ...): erlaubt Filter je Dokumentart
+                    "schema_id": str(meta.get("schema_id") or ""),
                     "embedding_hash": embedding_hash,
                 }
 
                 if "table_id" in meta:
                     safe_metadata["table_id"] = str(meta["table_id"])
 
-                embedding = self._get_embedding(embed_text)
-
                 batch_ids.append(chunk_id)
-                batch_embeddings.append(embedding)
                 batch_metadatas.append(safe_metadata)
                 batch_documents.append(embed_text)
+
+            # Alle geänderten Chunks der Datei in wenigen Aufrufen einbetten (vorher: ein Aufruf je Chunk).
+            # Schlägt das fehl, wurde für diese Datei noch nichts geschrieben; der bisherige Index bleibt.
+            if batch_documents:
+                batch_embeddings = self._get_embeddings(batch_documents)
 
             # Chunks, die es in dieser Datei nicht mehr gibt (Dokument geändert und neu geparst), würden sonst
             # als veraltete Treffer im Index bleiben.

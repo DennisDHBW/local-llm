@@ -16,7 +16,8 @@ Robustheit:
 import json
 import logging
 import re
-from typing import Any, Callable, Optional
+from typing import Any
+from collections.abc import Callable
 
 import ollama
 
@@ -75,6 +76,10 @@ REPEAT_HINT = (
 NO_TOOL_HINT = (
     "Du hast noch kein Werkzeug benutzt. Beantworte die Frage nur auf Basis der Dokumente und rufe dafür "
     "zuerst ein passendes Werkzeug auf."
+)
+EMPTY_MODEL_ANSWER = (
+    "⚠️ Das Sprachmodell '{model}' lieferte eine leere Antwort, bevor ein Werkzeug genutzt wurde. "
+    "Bitte die Frage erneut stellen oder ein anderes Modell wählen (ENERGY_AGENT_MODEL)."
 )
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _OLLAMA_ERRORS = (*OLLAMA_DOWN_ERRORS, ollama.ResponseError)
@@ -142,8 +147,8 @@ class ReActAgent:
     def __init__(
         self,
         model_name: str = AGENT_MODEL,
-        tools: Optional[AgentTools] = None,
-        synthesizer: Optional[SourceSynthesizer] = None,
+        tools: AgentTools | None = None,
+        synthesizer: SourceSynthesizer | None = None,
         use_synthesizer: bool = USE_SYNTHESIZER,
     ):
         self.model_name = model_name
@@ -185,7 +190,7 @@ class ReActAgent:
         query: str,
         draft: str,
         evidence: list[dict],
-        callback: Optional[Callable[[dict], None]],
+        callback: Callable[[dict], None] | None,
         iteration: int,
     ) -> str:
         selected = self._select_evidence(evidence)
@@ -254,8 +259,8 @@ class ReActAgent:
         self,
         user_query: str,
         max_iterations: int = 6,
-        callback: Optional[Callable[[dict], None]] = None,
-        stop_check: Optional[Callable[[], bool]] = None
+        callback: Callable[[dict], None] | None = None,
+        stop_check: Callable[[], bool] | None = None
     ) -> str:
         if not isinstance(user_query, str) or not user_query.strip():
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")
@@ -306,7 +311,10 @@ class ReActAgent:
                 if not content:
                     if evidence:
                         break
-                    raise RuntimeError("Das Agentenmodell lieferte eine leere Antwort.")
+                    # Wie bei Ollama-Ausfällen: Hinweis statt Exception, damit Chat und UI weiterlaufen
+                    logger.error("Das Agentenmodell '%s' lieferte eine leere Antwort (Iteration %d).",
+                                 self.model_name, iteration)
+                    return EMPTY_MODEL_ANSWER.format(model=self.model_name)
                 if not tools_used and not nudged:
                     nudged = True
                     messages.append({"role": "assistant", "content": content})

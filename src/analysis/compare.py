@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 from src.analysis.derived import METRICS, METRIC_LABELS, Metric, derive_metrics, format_derived, parse_date
 from src.config import VAT_RATE
@@ -19,7 +20,7 @@ DEFAULT_COMPARE_KEYS = (
 
 
 def resolve_metric_keys(
-    wanted: Sequence[str], catalog: Optional[Sequence[tuple[str, str, str]]] = None
+    wanted: Sequence[str], catalog: Sequence[tuple[str, str, str]] | None = None
 ) -> tuple[list[str], list[str]]:
     """Bezeichnungen/Teilwörter ('Arbeitspreis', 'grundpreis jahr') -> Kennzahl-Schlüssel. -> (gefunden, unbekannt)
 
@@ -65,7 +66,7 @@ def _sort_key(name: str, facts: Mapping[str, Any]) -> tuple[date, str]:
     return when, name
 
 
-def _format_value(metric: Optional[Metric]) -> str:
+def _format_value(metric: Metric | None) -> str:
     if metric is None:
         return "-"
     if metric.unit.startswith("EUR") and not metric.unit.endswith("m³"):
@@ -91,7 +92,7 @@ def _format_single(metrics: Mapping[str, Metric], keys: Sequence[str]) -> str:
 def build_comparison(
     records: Mapping[str, Mapping[str, Any]],
     filenames: Sequence[str],
-    fields: Optional[Sequence[str]] = None,
+    fields: Sequence[str] | None = None,
 ) -> str:
     """Vergleichstext für `filenames` (Schlüssel von `records`, jeweils {"facts": {...}, "schema_id": ...}).
 
@@ -104,7 +105,7 @@ def build_comparison(
     for _, metrics, _ in per_doc.values():
         catalog.extend((m.key, m.label, m.unit) for m in metrics.values() if m.key not in METRIC_LABELS)
 
-    selected_keys: Optional[list[str]] = None
+    selected_keys: list[str] | None = None
     notes: list[str] = []
     if fields:
         selected_keys, unknown = resolve_metric_keys(fields, catalog)

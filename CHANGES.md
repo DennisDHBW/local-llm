@@ -88,3 +88,38 @@ uv run python -m evaluation.run_eval --retrieval-only
 uv run python -m evaluation.run_eval --category wert --limit 8   # erste Agententests
 uv run pytest tests -q
 ```
+
+## 2026-10-15 – Qualitätsrunde 1 (Claude)
+
+### Fehler behoben
+- **Preisbasis Montana_25 (check_facts 99 % -> 100 % erwartet):** Der Netto-/Bruttogegenbetrag einer Entgeltzeile
+  zählt nur noch in derselben Zeile (`PARTNER_AMOUNT_WINDOW`, 120 Zeichen). Vorher passte 45,21 / 1,19 = 37,99
+  (+1 Cent) zufällig zum neuen Abschlag 38,00 EUR auf Seite 1. Test: `tests/test_facts_price_basis.py`.
+- **Kennungen im Dokumentgraphen:** Gleicher Ziffernteil mit verschiedenem Präfix (RE-2025-0042 / GS-2025-0042)
+  ergibt getrennte Knoten. Ohne Konflikt bleibt alles wie bisher zusammengeführt. Graphformat 4
+  (wird automatisch neu aufgebaut). Test: `tests/test_graph_identifiers.py`.
+- **Leere Modellantwort:** Der Agent antwortet mit einem ⚠️-Hinweis statt einer Exception (Chat/UI brechen nicht ab).
+- **Leerwerte:** Eine gemeinsame Definition `EMPTY_VALUES` / `is_empty` in `src/utils.py` (vorher drei
+  verschiedene; Fakten werteten "-" als Wert).
+- **Parser:** PDF-Dokumente werden auch bei Ausnahmen geschlossen (`_parse_document` + try/finally).
+- **Ersatz-Metadaten nach Ollama-Ausfall** werden nicht mehr als „fertig geparst“ gecacht (`metadata_source`).
+- **compare_prototypes.py:** Suchanfragen mit Query-Prefix eingebettet (vorher Dokument-Prefix).
+
+### Architektur
+- **Eine Import-Pipeline** (`src/ingestion/pipeline.py`): `STAGES`, `run_stage`, `run_pipeline`,
+  `parse_documents`. App, Kommandozeile und Async-Variante nutzen dieselben Schritte. Die App parst nur noch
+  geänderte Dateien (neue Option „Alle Dateien neu parsen“). Neue Kommandozeile:
+  `uv run python -m src.ingestion.pipeline [--stage ...] [--rebuild] [--force-parse] [--prune]`.
+- **Werkzeug-Registry** (`TOOL_HANDLERS` in `src/agent/tools.py`) statt if-Kette; Prüfung beim Import, dass jedes
+  angebotene Werkzeug einen Handler hat.
+- **Zentrale Collection** (`src/retrieval/collection.py`, `COLLECTION_NAME`/`ENERGY_COLLECTION`).
+- **Embeddings über Ollama /api/embed in Batches** (`ENERGY_EMBED_BATCH_SIZE`, Standard 32), Rückfall auf
+  /api/embeddings. `EMBED_SCHEMA_VERSION` v3: alle Chunks werden einmal neu eingebettet. Chunks tragen jetzt
+  `schema_id` als Metadatum.
+
+### Tests und Werkzeuge
+- `conftest.py`: Reranker in Tests aus (lud torch + Modell, Hauptursache für RAM-Spitzen), echte Ollama-Aufrufe
+  gesperrt (Marker `@pytest.mark.ollama` für bewusste Integrationstests).
+- `pyproject.toml`: pytest- und ruff-Konfiguration; `ruff check .` ist sauber. zip-Aufrufe mit `strict=`.
+- `.gitignore`: `*.toml` entfernt (pyproject.toml gehört ins Repo), `.testmondata*` ergänzt.
+- Neue Tests: 26 (insgesamt 234, Laufzeit ca. 6 s, Python 3.10 und 3.13 geprüft).

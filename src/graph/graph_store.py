@@ -55,14 +55,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import networkx as nx
 
 from src.analysis.derived import parse_date
 from src.config import GRAPH_PATH, PROCESSED_DIR
 from src.enrichment.schema import configured_spec
-from src.utils import strip_source_suffix
+from src.utils import EMPTY_VALUES, is_empty, strip_source_suffix
 
 FIELD_MAP = [
     ("provider", "Provider", "ISSUED_BY"),
@@ -89,13 +89,19 @@ WEAK_LINK_TYPES = {"Customer", "EnergyType", "NoticePeriod", "PriceGuarantee"}
 # Dokumente mit derselben Entität dieser Beziehungen bilden eine Zeitreihe. Die Kundennummer gehört bewusst
 # nicht dazu: ein Kunde kann mehrere unabhängige Verträge haben.
 TIMELINE_RELATIONS = {"BELONGS_TO_CONTRACT", "HAS_METER"}
-_EMPTY = {"", "unbekannt", "null", "none", "-"}
+_EMPTY = EMPTY_VALUES   # bisheriger Name, bleibt für Importe erhalten
 _SALUTATION_RE = re.compile(r"^(herrn|herr|frau|familie)\s+", re.IGNORECASE)
 _DATE_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})")
+# Bezeichnung vor einer Kennung ("Nr. ", "Kundennummer: ", "Kd-Nr ") gehört nicht zum Präfix der Kennung.
+_ID_LABEL_RE = re.compile(r"^[a-zäöüß\-]*?(?:nummer|nr|no)(?![a-zäöüß])\.?[\s:#.\-]*")
+# Trenner innerhalb einer Kennung (wie bisher in `_key`): Leerzeichen, Bindestrich, Schrägstrich, Punkt
+_ID_SEPARATORS_RE = re.compile(r"[\s\-/.]")
 
 # --- GraphRAG v2 -----------------------------------------------------------------------------------------
 # Version des gespeicherten Graphformats. Ältere Dateien (ohne Fundstellen) werden einmalig neu aufgebaut.
-GRAPH_FORMAT_VERSION = 3   # 3: Schreibvarianten von Namen werden zusammengeführt (match_key, aliases)
+# 3: Schreibvarianten von Namen werden zusammengeführt (match_key, aliases)
+# 4: Kennungen mit gleichem Ziffernteil, aber verschiedenem Präfix (RE-/GS-...) sind getrennte Knoten
+GRAPH_FORMAT_VERSION = 4
 # Grundgewicht je Knotentyp: Kennungen verknüpfen stark, Namen mittel, Attribut-ähnliche Werte kaum.
 # Unbekannte Schema-Typen: Kennung (is_id) 1.0, benannte Entität 0.6.
 TYPE_WEIGHTS = {
@@ -157,24 +163,72 @@ def canonical_name(value: Any) -> str:
 
 
 def _is_empty(value: Any) -> bool:
-    return value is None or str(value).strip().casefold() in _EMPTY
+    return is_empty(value)
 
 
-def _key(node_type: str, value: str, is_id: bool = False) -> str:
+def _id_parts(value: Any) -> tuple[str, str]:
+    """Kennung -> (Präfix ohne Ziffern, Rest ab der ersten Ziffer), beides ohne Trenner und Groß/klein.
+
+    'RE-2025-0042' -> ('re', '20250042'); 'Rechnungsnummer: 4711 0815' -> ('', '47110815');
+    '1EMH0099887766' -> ('', '1emh0099887766'). Eine vorangestellte Bezeichnung ('Nr.', 'Kundennummer:')
+    zählt nicht zum Präfix.
+    """
+    text = re.sub(r"\s+", " ", str(value).strip().casefold())
+    compact = _ID_SEPARATORS_RE.sub("", _ID_LABEL_RE.sub("", text, count=1))
+    match = re.match(r"([^\d]*)(.*)", compact)
+    if not match or not match.group(2):
+        return "", _ID_SEPARATORS_RE.sub("", text)    # ohne Ziffern: ganzer Text (wie bisher)
+    return match.group(1), match.group(2)
+
+
+def _key(node_type: str, value: str, is_id: bool = False, keep_prefix: bool = False) -> str:
+    """Vergleichsschlüssel eines Knotens.
+
+    Kennungen werden auf ihre Ziffernfolge reduziert ('RE-2025-0042' -> '20250042'), damit Schreibvarianten
+    zusammenfinden. `keep_prefix=True` behält das Präfix ('re20250042'): `from_records` setzt das, wenn derselbe
+    Ziffernteil mit verschiedenen Präfixen vorkommt (Rechnung RE-... und Gutschrift GS-... sind verschiedene Belege).
+    """
     text = re.sub(r"\s+", " ", str(value).strip().casefold())
     if is_id or node_type in ID_TYPES:
-        stripped = re.sub(r"^[^\d]*", "", text)
-        return re.sub(r"[\s\-/.]", "", stripped or text)
+        prefix, tail = _id_parts(text)
+        return prefix + tail if keep_prefix else tail
     if node_type == "Customer":
         return _SALUTATION_RE.sub("", text)
     return text
 
 
-def _node_id(node_type: str, value: str, is_id: bool = False) -> str:
-    return f"{node_type}:{_key(node_type, value, is_id)}"
+def _node_id(node_type: str, value: str, is_id: bool = False, keep_prefix: bool = False) -> str:
+    return f"{node_type}:{_key(node_type, value, is_id, keep_prefix)}"
 
 
-def _parse_date_obj(val: Any) -> Optional[date]:
+def _conflicting_id_tails(records: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """(Knotentyp, Ziffernteil) der Kennungen, die mit mindestens zwei verschiedenen Präfixen vorkommen.
+
+    Nur diese Kennungen behalten ihr Präfix im Schlüssel. Alle anderen bleiben wie bisher zusammengeführt
+    ('RE-2025-0042' und '2025-0042' bilden weiter einen Knoten).
+    """
+    prefixes: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for record in records:
+        for field_name, node_type, _ in FIELD_MAP:
+            value = record.get(field_name)
+            if node_type in ID_TYPES and not _is_empty(value):
+                prefix, tail = _id_parts(value)
+                prefixes[(node_type, tail)].add(prefix)
+        for field_name, role in (record.get("entity_fields") or {}).items():
+            value = (record.get("raw_facts") or {}).get(field_name)
+            if role != "identifier" or _is_empty(value) or isinstance(value, (int, float, bool)):
+                continue
+            prefix, tail = _id_parts(value)
+            prefixes[(_schema_node_type(field_name), tail)].add(prefix)
+    return {key for key, found in prefixes.items() if len(found - {""}) >= 2}
+
+
+def _schema_node_type(field_name: str) -> str:
+    """Knotentyp eines Schema-Felds: 'receipt_number' -> 'ReceiptNumber'."""
+    return field_name.replace("_", " ").title().replace(" ", "")
+
+
+def _parse_date_obj(val: Any) -> date | None:
     """'2025-12-31', '31.12.2025', '21. Februar 2025' -> date; sonst None."""
     return None if _is_empty(val) else parse_date(val)
 
@@ -192,14 +246,19 @@ def _numeric_facts(facts: Any) -> dict[str, float]:
 def _id_candidates(text: str) -> list[tuple[str, int]]:
     """Mögliche Kennungen eines Textes als (Vergleichsschlüssel, Position).
 
-    Schlüssel wie `_key` sie für Kennungen bildet: Präfix ohne Ziffern weg, Trenner weg. Zusätzlich werden
+    Schlüssel wie `_key` sie für Kennungen bildet: Präfix ohne Ziffern weg, Trenner weg. Hat die Kennung ein
+    Präfix, kommt zusätzlich die Form mit Präfix hinzu ('RE-2025-0042' -> '20250042' und 're20250042'), damit
+    auch Knoten gefunden werden, die ihr Präfix wegen einer Kollision behalten haben. Außerdem werden
     gruppierte Ziffern ('1234 5678', '12-345-678') zusammengezogen.
     """
     found: list[tuple[str, int]] = []
     for match in _RAW_ID_TOKEN_RE.finditer(text):
         token = match.group(0)
         if sum(ch.isdigit() for ch in token) >= 4:
-            found.append((_key("Account", token), match.start()))
+            prefix, tail = _id_parts(token)
+            found.append((tail, match.start()))
+            if prefix:
+                found.append((prefix + tail, match.start()))
     for match in _GROUPED_DIGITS_RE.finditer(text):
         found.append((re.sub(r"[ \-/.]", "", match.group(0)), match.start()))
     return found
@@ -318,7 +377,7 @@ class DocumentGraph:
 
     # ------------------------------------------------------------------ Aufbau
     @classmethod
-    def from_records(cls, records: list[dict[str, Any]]) -> "DocumentGraph":
+    def from_records(cls, records: list[dict[str, Any]]) -> DocumentGraph:
         graph = nx.MultiDiGraph()
 
         timeline_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -326,13 +385,17 @@ class DocumentGraph:
         # (Knotentyp, Vergleichsform) -> Knoten-ID des ersten Vorkommens. Die ID bleibt die bisherige; weitere
         # Schreibweisen landen in `aliases` und zeigen auf denselben Knoten.
         merged_names: dict[tuple[str, str], str] = {}
+        # Ziffernteile, die mit verschiedenen Präfixen vorkommen (RE-2025-0042 / GS-2025-0042): Präfix behalten
+        conflicts = _conflicting_id_tails(records)
 
-        def name_node(node_type: str, value: Any, is_id: bool = False, extra: Optional[dict] = None) -> str:
+        def name_node(node_type: str, value: Any, is_id: bool = False, extra: dict | None = None) -> str:
             label = str(value).strip()
-            entity_id = _node_id(node_type, label, is_id)
+            keep_prefix = (is_id or node_type in ID_TYPES) and (node_type, _id_parts(label)[1]) in conflicts
+            entity_id = _node_id(node_type, label, is_id, keep_prefix)
             if is_id or entity_id in graph:
                 if entity_id not in graph:
-                    graph.add_node(entity_id, type=node_type, label=label, key=_key(node_type, label, is_id), **(extra or {}))
+                    graph.add_node(entity_id, type=node_type, label=label,
+                                   key=_key(node_type, label, is_id, keep_prefix), **(extra or {}))
                 return entity_id
             canon = canonical_name(label)
             mergeable = node_type in MERGE_NAME_TYPES or (extra or {}).get("is_id") is False
@@ -346,7 +409,7 @@ class DocumentGraph:
             if mergeable and canon:
                 merged_names[(node_type, canon)] = entity_id
                 attrs["match_key"] = canon
-            graph.add_node(entity_id, type=node_type, label=label, key=_key(node_type, label, is_id), **attrs)
+            graph.add_node(entity_id, type=node_type, label=label, key=_key(node_type, label, is_id, keep_prefix), **attrs)
             return entity_id
 
         for record in records:
@@ -390,7 +453,7 @@ class DocumentGraph:
                 if field_name in known_mapped_fields or _is_empty(value) or isinstance(value, (int, float, bool)):
                     continue
                 is_id = role == "identifier"
-                node_type = field_name.replace("_", " ").title().replace(" ", "")
+                node_type = _schema_node_type(field_name)
                 entity_id = name_node(node_type, str(value), is_id, {"is_id": is_id})
                 graph.add_edge(doc_id, entity_id, relation=f"HAS_{field_name.upper()}", origin=filename)
                 if is_id:
@@ -401,7 +464,7 @@ class DocumentGraph:
 
         # Zeitreihe je Vertrag/Zähler/Kennung: früheres Dokument -[FOLLOWED_BY]-> späteres und umgekehrt
         # -[PRECEDED_BY]->. Ein Dokumentpaar wird nur einmal verknüpft, auch wenn es Vertrag UND Zähler teilt.
-        linked: Set[Tuple[str, str]] = set()
+        linked: set[tuple[str, str]] = set()
         for group_records in timeline_groups.values():
             dated_docs = []
             for r in group_records:
@@ -410,7 +473,7 @@ class DocumentGraph:
                     dated_docs.append((dt, r["filename"]))
 
             dated_docs.sort()
-            for (dt_prev, fn_prev), (dt_next, fn_next) in zip(dated_docs, dated_docs[1:]):
+            for (dt_prev, fn_prev), (dt_next, fn_next) in zip(dated_docs, dated_docs[1:], strict=False):
                 id_prev = _node_id("Document", fn_prev)
                 id_next = _node_id("Document", fn_next)
                 if id_prev == id_next or (id_prev, id_next) in linked:
@@ -423,7 +486,7 @@ class DocumentGraph:
         return cls(graph)
 
     @classmethod
-    def build_and_save(cls, processed_dir: Path = PROCESSED_DIR, path: Path = GRAPH_PATH) -> "DocumentGraph":
+    def build_and_save(cls, processed_dir: Path = PROCESSED_DIR, path: Path = GRAPH_PATH) -> DocumentGraph:
         graph = cls.from_records(records_from_processed(processed_dir))
         graph._attach_mentions_safely(processed_dir)
         graph.save(path)
@@ -431,7 +494,7 @@ class DocumentGraph:
         return graph
 
     @classmethod
-    def load_or_build(cls, path: Path = GRAPH_PATH, processed_dir: Path = PROCESSED_DIR) -> "DocumentGraph":
+    def load_or_build(cls, path: Path = GRAPH_PATH, processed_dir: Path = PROCESSED_DIR) -> DocumentGraph:
         path = Path(path)
         if path.exists() and not cls._is_stale(path, Path(processed_dir)):
             try:
@@ -475,7 +538,7 @@ class DocumentGraph:
         tmp.replace(path)
 
     @classmethod
-    def load(cls, path: Path = GRAPH_PATH) -> "DocumentGraph":
+    def load(cls, path: Path = GRAPH_PATH) -> DocumentGraph:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         graph = nx.MultiDiGraph()
         for node in payload["nodes"]:
@@ -524,9 +587,7 @@ class DocumentGraph:
                 if text == key or (match_key and canon == match_key) \
                         or any(text == str(alias).casefold() for alias in data.get("aliases") or ()):
                     exact.append(node_id)
-                elif len(text) >= 3 and (text in key or (len(key) >= 3 and key in text)):
-                    partial.append(node_id)
-                elif match_key and len(canon) >= 3 and (canon in match_key or (len(match_key) >= 3 and match_key in canon)):
+                elif len(text) >= 3 and (text in key or (len(key) >= 3 and key in text)) or match_key and len(canon) >= 3 and (canon in match_key or (len(match_key) >= 3 and match_key in canon)):
                     partial.append(node_id)
         return exact + [n for n in partial if n not in exact]
 
@@ -537,7 +598,7 @@ class DocumentGraph:
 
     def related_documents(self, doc_id: str) -> dict[str, list[str]]:
         shared: dict[str, list[tuple[int, str]]] = defaultdict(list)
-        for _, entity_id, edge in self.graph.out_edges(doc_id, data=True):
+        for _, entity_id, _edge in self.graph.out_edges(doc_id, data=True):
             entity = self.graph.nodes[entity_id]
             if entity.get("type") in WEAK_LINK_TYPES or entity.get("type") == "Document":
                 continue
@@ -562,7 +623,7 @@ class DocumentGraph:
         if not matches:
             return f"Keine Entität zu '{entity_query}' für eine Timeline gefunden."
 
-        doc_ids: Set[str] = set()
+        doc_ids: set[str] = set()
         for node_id in matches:
             data = self.graph.nodes[node_id]
             if data["type"] == "Document":
@@ -584,7 +645,7 @@ class DocumentGraph:
         timeline_items.sort(key=lambda x: x[0])
 
         lines = [f"=== Chronologische Timeline für '{entity_query}' ({len(timeline_items)} Dokumente) ==="]
-        for i, (dt_str, doc_id, data) in enumerate(timeline_items, start=1):
+        for i, (_start, _doc_id, data) in enumerate(timeline_items, start=1):
             dates = f"Zeitraum: {data.get('billing_start', '-')} bis {data.get('billing_end', '-')}"
             price = f"Arbeitspreis: {data.get('working_price')} ct/kWh" if data.get('working_price') else ""
             kwh = f"Verbrauch: {data.get('consumption_kwh')} kWh" if data.get('consumption_kwh') else ""
@@ -643,8 +704,8 @@ class DocumentGraph:
         if not matches:
             return ""
 
-        visited_nodes: Set[str] = set()
-        triples: List[str] = []
+        visited_nodes: set[str] = set()
+        triples: list[str] = []
 
         for root in matches[:3]:
             subgraph_nodes = nx.single_source_shortest_path_length(
@@ -809,7 +870,7 @@ class DocumentGraph:
         return penalty
 
     def related_documents_scored(
-        self, doc_id: str, include_implicit: bool = True, limit: Optional[int] = None
+        self, doc_id: str, include_implicit: bool = True, limit: int | None = None
     ) -> list[dict[str, Any]]:
         """Verwandte Dokumente mit Punktzahl und Begründung, stärkste zuerst.
 
@@ -955,7 +1016,7 @@ class DocumentGraph:
 
     # ------------------------------------------------------------------ Entitäts-Beziehungen
     def entity_relations(
-        self, entity_id: Optional[str] = None, min_support: int = 1, limit: Optional[int] = None
+        self, entity_id: str | None = None, min_support: int = 1, limit: int | None = None
     ) -> list[dict[str, Any]]:
         """Beziehungen zwischen Entitäten, abgeleitet aus gemeinsamen Dokumenten.
 

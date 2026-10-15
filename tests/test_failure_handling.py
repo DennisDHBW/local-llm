@@ -79,7 +79,7 @@ def store(tmp_path, monkeypatch):
     processed = tmp_path / "processed"
     processed.mkdir()
     (processed / "A_chunks.json").write_text(json.dumps(_table_chunks("A")), encoding="utf-8")
-    monkeypatch.setattr(vector_store_module, "embed_document", lambda text, model=None: [1.0, 0.0, 0.0])
+    monkeypatch.setattr(vector_store_module, "embed_documents", lambda texts, model=None: [[1.0, 0.0, 0.0] for _ in texts])
     return VectorStore(processed_dir=processed, vector_dir=tmp_path / "vectors", embed_model="nomic-embed-text")
 
 
@@ -88,15 +88,11 @@ def test_failed_rebuild_keeps_the_existing_index(store, monkeypatch):
     before = store.collection.count()
     assert before == 6
 
-    calls = {"n": 0}
+    def flaky(texts, model=None):
+        # Ollama bricht beim Einbetten ab (Batch-Aufruf seit /api/embed)
+        raise ConnectionError("Failed to connect to Ollama.")
 
-    def flaky(text, model=None):
-        calls["n"] += 1
-        if calls["n"] == 3:
-            raise ConnectionError("Failed to connect to Ollama.")
-        return [1.0, 0.0, 0.0]
-
-    monkeypatch.setattr(vector_store_module, "embed_document", flaky)
+    monkeypatch.setattr(vector_store_module, "embed_documents", flaky)
     with pytest.raises(ConnectionError):
         store.index_documents(rebuild=True)
     assert store.collection.count() == before, "Der alte Index darf bei einem Abbruch nicht verloren gehen"

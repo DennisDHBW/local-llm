@@ -27,10 +27,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import chromadb
-
 from src.config import EMBED_MODEL, VECTOR_DIR
 from src.embeddings import embed_query
+from src.retrieval.collection import open_collection
 from src.retrieval.search import SearchHit, search_collection
 
 EVAL_DIR = Path(__file__).resolve().parent
@@ -133,8 +132,7 @@ def main() -> None:
         print("Keine passenden Fragen gefunden (Filter, '_todo' oder leere Datei).")
         return
 
-    client = chromadb.PersistentClient(path=str(VECTOR_DIR))
-    collection = client.get_or_create_collection(name="energy_docs", metadata={"hnsw:space": "cosine"})
+    _, collection = open_collection(VECTOR_DIR)
     agent = None
     if not args.retrieval_only:
         from src.agent.react_agent import ReActAgent
@@ -153,9 +151,10 @@ def main() -> None:
             row["answer"] = evaluate_answer(agent, q)
         rows.append(row)
         r, a = row["retrieval"], row.get("answer")
+        retrieval_text = "-" if r is None else (f"OK@{r['rank']}" if r["hit_at_k"] else "MISS")
         print(
             f"- {row['id']}: "
-            f"retrieval={'-' if r is None else ('OK@%d' % r['rank'] if r['hit_at_k'] else 'MISS')}"
+            f"retrieval={retrieval_text}"
             + (f" | antwort={'OK' if a['correct'] else 'FALSCH'} ({a['tool_calls']} Tools, {a['seconds']}s)" if a else "")
         )
 

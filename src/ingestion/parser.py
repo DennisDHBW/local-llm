@@ -3,7 +3,7 @@ import json
 import re
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 import ollama
 from pydantic import BaseModel, Field
 
@@ -17,9 +17,9 @@ class DocumentChunk(BaseModel):
     chunk_id: str
     chunk_type: str = Field(..., description="Einer von: 'text', 'heading', 'table_row', 'image'")
     content: str
-    heading_stack: List[str] = Field(default_factory=list, description="Hierarchischer Pfad im Dokument")
+    heading_stack: list[str] = Field(default_factory=list, description="Hierarchischer Pfad im Dokument")
     page_number: int
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DocumentParser:
@@ -61,15 +61,15 @@ class DocumentParser:
         return ""
 
     @staticmethod
-    def _split_semantically(text: str, max_chars: int = 1500) -> List[str]:
+    def _split_semantically(text: str, max_chars: int = 1500) -> list[str]:
         """Packt Absätze/Sätze in Chunks; nur überlange Einzelsätze werden hart geteilt."""
         paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", text) if part.strip()]
-        units: List[str] = []
+        units: list[str] = []
         for paragraph in paragraphs:
             sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
             units.extend(sentences or [paragraph])
 
-        chunks: List[str] = []
+        chunks: list[str] = []
         current = ""
         for unit in units:
             if len(unit) > max_chars:
@@ -90,7 +90,7 @@ class DocumentParser:
         return chunks
 
     @staticmethod
-    def _is_header_row(first_row: List[Any]) -> bool:
+    def _is_header_row(first_row: list[Any]) -> bool:
         """Prüft, ob die erste Zeile eine echte Kopfzeile oder bereits eine Datenzeile ist."""
         if not first_row:
             return False
@@ -116,7 +116,7 @@ class DocumentParser:
 
         return True
 
-    def _extract_document_metadata(self, sample_text: str, filename: str) -> Dict[str, Any]:
+    def _extract_document_metadata(self, sample_text: str, filename: str) -> dict[str, Any]:
         fallback_date = self._find_fallback_date(sample_text)
         fallback_meta = {
             "doc_type": "Unbekannt",
@@ -125,11 +125,15 @@ class DocumentParser:
             "customer_name": "Unbekannt",
             "doc_date": fallback_date or "Unbekannt",
             "contract_number": None,
-            "invoice_number": None
+            "invoice_number": None,
+            # Herkunft der Metadaten: "llm", "fallback" (LLM-Aufruf fehlgeschlagen) oder "no_text" (nichts zu lesen).
+            # Die Import-Pipeline merkt sich "fallback"-Dokumente NICHT als fertig geparst, damit der nächste
+            # Lauf es erneut versucht (sonst blieben "Unbekannt"-Metadaten nach einem Ollama-Ausfall dauerhaft).
+            "metadata_source": "fallback",
         }
 
         if not sample_text.strip():
-            return fallback_meta
+            return {**fallback_meta, "metadata_source": "no_text"}
 
         prompt = f"""Du bist ein präziser Dokumenten-Analyst für Verträge, Rechnungen und geschäftliche Schreiben.
 Analysiere den folgenden Textauszug der ersten Seite von '{filename}' und extrahiere die Kerndaten im JSON-Format.
@@ -174,13 +178,14 @@ Textauszug:
                 "doc_date": str(extracted_date),
                 "contract_number": data.get("contract_number"),
                 "invoice_number": data.get("invoice_number"),
+                "metadata_source": "llm",
             }
         except Exception as exc:
             print(f"⚠️ Hinweis: Metadaten-Extraktion für {filename} fehlgeschlagen ({exc}). Nutze Fallback-Metadaten.")
             return fallback_meta
 
     @staticmethod
-    def _find_fallback_date(text: str) -> Optional[str]:
+    def _find_fallback_date(text: str) -> str | None:
         match = re.search(
             r"\b(\d{1,2}\.\s*(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember|\d{1,2}\.)\s*\d{4})\b",
             text, re.IGNORECASE)
@@ -217,9 +222,7 @@ Textauszug:
             if re.match(pattern, clean, re.IGNORECASE):
                 return False
 
-        if clean.lower() in {"maschinell errechnet", "gesamt", "gesamtbetrag", "bruttobetrag", "nettobetrag"}:
-            return False
-        return True
+        return clean.lower() not in {"maschinell errechnet", "gesamt", "gesamtbetrag", "bruttobetrag", "nettobetrag"}
 
     @staticmethod
     def _is_heading_span(size: float, flags: int, base_font_size: float) -> bool:
@@ -227,7 +230,7 @@ Textauszug:
         return (size >= base_font_size * 1.25) or (is_bold and size > base_font_size * 1.05)
 
     @staticmethod
-    def _push_heading(stack: List[str], text: str, size: float, base_font_size: float) -> List[str]:
+    def _push_heading(stack: list[str], text: str, size: float, base_font_size: float) -> list[str]:
         """Aktualisiert den hierarchischen Überschriftenpfad (Ebene 1 ab 1,4-facher Schriftgröße)."""
         if size >= base_font_size * 1.4:
             return [text]
@@ -235,7 +238,7 @@ Textauszug:
             return [stack[0], text]
         return list(stack) + [text]
 
-    def _heading_events(self, page_dict: Dict[str, Any], table_bboxes: List[Any], base_font_size: float) -> List[Any]:
+    def _heading_events(self, page_dict: dict[str, Any], table_bboxes: list[Any], base_font_size: float) -> list[Any]:
         """Alle gültigen Überschriften einer Seite als (y-Position, Text, Schriftgröße), von oben nach unten."""
         events = []
         for block in page_dict.get("blocks", []):
@@ -250,7 +253,7 @@ Textauszug:
                         events.append((span["bbox"][1], text, span["size"]))
         return sorted(events, key=lambda e: e[0])
 
-    def _stack_before(self, stack: List[str], events: List[Any], y: float, base_font_size: float) -> List[str]:
+    def _stack_before(self, stack: list[str], events: list[Any], y: float, base_font_size: float) -> list[str]:
         """Überschriftenpfad, der an der Position `y` der Seite gilt (z. B. oberhalb einer Tabelle)."""
         current = list(stack)
         for event_y, text, size in events:
@@ -259,24 +262,10 @@ Textauszug:
             current = self._push_heading(current, text, size, base_font_size)
         return current
 
-    def parse_pdf(self, filename: str) -> List[DocumentChunk]:
-        """Bisheriger Name von `parse_file` (bleibt für bestehende Aufrufer erhalten)."""
-        return self.parse_file(filename)
-
-    def parse_file(self, filename: str) -> List[DocumentChunk]:
-        """Zerlegt eine Quelldatei in Chunks. Unterstützt alles in `SOURCE_SUFFIXES` (PDF, Bilder, Text);
-        Seiten ohne Textebene (Scans, Fotos) werden per OCR gelesen."""
-        pdf_path = self.raw_dir / filename
-        if not pdf_path.exists():
-            raise FileNotFoundError(f"Datei nicht gefunden: {pdf_path}")
-        # Präfix für Chunk-IDs und Ausgabedateien. PDFs behalten den reinen Namen (bestehende Indizes bleiben
-        # gültig); andere Typen tragen die Endung mit, damit 'scan.png' nicht 'scan.pdf' überschreibt.
-        suffix = pdf_path.suffix.casefold()
-        doc_stem = pdf_path.stem if suffix == ".pdf" else f"{pdf_path.stem}_{suffix.lstrip('.')}"
-
-        doc = pymupdf.open(pdf_path)
-        chunks: List[DocumentChunk] = []
-        heading_stack: List[str] = []
+    def _parse_document(self, doc: Any, filename: str, doc_stem: str) -> list[DocumentChunk]:
+        """Zerlegt ein geöffnetes PyMuPDF-Dokument in Chunks (Text, Überschriften, Tabellenzeilen, Bilder)."""
+        chunks: list[DocumentChunk] = []
+        heading_stack: list[str] = []
 
         page1_text = doc[0].get_text("text").strip() if len(doc) > 0 else ""
         if not page1_text and len(doc) > 0:
@@ -295,6 +284,7 @@ Textauszug:
             "doc_date": doc_metadata["doc_date"],
             "contract_number": doc_metadata["contract_number"],
             "invoice_number": doc_metadata["invoice_number"],
+            "metadata_source": doc_metadata.get("metadata_source", "llm"),
         }
 
         font_sizes = []
@@ -307,7 +297,7 @@ Textauszug:
                                 font_sizes.append(span["size"])
         base_font_size = sorted(font_sizes)[len(font_sizes) // 2] if font_sizes else 10.0
 
-        previous_table: Optional[Dict[str, Any]] = None
+        previous_table: dict[str, Any] | None = None
         for page_idx, page in enumerate(doc):
             page_num = page_idx + 1
             tables = page.find_tables()
@@ -369,7 +359,8 @@ Textauszug:
                     for r_idx, row in enumerate(data_rows):
                         row_pairs = []
                         has_content = False
-                        for h, val in zip(headers, row):
+                        # Zeilen können weniger Zellen als Kopfzeilen haben: bewusst nicht strikt
+                        for h, val in zip(headers, row, strict=False):
                             clean_val = str(val).strip().replace("\n", " ") if val else "-"
                             if clean_val and clean_val != "-":
                                 has_content = True
@@ -506,7 +497,28 @@ Textauszug:
                     metadata=chunk_meta
                 ))
 
-        doc.close()
+        return chunks
+
+    def parse_pdf(self, filename: str) -> list[DocumentChunk]:
+        """Bisheriger Name von `parse_file` (bleibt für bestehende Aufrufer erhalten)."""
+        return self.parse_file(filename)
+
+    def parse_file(self, filename: str) -> list[DocumentChunk]:
+        """Zerlegt eine Quelldatei in Chunks. Unterstützt alles in `SOURCE_SUFFIXES` (PDF, Bilder, Text);
+        Seiten ohne Textebene (Scans, Fotos) werden per OCR gelesen."""
+        pdf_path = self.raw_dir / filename
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"Datei nicht gefunden: {pdf_path}")
+        # Präfix für Chunk-IDs und Ausgabedateien. PDFs behalten den reinen Namen (bestehende Indizes bleiben
+        # gültig); andere Typen tragen die Endung mit, damit 'scan.png' nicht 'scan.pdf' überschreibt.
+        suffix = pdf_path.suffix.casefold()
+        doc_stem = pdf_path.stem if suffix == ".pdf" else f"{pdf_path.stem}_{suffix.lstrip('.')}"
+
+        doc = pymupdf.open(pdf_path)
+        try:
+            chunks = self._parse_document(doc, filename, doc_stem)
+        finally:
+            doc.close()     # auch bei einer Ausnahme mitten im Dokument (vorher blieb die Datei offen)
 
         out_file = self.processed_dir / f"{doc_stem}_chunks.json"
         temp_file = self.processed_dir / f"{doc_stem}_chunks.json.tmp"

@@ -38,7 +38,7 @@ def compare_field(value: Any, gold: Any) -> str:
         return "ok" if empty else "ERFUNDEN"
     if empty:
         return "fehlt"
-    if isinstance(gold, (int, float)) or isinstance(gold, list):
+    if isinstance(gold, (int, float, list)):
         candidates = gold if isinstance(gold, list) else [gold]
         try:
             number = float(value)

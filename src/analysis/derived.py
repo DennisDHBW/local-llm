@@ -14,7 +14,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Mapping, Optional
+from typing import Any
+from collections.abc import Mapping
 
 from src.config import VAT_RATE
 
@@ -64,7 +65,7 @@ class Metric:
     formula: str = ""     # leer bei direkt übernommenen Fakten
 
 
-def parse_date(text: Any) -> Optional[date]:
+def parse_date(text: Any) -> date | None:
     """'31.12.2025', '1.1.25', '2025-12-31', '1. Januar 2025' -> date; sonst None."""
     if text is None:
         return None
@@ -85,7 +86,7 @@ def parse_date(text: Any) -> Optional[date]:
     return None
 
 
-def _number(value: Any) -> Optional[float]:
+def _number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
@@ -105,7 +106,7 @@ def _is_energy(facts: Mapping[str, Any]) -> bool:
     return _number(facts.get("working_price_ct_per_kwh")) is not None
 
 
-def _unit_period(text: Any) -> Optional[str]:
+def _unit_period(text: Any) -> str | None:
     low = str(text or "").casefold()
     for word, name in (("jahr", "year"), ("monat", "month"), ("tag", "day")):
         if word in low:
@@ -129,7 +130,7 @@ def derive_metrics(facts: Mapping[str, Any], vat_rate: float = VAT_RATE) -> dict
             add(key, number)
 
     start, end = parse_date(facts.get("billing_period_start")), parse_date(facts.get("billing_period_end"))
-    days: Optional[int] = None
+    days: int | None = None
     if start and end and end >= start:
         days = (end - start).days + 1
         add("period_days", days, f"{end:%d.%m.%Y} - {start:%d.%m.%Y} + 1 Tag")

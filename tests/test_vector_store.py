@@ -26,7 +26,7 @@ class FakeCollection:
 
     def upsert(self, ids, embeddings, metadatas, documents):
         for chunk_id, embedding, metadata, document in zip(
-            ids, embeddings, metadatas, documents
+            ids, embeddings, metadatas, documents, strict=True
         ):
             self.records[chunk_id] = {
                 "embedding": embedding,

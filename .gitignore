@@ -4,13 +4,14 @@ data/
 .aider*
 project_content.txt
 *.xml
-*.toml
+# *.toml entfernt (Claude, 2026-10-15): pyproject.toml muss versioniert sein (Abhängigkeiten, Test-/Ruff-Konfiguration)
 *.db
 # --- Ergänzung (Claude, 2026-10-14) -----------------------------------------
 # Python / Werkzeuge
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.testmondata*
 .mypy_cache/
 .ruff_cache/
 

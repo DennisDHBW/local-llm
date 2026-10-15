@@ -13,7 +13,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 from src.analysis.aggregate import DocRow, doc_rows, filter_rows, fmt_number, preferred_key, resolve_field
 from src.output import output_path
@@ -34,7 +35,7 @@ SERIES_BY = {"auto": "group", "group": "group", "gruppe": "group", "energieart":
 @dataclass
 class PlotResult:
     text: str
-    path: Optional[Path] = None
+    path: Path | None = None
     points: list[tuple[str, str, str, float]] = field(default_factory=list)   # (Datei, Datum, Serie, Wert)
 
 
@@ -129,7 +130,7 @@ def plot_metric(
             ax.plot(xs, ys, color=color, linewidth=2, marker="o", markersize=6,
                     markeredgecolor=SURFACE, markeredgewidth=1.5, label=name)
             if label_values:
-                for x, y in zip(xs, ys):
+                for x, y in zip(xs, ys, strict=True):
                     ax.annotate(fmt_number(y, unit), (x, y), textcoords="offset points", xytext=(0, 8),
                                 ha="center", fontsize=8, color=TEXT_PRIMARY)
             points.extend((r.filename, r.when.isoformat(), name, r.values[key]) for r in members)
@@ -144,7 +145,7 @@ def plot_metric(
         ax.set_xticks(list(positions))
         ax.set_xticklabels([r.filename.rsplit(".", 1)[0] for _, r in ordered], rotation=30, ha="right", fontsize=8)
         if label_values:
-            for bar, value in zip(bars, heights):
+            for bar, value in zip(bars, heights, strict=True):
                 ax.annotate(fmt_number(value, unit), (bar.get_x() + bar.get_width() / 2, bar.get_height()),
                             textcoords="offset points", xytext=(0, 4), ha="center", fontsize=8, color=TEXT_PRIMARY)
         if len(names) > 1:

@@ -11,7 +11,8 @@ import csv
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 from src.analysis.aggregate import doc_rows, filter_rows, fmt_number
 from src.analysis.compare import build_comparison
@@ -29,7 +30,7 @@ MAX_NOTES_PER_DOC = 4
 @dataclass
 class ReportResult:
     text: str
-    path: Optional[Path] = None
+    path: Path | None = None
     files: list[Path] = field(default_factory=list)
 
 

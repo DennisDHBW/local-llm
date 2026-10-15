@@ -69,7 +69,7 @@ def tools(tmp_path, monkeypatch):
 def test_output_tools_only_when_asked():
     plain = {s["function"]["name"] for s in select_tool_schemas("Wie hoch ist der Arbeitspreis?")}
     asked = {s["function"]["name"] for s in select_tool_schemas("Erstelle ein Diagramm des Arbeitspreises")}
-    assert not (plain & OUTPUT_TOOL_NAMES) and OUTPUT_TOOL_NAMES <= asked
+    assert not (plain & OUTPUT_TOOL_NAMES) and asked >= OUTPUT_TOOL_NAMES
     assert {"aggregate_facts", "read_page"} <= plain
     assert len(asked) == len(TOOL_SCHEMAS)
 
@@ -166,7 +166,8 @@ def test_parse_manifest_skips_unchanged_files(tmp_path, monkeypatch):
             return [pipeline.DocumentChunk.model_validate(chunk)]
 
     monkeypatch.setattr(pipeline, "DocumentParser", FakeParser)
-    run = lambda **kw: asyncio.run(pipeline.AsyncIngestionPipeline(raw, processed, **kw).parse(["a.pdf"]))
+    def run(**kw):
+        return asyncio.run(pipeline.AsyncIngestionPipeline(raw, processed, **kw).parse(["a.pdf"]))
     assert len(run()[0]) == 1 and parsed == ["a.pdf"]
     assert len(run()[0]) == 1 and parsed == ["a.pdf"]            # unverändert -> nicht erneut geparst
     (raw / "a.pdf").write_bytes(b"%PDF-1.4 version 2")

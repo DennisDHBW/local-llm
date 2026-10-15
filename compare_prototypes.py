@@ -7,6 +7,7 @@ from src.retrieval.query_rewriter import QueryRewriter
 from src.retrieval.vector_store import VectorStore
 from src.retrieval.search import search_collection
 from src.agent.synthesizer import SourceSynthesizer
+from src.embeddings import embed_query
 
 # Der standardisierte 9-Fragen-Testkatalog für Energie- und Versorgungsdokumente
 TEST_CATALOG = [
@@ -46,7 +47,8 @@ def run_evaluation():
         try:
             opt_query = rewriter.rewrite(query)
             ret_query = f"{query}\n{opt_query}"
-            query_emb = store._get_embedding(ret_query)
+            # Suchanfrage mit Query-Prefix einbetten (vorher: Dokument-Prefix, verschlechterte die Suche)
+            query_emb = embed_query(ret_query, store.embed_model)
             hits = search_collection(store.collection, query_emb, ret_query, top_k=5)
             retrieved_chunks = [
                 {"content": h.document, "page_number": h.metadata.get("page_number", "?"), "metadata": h.metadata}

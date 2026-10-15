@@ -53,6 +53,12 @@ MAX_OBSERVATION_CHARS = int(os.getenv("ENERGY_MAX_OBSERVATION_CHARS", "2500"))
 # --- Embedding-Prefixe (nomic-embed-text erwartet sie) -----------------------
 EMBED_DOC_PREFIX = "search_document: "
 EMBED_QUERY_PREFIX = "search_query: "
+# Texte pro Embedding-Aufruf beim Indizieren (Ollama /api/embed nimmt Listen an). Kleiner = weniger RAM-Spitze.
+EMBED_BATCH_SIZE = int(os.getenv("ENERGY_EMBED_BATCH_SIZE", "32"))
+
+# --- Vektordatenbank -----------------------------------------------------------
+# Name der ChromaDB-Collection. Der historische Name bleibt Standard, damit der vorhandene Index weiter gilt.
+COLLECTION_NAME = os.getenv("ENERGY_COLLECTION", "energy_docs")
 
 # --- Retrieval & Reranking ---------------------------------------------------
 # Der Query-Rewriter (3B-Modell) hängte Rauschen an die Suchanfrage. Standard: aus.

@@ -1,7 +1,6 @@
 """Regressionstest für die Streamlit-Logger-Konfiguration."""
 
 import logging
-import runpy
 
 
 def test_dynamic_handler_is_replaced_across_module_reruns(monkeypatch):

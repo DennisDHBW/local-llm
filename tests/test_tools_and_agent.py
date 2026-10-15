@@ -192,3 +192,10 @@ def test_parse_tool_calls_accepts_objects_and_json_strings():
     ]
     raw = {"function": {"name": "search", "arguments": json.dumps({"query": "b"})}}
     assert react_agent._parse_tool_calls([raw]) == [("search", {"query": "b"})]
+
+
+def test_agent_returns_warning_instead_of_raising_on_empty_reply(tools, monkeypatch):
+    # Früher: RuntimeError -> Chat und UI brachen ab. Jetzt ein ⚠️-Hinweis wie bei Ollama-Ausfällen.
+    agent = ReActAgent(model_name="fake", tools=tools, synthesizer=FakeSynth())
+    answer, _, _ = _run(agent, [_reply(content="")], monkeypatch)
+    assert answer.startswith("⚠️") and "leere Antwort" in answer

@@ -11,6 +11,15 @@ import httpx
 # Fehler, die bedeuten: Ollama ist nicht erreichbar oder abgestürzt (z. B. Speichermangel).
 OLLAMA_DOWN_ERRORS = (ConnectionError, httpx.TransportError)
 
+# Platzhalter, die Modelle und Parser für "kein Wert" liefern. Eine Definition für alle Module (vorher drei
+# leicht verschiedene: Fakten werteten "-" als Wert, Graph und Auswertung als leer).
+EMPTY_VALUES = frozenset({"", "unbekannt", "null", "none", "-"})
+
+
+def is_empty(value: Any) -> bool:
+    """True für None und Platzhalter wie '', 'Unbekannt', 'null', '-' (Groß/klein und Leerraum egal)."""
+    return value is None or str(value).strip().casefold() in EMPTY_VALUES
+
 
 def atomic_write_json(path: Path, data: Any) -> None:
     """Schreibt JSON über eine temporäre Datei, damit ein Absturz nie eine halbe Datei hinterlässt."""

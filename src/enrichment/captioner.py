@@ -65,7 +65,7 @@ class ImageCaptioner:
 
         for json_file in sorted(json_files):
             try:
-                with open(json_file, "r", encoding="utf-8") as f:
+                with open(json_file, encoding="utf-8") as f:
                     chunks = json.load(f)
             except (OSError, json.JSONDecodeError):
                 # Beschädigte Dateien behandelt process_all_jsons; hier nur überspringen statt abzustürzen.
@@ -164,7 +164,7 @@ class ImageCaptioner:
         for json_file in json_files:
             print(f"\nÜberprüfe {json_file.name} auf unbeschriftete Bilder...")
             try:
-                with open(json_file, "r", encoding="utf-8") as f:
+                with open(json_file, encoding="utf-8") as f:
                     chunks = json.load(f)
             except json.JSONDecodeError:
                 # Nicht löschen, sondern beiseite legen: Die Datei fehlt damit für den nächsten Parse-Lauf

@@ -139,7 +139,7 @@ class TableSummarizer:
 
         for json_file in json_files:
             print(f"\nÜberprüfe {json_file.name} auf unzusammengefasste Tabellen...")
-            with open(json_file, "r", encoding="utf-8") as f:
+            with open(json_file, encoding="utf-8") as f:
                 chunks = json.load(f)
             if not chunks:
                 continue

@@ -15,10 +15,12 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 from src.analysis.compare import metrics_for, resolve_metric_keys
 from src.analysis.derived import METRICS, parse_date
+from src.utils import is_empty
 
 # Reihenfolge = Priorität bei der Wahl des Dokumentdatums
 DATE_FIELDS = ("billing_period_start", "receipt_date", "doc_date", "valid_from", "contract_start", "due_date")
@@ -55,7 +57,7 @@ class DocRow:
     filename: str
     schema_id: str
     doc_type: str
-    when: Optional[date]
+    when: date | None
     party: str
     group: str
     values: dict[str, float] = field(default_factory=dict)
@@ -82,7 +84,7 @@ class AggregateResult:
 
 def _clean(value: Any) -> str:
     text = str(value or "").strip()
-    return "" if text.casefold() in ("", "unbekannt", "null", "none", "-") else text
+    return "" if is_empty(text) else text
 
 
 def doc_rows(records: Mapping[str, Mapping[str, Any]]) -> list[DocRow]:

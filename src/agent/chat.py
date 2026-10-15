@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Sequence
+from typing import Any
+from collections.abc import Callable, Sequence
 
 import ollama
 
@@ -103,7 +104,7 @@ class ChatSession:
     def __init__(
         self,
         agent: Any,
-        condenser: Optional[QuestionCondenser] = None,
+        condenser: QuestionCondenser | None = None,
         max_turns: int = CHAT_MAX_TURNS,
     ):
         self.agent = agent
@@ -134,8 +135,8 @@ class ChatSession:
         self,
         question: str,
         max_iterations: int = 6,
-        callback: Optional[Callable[[dict], None]] = None,
-        stop_check: Optional[Callable[[], bool]] = None,
+        callback: Callable[[dict], None] | None = None,
+        stop_check: Callable[[], bool] | None = None,
     ) -> str:
         if not isinstance(question, str) or not question.strip():
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")

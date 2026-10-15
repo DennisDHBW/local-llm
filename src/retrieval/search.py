@@ -19,7 +19,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any
 
 from src.config import BM25_CACHE_TTL, RERANK_TOP_N, RERANKER_MODEL, USE_RERANKER
 
@@ -131,7 +131,7 @@ class _BM25Index:
             return [0.0] * n_docs
 
         scores = []
-        for freqs, length in zip(self.term_freqs, self.lengths):
+        for freqs, length in zip(self.term_freqs, self.lengths, strict=True):
             score = 0.0
             for term in terms:
                 frequency = freqs.get(term, 0)
@@ -223,7 +223,7 @@ def search_collection(
 
     # 3. Vereinigung
     candidates: dict[str, dict[str, Any]] = {}
-    for rank, (cid, doc, meta, dist) in enumerate(zip(v_ids, v_docs, v_metas, v_dists)):
+    for rank, (cid, doc, meta, dist) in enumerate(zip(v_ids, v_docs, v_metas, v_dists, strict=True)):
         candidates[cid] = {
             "document": doc, "metadata": meta, "distance": float(dist),
             "vector_rank": rank, "lexical_rank": None, "lexical_raw": 0.0,
@@ -251,7 +251,7 @@ def search_collection(
     hits: list[SearchHit] = []
     candidates_list = list(candidates.items())
 
-    for idx, (cid, c) in enumerate(candidates_list):
+    for cid, c in candidates_list:
         metadata = c["metadata"] or {}
         searchable_path = " ".join(
             (str(metadata.get("filename", "")), str(metadata.get("heading_stack_str", "")))
@@ -307,7 +307,7 @@ def search_collection(
             head = [
                 replace(hit, score=RERANK_BASE_WEIGHT * hit.score / best + (1 - RERANK_BASE_WEIGHT) * prob,
                         rerank_score=prob)
-                for hit, prob in zip(head, probabilities)
+                for hit, prob in zip(head, probabilities, strict=True)
             ]
             # Nicht reranked: nur Basisanteil, damit sie nie vor einem bewerteten Treffer landen
             tail = [replace(hit, score=RERANK_BASE_WEIGHT * hit.score / best) for hit in tail]

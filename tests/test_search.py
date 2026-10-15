@@ -43,7 +43,7 @@ class FakeCollection:
         q = query_embeddings[0]
 
         def dist(e):
-            dot = sum(a * b for a, b in zip(q, e))
+            dot = sum(a * b for a, b in zip(q, e, strict=True))
             nq = math.sqrt(sum(a * a for a in q))
             ne = math.sqrt(sum(b * b for b in e))
             return 1.0 - dot / (nq * ne)

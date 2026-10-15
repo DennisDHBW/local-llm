@@ -37,7 +37,7 @@ import os
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import ollama
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -46,7 +46,7 @@ from src.config import FACTS_MODEL, PROCESSED_DIR, VAT_RATE, ollama_options
 from src.enrichment.schema import (
     BUILTIN_SCHEMA_ID, SchemaSpec, configured_spec, extraction_schema, get_schema, schema_fields,
 )
-from src.utils import OLLAMA_DOWN_ERRORS, atomic_write_json
+from src.utils import EMPTY_VALUES, OLLAMA_DOWN_ERRORS, atomic_write_json
 
 # Fehler, die bedeuten: Ollama ist nicht erreichbar oder abgestürzt (z. B. Speichermangel).
 _OLLAMA_DOWN_ERRORS = OLLAMA_DOWN_ERRORS
@@ -65,37 +65,37 @@ class DocumentFacts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     # --- Identität -------------------------------------------------------------------
-    provider: Optional[str] = Field(None, description="Versorger/Absender (Firmenname)")
-    customer_name: Optional[str] = Field(None, description="Kunde/Empfänger (Name)")
-    doc_type: Optional[str] = Field(None, description="Dokumentart: 'Verbrauchsabrechnung' (Abrechnung eines Zeitraums mit Verbrauch und Nachzahlung/Guthaben), 'Rechnung', 'Vertragsinformation', 'Preisanpassung'")
-    doc_date: Optional[str] = Field(None, description="Ausstellungs-/Rechnungsdatum, wie im Text")
-    energy_type: Optional[str] = Field(None, description="Art der Lieferung: Strom, Gas, Wasser, Abwasser, Fernwärme (NICHT der Tarifname)")
-    contract_number: Optional[str] = Field(None, description="Vertragsnummer bzw. Vertragskonto(nummer), nur wenn so bezeichnet; nur die Nummer")
-    invoice_number: Optional[str] = Field(None, description="Rechnungs-/Abrechnungsnummer; nur die Nummer")
-    customer_number: Optional[str] = Field(None, description="Kundennummer bzw. Geschäftspartner; nur die Nummer")
-    meter_number: Optional[str] = Field(None, description="Zählernummer (bei mehreren die aktuelle/letzte)")
-    tariff_name: Optional[str] = Field(None, description="Tarif-/Produktname")
+    provider: str | None = Field(None, description="Versorger/Absender (Firmenname)")
+    customer_name: str | None = Field(None, description="Kunde/Empfänger (Name)")
+    doc_type: str | None = Field(None, description="Dokumentart: 'Verbrauchsabrechnung' (Abrechnung eines Zeitraums mit Verbrauch und Nachzahlung/Guthaben), 'Rechnung', 'Vertragsinformation', 'Preisanpassung'")
+    doc_date: str | None = Field(None, description="Ausstellungs-/Rechnungsdatum, wie im Text")
+    energy_type: str | None = Field(None, description="Art der Lieferung: Strom, Gas, Wasser, Abwasser, Fernwärme (NICHT der Tarifname)")
+    contract_number: str | None = Field(None, description="Vertragsnummer bzw. Vertragskonto(nummer), nur wenn so bezeichnet; nur die Nummer")
+    invoice_number: str | None = Field(None, description="Rechnungs-/Abrechnungsnummer; nur die Nummer")
+    customer_number: str | None = Field(None, description="Kundennummer bzw. Geschäftspartner; nur die Nummer")
+    meter_number: str | None = Field(None, description="Zählernummer (bei mehreren die aktuelle/letzte)")
+    tariff_name: str | None = Field(None, description="Tarif-/Produktname")
     # --- Verbrauch und Preise --------------------------------------------------------
-    billing_period_start: Optional[str] = Field(None, description="Beginn des Abrechnungszeitraums")
-    billing_period_end: Optional[str] = Field(None, description="Ende des Abrechnungszeitraums")
-    consumption_kwh: Optional[float] = Field(None, description="Gesamtverbrauch im Abrechnungszeitraum in kWh")
-    consumption_m3: Optional[float] = Field(None, description="Gesamtverbrauch Wasser im Abrechnungszeitraum in m³")
-    working_price_ct_per_kwh: Optional[float] = Field(None, description="Arbeitspreis/Verbrauchspreis in ct/kWh")
-    base_price_eur: Optional[float] = Field(None, description="Grundpreis als PREIS PRO ZEITEINHEIT in EUR (z. B. 11.70 pro Monat), NICHT der Gesamtbetrag für den Abrechnungszeitraum")
-    base_price_unit: Optional[str] = Field(None, description="Bezug des Grundpreises: 'pro Jahr', 'pro Monat' oder 'pro Tag'")
-    water_price_eur_per_m3: Optional[float] = Field(None, description="Wasserpreis in EUR/m³ (erster/aktueller Zeitraum)")
-    wastewater_price_eur_per_m3: Optional[float] = Field(None, description="Schmutzwassergebühr in EUR/m³ (erster/aktueller Zeitraum)")
-    price_basis: Optional[str] = Field(None, description="'brutto' wenn die Preise inkl. MwSt. angegeben sind, 'netto' wenn als Nettopreis angegeben, sonst null")
+    billing_period_start: str | None = Field(None, description="Beginn des Abrechnungszeitraums")
+    billing_period_end: str | None = Field(None, description="Ende des Abrechnungszeitraums")
+    consumption_kwh: float | None = Field(None, description="Gesamtverbrauch im Abrechnungszeitraum in kWh")
+    consumption_m3: float | None = Field(None, description="Gesamtverbrauch Wasser im Abrechnungszeitraum in m³")
+    working_price_ct_per_kwh: float | None = Field(None, description="Arbeitspreis/Verbrauchspreis in ct/kWh")
+    base_price_eur: float | None = Field(None, description="Grundpreis als PREIS PRO ZEITEINHEIT in EUR (z. B. 11.70 pro Monat), NICHT der Gesamtbetrag für den Abrechnungszeitraum")
+    base_price_unit: str | None = Field(None, description="Bezug des Grundpreises: 'pro Jahr', 'pro Monat' oder 'pro Tag'")
+    water_price_eur_per_m3: float | None = Field(None, description="Wasserpreis in EUR/m³ (erster/aktueller Zeitraum)")
+    wastewater_price_eur_per_m3: float | None = Field(None, description="Schmutzwassergebühr in EUR/m³ (erster/aktueller Zeitraum)")
+    price_basis: str | None = Field(None, description="'brutto' wenn die Preise inkl. MwSt. angegeben sind, 'netto' wenn als Nettopreis angegeben, sonst null")
     # --- Beträge ---------------------------------------------------------------------
-    monthly_advance_payment_eur: Optional[float] = Field(None, description="Monatlicher Abschlag (brutto) in EUR; bei neuem Abschlag den neuen")
-    total_gross_eur: Optional[float] = Field(None, description="Rechnungsbetrag brutto in EUR vor Abzug geleisteter Zahlungen (positive Zahl)")
-    credit_eur: Optional[float] = Field(None, description="Guthaben/Rückerstattung zugunsten des Kunden in EUR (immer positive Zahl, ohne Minus)")
-    amount_due_eur: Optional[float] = Field(None, description="Nachzahlung/zu zahlender Betrag zugunsten des Anbieters in EUR (immer positive Zahl, ohne Minus)")
+    monthly_advance_payment_eur: float | None = Field(None, description="Monatlicher Abschlag (brutto) in EUR; bei neuem Abschlag den neuen")
+    total_gross_eur: float | None = Field(None, description="Rechnungsbetrag brutto in EUR vor Abzug geleisteter Zahlungen (positive Zahl)")
+    credit_eur: float | None = Field(None, description="Guthaben/Rückerstattung zugunsten des Kunden in EUR (immer positive Zahl, ohne Minus)")
+    amount_due_eur: float | None = Field(None, description="Nachzahlung/zu zahlender Betrag zugunsten des Anbieters in EUR (immer positive Zahl, ohne Minus)")
     # --- Vertrag ---------------------------------------------------------------------
-    contract_start: Optional[str] = Field(None, description="Vertragsbeginn/Lieferbeginn, NUR wenn ausdrücklich so bezeichnet (nicht der Abrechnungszeitraum)")
-    contract_end: Optional[str] = Field(None, description="Vertragsende/Mindestlaufzeit bis, NUR wenn ausdrücklich so bezeichnet (nicht der Abrechnungszeitraum)")
-    notice_period: Optional[str] = Field(None, description="Kündigungsfrist als Dauer, z. B. '1 Monat' oder '6 Wochen' (kein Datum)")
-    price_guarantee_until: Optional[str] = Field(None, description="Preisgarantie bis, NUR wenn eine Preisgarantie ausdrücklich genannt ist")
+    contract_start: str | None = Field(None, description="Vertragsbeginn/Lieferbeginn, NUR wenn ausdrücklich so bezeichnet (nicht der Abrechnungszeitraum)")
+    contract_end: str | None = Field(None, description="Vertragsende/Mindestlaufzeit bis, NUR wenn ausdrücklich so bezeichnet (nicht der Abrechnungszeitraum)")
+    notice_period: str | None = Field(None, description="Kündigungsfrist als Dauer, z. B. '1 Monat' oder '6 Wochen' (kein Datum)")
+    price_guarantee_until: str | None = Field(None, description="Preisgarantie bis, NUR wenn eine Preisgarantie ausdrücklich genannt ist")
 
     @field_validator("*", mode="before")
     @classmethod
@@ -141,7 +141,7 @@ UNITS = {
 NUMERIC_FIELDS = set(UNITS)
 ID_FIELDS = {"contract_number", "invoice_number", "customer_number", "meter_number"}
 METADATA_DEFAULTS = ("provider", "customer_name", "doc_type", "doc_date", "contract_number", "invoice_number")
-_EMPTY = {"", "unbekannt", "null", "none"}
+_EMPTY = EMPTY_VALUES   # gemeinsame Definition (enthält jetzt auch "-")
 
 # Drei kleine Durchgänge statt eines großen Schemas (zuverlässiger bei 7B-Modellen).
 FIELD_GROUPS: dict[str, list[str]] = {
@@ -225,7 +225,19 @@ def _contains_number(haystack: str, value: float) -> bool:
     return any(re.search(_number_pattern(variant), haystack) for variant in _number_variants(value))
 
 
-def _contains_id(compact_text: str, identifier: str, raw_text: Optional[str] = None) -> bool:
+def _contains_number_near(haystack: str, value: float, anchors: list[int], window: int) -> bool:
+    """Wie `_contains_number`, aber nur innerhalb von `window` Zeichen um eine der Positionen in `anchors`.
+
+    Verhindert Zufallstreffer in weit entfernten Textteilen (z. B. derselbe Betrag als Abschlag auf Seite 1).
+    """
+    for variant in _number_variants(value):
+        for match in re.finditer(_number_pattern(variant), haystack):
+            if any(abs(match.start() - anchor) <= window for anchor in anchors):
+                return True
+    return False
+
+
+def _contains_id(compact_text: str, identifier: str, raw_text: str | None = None) -> bool:
     """Nummer nur dann gefunden, wenn davor/dahinter keine weitere Ziffer steht ('234567' != '1234567').
 
     `raw_text` (optional): zusätzlich im Originaltext suchen. Im Vergleichstext ohne Leerzeichen klebt eine
@@ -249,7 +261,7 @@ def _contains_id(compact_text: str, identifier: str, raw_text: Optional[str] = N
 
 
 def verify_facts(
-    facts: dict[str, Any], source_text: str, spec: Optional[SchemaSpec] = None
+    facts: dict[str, Any], source_text: str, spec: SchemaSpec | None = None
 ) -> tuple[dict[str, Any], list[str]]:
     """Behält nur Zahlen/Nummern, die im Quelltext wiederzufinden sind. Rückgabe: (verifiziert, verworfen).
 
@@ -314,7 +326,7 @@ _PERIOD_RES = (
 _DATE_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})")
 
 
-def _to_date(text: Any) -> Optional[date]:
+def _to_date(text: Any) -> date | None:
     match = _DATE_RE.search(str(text or ""))
     if not match:
         return None
@@ -351,7 +363,7 @@ def _find_periods(text: str) -> list[tuple[str, str]]:
     return periods
 
 
-def _find_period(text: str) -> Optional[tuple[str, str]]:
+def _find_period(text: str) -> tuple[str, str] | None:
     for pattern in _PERIOD_RES:
         for match in re.finditer(pattern, text, re.IGNORECASE):
             start, end = _to_date(match[1]), _to_date(match[2])
@@ -376,7 +388,7 @@ def extract_deterministic(source_text: str) -> dict[str, str]:
 
 
 def apply_deterministic(
-    facts: dict[str, Any], source_text: str, spec: Optional[SchemaSpec] = None
+    facts: dict[str, Any], source_text: str, spec: SchemaSpec | None = None
 ) -> tuple[dict[str, Any], list[str]]:
     """Regex-Treffer überstimmen das Modell. Rückgabe: (Fakten, Änderungsprotokoll).
 
@@ -419,9 +431,7 @@ def apply_deterministic(
         old = out.get(key)
         if old is None:
             notes.append(f"{key}: fehlte -> {value!r} (Label im Text)")
-        elif key in ID_FIELDS and compact(old) == compact(value):
-            continue
-        elif old == value:
+        elif key in ID_FIELDS and compact(old) == compact(value) or old == value:
             continue
         else:
             notes.append(f"{key}: {old!r} -> {value!r} (Label im Text)")
@@ -479,7 +489,7 @@ def _numbers_with_context(source: str, before: int, after: int) -> list[tuple[fl
     return items
 
 
-def _label_vote(source: str, value: float) -> Optional[str]:
+def _label_vote(source: str, value: float) -> str | None:
     """'credit' oder 'due', je nachdem, welche Bezeichnung vor dem Betrag im Quelltext steht; sonst None."""
     credit = due = 0
     for context in _windows(source, value, _CONTEXT_WIDTH):
@@ -496,7 +506,7 @@ def _label_vote(source: str, value: float) -> Optional[str]:
     return None
 
 
-def _nearest_marker(context: str, markers: tuple[str, ...], position: int) -> Optional[int]:
+def _nearest_marker(context: str, markers: tuple[str, ...], position: int) -> int | None:
     distances = [
         abs(match.start() - position)
         for marker in markers
@@ -505,7 +515,7 @@ def _nearest_marker(context: str, markers: tuple[str, ...], position: int) -> Op
     return min(distances) if distances else None
 
 
-def _basis_from_text(source: str, value: float) -> Optional[str]:
+def _basis_from_text(source: str, value: float) -> str | None:
     """'netto'/'brutto' nach dem Marker, der dem Preis am nächsten steht (Mehrheit über alle Fundstellen).
 
     Stehen in der Umgebung beide Angaben (z. B. 'netto' beim Preis, 'brutto' beim Gesamtbetrag), entscheidet
@@ -539,7 +549,7 @@ def _basis_from_text(source: str, value: float) -> Optional[str]:
     return None
 
 
-def _unit_for(source: str, value: float) -> Optional[str]:
+def _unit_for(source: str, value: float) -> str | None:
     """Zeiteinheit ('pro Tag'/'pro Monat'/'pro Jahr'), wenn sie direkt am Preis im Text steht und eindeutig ist."""
     found: set[str] = set()
     for context in _windows(source, value, 20, 40):
@@ -549,14 +559,14 @@ def _unit_for(source: str, value: float) -> Optional[str]:
     return next(iter(found)) if len(found) == 1 else None
 
 
-def _period_days(facts: dict[str, Any]) -> Optional[int]:
+def _period_days(facts: dict[str, Any]) -> int | None:
     start, end = _to_date(facts.get("billing_period_start")), _to_date(facts.get("billing_period_end"))
     if start and end and end >= start:
         return (end - start).days + 1
     return None
 
 
-def _find_unit_price(source: str, base: float, days: int) -> Optional[tuple[float, str]]:
+def _find_unit_price(source: str, base: float, days: int) -> tuple[float, str] | None:
     """Hält das Modell die Summe für den Abrechnungszeitraum für den Grundpreis, steht der Einzelpreis
     (pro Tag/Monat/Jahr) mit passender Einheit ebenfalls im Text. Gesucht wird die Zahl, die zur Summe passt."""
     targets = (
@@ -564,7 +574,7 @@ def _find_unit_price(source: str, base: float, days: int) -> Optional[tuple[floa
         ("pro Monat", base / days * 365 / 12),
         ("pro Jahr", base / days * 365),
     )
-    best: Optional[tuple[float, float, str]] = None
+    best: tuple[float, float, str] | None = None
     for number, context in _numbers_with_context(source, 20, 40):
         if abs(number - base) < 1e-9:
             continue
@@ -666,7 +676,7 @@ def _is_net_amount(text: str, end: int) -> bool:
     return _NET_AFTER_RE.match(text, end) is not None and _NET_AFTER_RE.match(text, end).end() - end <= 12
 
 
-def _gross_value_after(text: str, start: int, window: int = 150) -> Optional[float]:
+def _gross_value_after(text: str, start: int, window: int = 150) -> float | None:
     """Erster ausdrücklich als brutto bezeichnete Betrag ab `start` ("116,00 € brutto", "brutto: 116,00")."""
     match = _GROSS_NEAR_RE.search(text, start, start + window)
     if not match:
@@ -675,7 +685,7 @@ def _gross_value_after(text: str, start: int, window: int = 150) -> Optional[flo
     return round(abs(value), 2) if value is not None else None
 
 
-def _new_advance(source: str, model_value: Optional[float]) -> tuple[Optional[float], str, list[float]]:
+def _new_advance(source: str, model_value: float | None) -> tuple[float | None, str, list[float]]:
     """Neuer monatlicher Abschlag laut Text: (Wert oder None, Begründung, alle Kandidaten).
 
     Reihenfolge der Belege:
@@ -729,7 +739,8 @@ def _sum_rows(source: str) -> list[float]:
     text = source.replace("\u00a0", " ")
     tokens = [(m.start(), m.end(), _parse_number(m.group(0))) for m in _AMOUNT_TOKEN_RE.finditer(text)]
     rows: list[float] = []
-    for (s1, e1, a), (s2, e2, b), (s3, _, c) in zip(tokens, tokens[1:], tokens[2:]):
+    # Drei aufeinanderfolgende Beträge; die Listen sind absichtlich versetzt (strict=False)
+    for (_, e1, a), (s2, e2, b), (s3, _, c) in zip(tokens, tokens[1:], tokens[2:], strict=False):
         if None in (a, b, c) or text[e1:s2].strip() or text[e2:s3].strip():
             continue
         if c > 0 and abs(a + b - c) <= 0.015 and c not in rows:
@@ -737,7 +748,7 @@ def _sum_rows(source: str) -> list[float]:
     return rows
 
 
-def _row_total(run: list[float]) -> Optional[float]:
+def _row_total(run: list[float]) -> float | None:
     """Bruttobetrag einer Zeile 'netto USt brutto'. Läuft die Zahlenkette in die nächste Spalte weiter
     ("-154,00 0,00 (0 %) -154,00 29,81"), zählt der Betrag, der netto + USt ergibt, nicht der letzte."""
     if len(run) >= 3 and abs(run[0] + run[1] - run[2]) <= 0.015:
@@ -748,7 +759,7 @@ def _row_total(run: list[float]) -> Optional[float]:
 _PAYMENT_WORDS = ("abschläge", "abschlaege", "abschlagszahlungen", "geleistete zahlungen", "gezahlte", "vorauszahlungen")
 
 
-def _saldo_from_payments(source: str, total: float) -> Optional[tuple[str, float, float]]:
+def _saldo_from_payments(source: str, total: float) -> tuple[str, float, float] | None:
     """(Feld, Saldo, Abschläge), wenn genau eine Abschlagssumme im Text mit dem Rechnungsbetrag einen ebenfalls
     im Text stehenden Saldo ergibt. Bei mehreren Lösungen gilt die mit den größten Abschlägen (zwölf Abschläge
     sind in aller Regel mehr als der Restbetrag), sonst keine."""
@@ -824,9 +835,9 @@ def _base_price_candidates(source: str) -> list[tuple[float, str]]:
     return found
 
 
-def _energy_estimate(facts: dict[str, Any], base: float, unit: str) -> Optional[float]:
+def _energy_estimate(facts: dict[str, Any], base: float, unit: str) -> float | None:
     """Verbrauch x Arbeitspreis + Grundpreis für den Zeitraum, brutto (netto-Preise x (1 + MwSt))."""
-    def num(key: str) -> Optional[float]:
+    def num(key: str) -> float | None:
         value = facts.get(key)
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
@@ -839,7 +850,7 @@ def _energy_estimate(facts: dict[str, Any], base: float, unit: str) -> Optional[
     return estimate * (1 + VAT_RATE) if basis == "netto" else estimate
 
 
-def _repair_base_price(facts: dict[str, Any], source: str) -> Optional[tuple[float, str, float, float]]:
+def _repair_base_price(facts: dict[str, Any], source: str) -> tuple[float, str, float, float] | None:
     total, base = facts.get("total_gross_eur"), facts.get("base_price_eur")
     if not isinstance(total, (int, float)) or not isinstance(base, (int, float)) or total <= 0:
         return None
@@ -849,7 +860,7 @@ def _repair_base_price(facts: dict[str, Any], source: str) -> Optional[tuple[flo
     before = abs(current - total) / total
     if before <= 0.20:
         return None
-    best: Optional[tuple[float, str, float]] = None
+    best: tuple[float, str, float] | None = None
     for value, unit in _base_price_candidates(source):
         estimate = _energy_estimate(facts, value, unit)
         if estimate is None:
@@ -864,9 +875,10 @@ _NET_SUM_LABELS = ("nettobetrag", "summe netto", "netto gesamt", "gesamt netto",
 _GROSS_SUM_LABELS = ("bruttobetrag", "summe brutto", "brutto gesamt", "gesamt brutto", "betrag brutto",
                      "enthaltene umsatzsteuer", "enthaltene ust", "darin enthalten")
 LINE_LABEL_WINDOW = 400
+PARTNER_AMOUNT_WINDOW = 120   # Netto-/Bruttogegenbetrag: höchstens so weit vom Zeilenbetrag entfernt (dieselbe Zeile)
 
 
-def _basis_from_line_amount(facts: dict[str, Any], source: str) -> tuple[Optional[str], str]:
+def _basis_from_line_amount(facts: dict[str, Any], source: str) -> tuple[str | None, str]:
     """Netto/brutto der Preise aus der Entgeltzeile 'Verbrauch x Arbeitspreis = Betrag'.
 
     1. Stehen der Zeilenbetrag E und E x (1 + MwSt) im Text, ist E netto; stehen E und E / (1 + MwSt) im Text,
@@ -889,9 +901,16 @@ def _basis_from_line_amount(facts: dict[str, Any], source: str) -> tuple[Optiona
     if not occurrences:
         return None, ""
     factor = 1 + VAT_RATE
-    # ±1 Cent: Versorger runden Netto- bzw. Bruttospalte unterschiedlich (309,43 brutto -> 260,02 oder 260,03 netto)
-    has_gross = any(_contains_number(text, round(line * factor + d, 2)) for d in (-0.01, 0.0, 0.01))
-    has_net = any(_contains_number(text, round(line / factor + d, 2)) for d in (-0.01, 0.0, 0.01))
+    # ±1 Cent: Versorger runden Netto- bzw. Bruttospalte unterschiedlich (309,43 brutto -> 260,02 oder 260,03 netto).
+    # Der Gegenbetrag zählt nur in derselben Tabellenzeile (nahe am Zeilenbetrag): sonst passt z. B. 45,21 / 1,19
+    # = 37,99 (+1 Cent) zufällig zum Abschlag 38,00 auf einer anderen Seite.
+    anchors = [m.start() for m in occurrences]
+    has_gross = any(
+        _contains_number_near(text, round(line * factor + d, 2), anchors, PARTNER_AMOUNT_WINDOW) for d in (-0.01, 0.0, 0.01)
+    )
+    has_net = any(
+        _contains_number_near(text, round(line / factor + d, 2), anchors, PARTNER_AMOUNT_WINDOW) for d in (-0.01, 0.0, 0.01)
+    )
     if has_gross and not has_net:
         return "netto", f"Zeilenbetrag {line} und {round(line * factor, 2)} brutto im Text"
     if has_net and not has_gross:
@@ -927,7 +946,7 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
     out = {k: v for k, v in facts.items() if v is not None}
     notes: list[str] = []
 
-    def number(key: str) -> Optional[float]:
+    def number(key: str) -> float | None:
         value = out.get(key)
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
@@ -1025,10 +1044,9 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
     base = number("base_price_eur")
     if base is not None and base > 0:
         unit = _unit_for(source_text, base)
-        if unit:
-            if out.get("base_price_unit") != unit:
-                notes.append(f"base_price_unit {out.get('base_price_unit')!r} -> {unit!r} (Text)")
-                out["base_price_unit"] = unit
+        if unit and out.get("base_price_unit") != unit:
+            notes.append(f"base_price_unit {out.get('base_price_unit')!r} -> {unit!r} (Text)")
+            out["base_price_unit"] = unit
         if not unit or _has_anchor(source_text.replace("\u00a0", " "), base, FIELD_ANCHORS["base_price_eur"]) is False:
             # Ohne Einheit oder ohne Grundpreis-Label am Wert: Ist der Wert die Summe für den Zeitraum
             # (Einzelpreis x Tage), gilt der Einzelpreis mit seiner Einheit.
@@ -1136,7 +1154,7 @@ CHECK_TOLERANCE = 0.02
 ENERGY_COST_HINT_RATIO = 0.05   # Abweichung Rechnungsbetrag vs. Verbrauch*Arbeitspreis + Grundpreis
 
 
-def field_anchors(spec: Optional[SchemaSpec] = None) -> dict[str, tuple[str, ...]]:
+def field_anchors(spec: SchemaSpec | None = None) -> dict[str, tuple[str, ...]]:
     """Ankerwörter je Feld: eingebautes Energie-Schema oder `anchors` der Felder eines konfigurierten Schemas."""
     if spec is None:
         return FIELD_ANCHORS
@@ -1156,7 +1174,7 @@ def _is_unit_anchor(word: str) -> bool:
     return "/" in word or word in _UNIT_WORDS
 
 
-def _has_anchor(text: str, value: float, words: tuple[str, ...]) -> Optional[bool]:
+def _has_anchor(text: str, value: float, words: tuple[str, ...]) -> bool | None:
     """True, wenn an einer Fundstelle von `value` ein Ankerwort ohne dazwischenliegenden Betrag steht;
     None, wenn die Zahl nicht im Text vorkommt."""
     found = False
@@ -1181,7 +1199,7 @@ def _has_anchor(text: str, value: float, words: tuple[str, ...]) -> Optional[boo
     return False if found else None
 
 
-def uncertain_fields(facts: dict[str, Any], source_text: str, spec: Optional[SchemaSpec] = None) -> list[str]:
+def uncertain_fields(facts: dict[str, Any], source_text: str, spec: SchemaSpec | None = None) -> list[str]:
     """Zahlenfelder, an deren Fundstellen kein passendes Label steht (siehe FIELD_ANCHORS)."""
     anchors = field_anchors(spec)
     text = source_text.replace("\u00a0", " ")
@@ -1198,7 +1216,7 @@ def uncertain_fields(facts: dict[str, Any], source_text: str, spec: Optional[Sch
 _CHECK_OPS = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b, ast.Mult: lambda a, b: a * b}
 
 
-def _check_side(node: ast.AST, facts: dict[str, Any], missing_as_zero: bool) -> tuple[Optional[float], int]:
+def _check_side(node: ast.AST, facts: dict[str, Any], missing_as_zero: bool) -> tuple[float | None, int]:
     """Wert einer Regelseite und Anzahl vorhandener Felder; (None, 0), wenn ein Feld fehlt."""
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
         return float(node.value), 0
@@ -1217,7 +1235,7 @@ def _check_side(node: ast.AST, facts: dict[str, Any], missing_as_zero: bool) -> 
 
 
 def evaluate_rule(rule: str, facts: dict[str, Any], tolerance: float = CHECK_TOLERANCE,
-                  missing_as_zero: bool = False) -> Optional[dict[str, Any]]:
+                  missing_as_zero: bool = False) -> dict[str, Any] | None:
     """Prüfregel 'a + b == c' auswerten. None, wenn Felder fehlen (Regel nicht anwendbar)."""
     tree = ast.parse(rule, mode="eval").body
     if not (isinstance(tree, ast.Compare) and len(tree.ops) == 1 and isinstance(tree.ops[0], ast.Eq)):
@@ -1232,7 +1250,7 @@ def evaluate_rule(rule: str, facts: dict[str, Any], tolerance: float = CHECK_TOL
 
 
 def _energy_checks(facts: dict[str, Any]) -> list[dict[str, Any]]:
-    def num(key: str) -> Optional[float]:
+    def num(key: str) -> float | None:
         value = facts.get(key)
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
@@ -1264,7 +1282,7 @@ def _energy_checks(facts: dict[str, Any]) -> list[dict[str, Any]]:
     return results
 
 
-def run_checks(facts: dict[str, Any], spec: Optional[SchemaSpec] = None) -> list[dict[str, Any]]:
+def run_checks(facts: dict[str, Any], spec: SchemaSpec | None = None) -> list[dict[str, Any]]:
     """Prüfregeln über die Fakten: eingebaute Energie-Regeln bzw. `checks` des konfigurierten Schemas.
 
     Rückgabe je anwendbarer Regel: {rule, ok, severity (error|hint), detail}. Nicht anwendbare Regeln fehlen.
@@ -1295,8 +1313,8 @@ def needs_review(checks: list[dict[str, Any]]) -> bool:
 def postprocess_facts(
     raw: dict[str, Any],
     source_text: str,
-    meta: Optional[dict[str, Any]] = None,
-    spec: Optional[SchemaSpec] = None,
+    meta: dict[str, Any] | None = None,
+    spec: SchemaSpec | None = None,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     """Rohdaten des Modells -> (verifizierte Fakten, verworfene Felder, Änderungsprotokoll). Ohne LLM.
 
@@ -1347,7 +1365,7 @@ def locate_pages(facts: dict[str, Any], source_text: str) -> dict[str, int]:
     for key, value in facts.items():
         if value is None or isinstance(value, bool):
             continue
-        position: Optional[int] = None
+        position: int | None = None
         if isinstance(value, (int, float)):
             hits = [
                 match.start() for variant in _number_variants(float(value))
@@ -1659,7 +1677,7 @@ class FactExtractor:
             source_hash = self._source_hash(full_text, str(schema_id) if schema_id else None)
 
             old = self._load_record(out_file) if out_file.exists() else {}
-            raw: Optional[dict[str, Any]] = None
+            raw: dict[str, Any] | None = None
             if not force and old.get("source_hash") == source_hash and isinstance(old.get("raw"), dict):
                 raw = old["raw"]
                 print(f"Fakten für {filename}: Rohdaten unverändert, nur neu normalisiert (ohne LLM).")

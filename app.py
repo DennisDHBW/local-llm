@@ -17,15 +17,11 @@ from src.agent.react_agent import ReActAgent
 from src.agent.synthesizer import SourceSynthesizer
 from src.agent.tools import AgentTools
 from src.config import GRAPH_PATH, PROCESSED_DIR
-from src.enrichment.captioner import ImageCaptioner
-from src.enrichment.facts import FactExtractor, load_facts
-from src.enrichment.summarizer import TableSummarizer
+from src.enrichment.facts import load_facts
 from src.graph.graph_store import DocumentGraph
-from src.ingestion.parser import DocumentParser
-from src.ingestion.pipeline import prune_removed_documents
+from src.ingestion.pipeline import STAGE_KEYS, IngestionContext, get_stage, run_stage
 from src.retrieval.query_rewriter import QueryRewriter
 from src.retrieval.search import search_collection
-from src.retrieval.vector_store import VectorStore
 from src.utils import SOURCE_SUFFIXES, source_files
 
 try:
@@ -214,139 +210,108 @@ def init_import_action():
     logger.info("Neuer Importprozess gestartet.")
 
 
-def run_parse_step(target_log_placeholder=None):
-    init_import_action()
+# Statusmeldung nach erfolgreichem Einzelschritt (wie bisher)
+_STAGE_DONE_STATUS = {
+    "parse": "✅ PDF Parsing abgeschlossen",
+    "caption": "✅ Bildbeschreibungen abgeschlossen",
+    "summarize": "✅ Tabellen-Zusammenfassung abgeschlossen",
+    "facts": "✅ Fakten-Extraktion abgeschlossen",
+    "index": "✅ Vektorstore-Indizierung abgeschlossen",
+    "graph": "✅ GraphRAG Dokumentgraph aufgebaut",
+}
+# Fortschrittsbalken der Importkette (Prozent VOR dem jeweiligen Schritt, wie bisher)
+_CHAIN_PROGRESS = (15, 30, 45, 60, 80, 95)
+
+
+def _import_context(rebuild_db: bool = False, force_parse: bool = False, prune_removed: bool = False) -> IngestionContext:
+    """Einstellungen für einen Importlauf. Die Schritte selbst stehen in src/ingestion/pipeline.py."""
     raw_dir, processed_dir = _get_data_dirs()
-    files = source_files(raw_dir)
-    logger.info("Parsing-Einzelschritt vorbereitet: %d Datei(en), Quelle=%s, Ziel=%s",
-                len(files), raw_dir, processed_dir)
+    return IngestionContext(raw_dir, processed_dir, rebuild=rebuild_db, force_parse=force_parse, prune=prune_removed)
+
+
+def _record_step(result) -> None:
+    st.session_state.import_details["steps"].append({
+        "step": result.label,
+        "status": "✅ Erfolgreich",
+        "info": result.info,
+    })
+
+
+def _abort_without_files(target_log_placeholder=None) -> None:
+    message = "Keine Dokumente im Ordner data/raw/ gefunden."
+    st.session_state.import_logs.append(message)
+    st.session_state.import_details["status"] = "Abgebrochen (Keine Dateien)"
+    if target_log_placeholder:
+        target_log_placeholder.markdown(f'<div class="log-container">{message}</div>', unsafe_allow_html=True)
+
+
+def run_single_step(stage_key: str, target_log_placeholder=None, rebuild_db: bool = False,
+                    force_parse: bool = False) -> None:
+    """Führt genau einen Importschritt aus (Parsen, Bilder, Tabellen, Fakten, Index, Graph)."""
+    init_import_action()
+    ctx = _import_context(rebuild_db=rebuild_db, force_parse=force_parse)
+    stage = get_stage(stage_key)
+    logger.info("Einzelschritt '%s' vorbereitet: Quelle=%s, Ziel=%s", stage.label, ctx.raw_dir, ctx.processed_dir)
+    if stage_key == "parse" and not source_files(ctx.raw_dir):
+        _abort_without_files(target_log_placeholder)
+        return
 
     with LogRedirector(st.session_state.import_logs, target_log_placeholder):
-        print("=== EINZELSCHRITT: PDF LAYOUT PARSING ===")
-        if not files:
-            print("Keine Dokumente in data/raw/ gefunden.")
-            st.session_state.import_details["status"] = "Abgebrochen (Keine Dateien)"
+        try:
+            result = run_stage(stage_key, ctx)
+        except Exception as exc:
+            print(f"\n❌ FEHLER im Schritt {stage.label}: {exc}")
+            logger.exception("Einzelschritt %s fehlgeschlagen.", stage.label)
+            st.session_state.import_details["status"] = f"❌ Fehlgeschlagen: {exc}"
+            st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            st.sidebar.error(f"Fehler im Schritt {stage.label}: {exc}")
             return
 
-        parser = DocumentParser(raw_dir=raw_dir, processed_dir=processed_dir)
-        total = 0
-        for filename_item in files:
-            chunks = parser.parse_file(filename_item)
-            total += len(chunks)
-
-    st.session_state.import_details["status"] = "✅ PDF Parsing abgeschlossen"
+    st.session_state.import_details["status"] = _STAGE_DONE_STATUS[stage_key]
     st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.import_details["steps"].append({
-        "step": "1. PDF Layout Parsing",
-        "status": "✅ Erfolgreich",
-        "info": f"{len(files)} Datei(en) geparst ({total} Chunks)."
-    })
+    _record_step(result)
+
+
+# Bisherige Einzelschritt-Funktionen bleiben als Aufrufpunkte erhalten.
+def run_parse_step(target_log_placeholder=None, force_parse: bool = False):
+    run_single_step("parse", target_log_placeholder, force_parse=force_parse)
 
 
 def run_caption_step(target_log_placeholder=None):
-    init_import_action()
-    _, processed_dir = _get_data_dirs()
-
-    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
-        print("=== EINZELSCHRITT: MULTIMODALE BILD-ANREICHERUNG ===")
-        captioner = ImageCaptioner(processed_dir=processed_dir)
-        captioner.process_all_jsons()
-
-    st.session_state.import_details["status"] = "✅ Bildbeschreibungen abgeschlossen"
-    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.import_details["steps"].append({
-        "step": "2. Multimodale Bild-Anreicherung",
-        "status": "✅ Erfolgreich",
-        "info": "Bild-Captions generiert & Duplikate gereinigt."
-    })
+    run_single_step("caption", target_log_placeholder)
 
 
 def run_summary_step(target_log_placeholder=None):
-    init_import_action()
-    _, processed_dir = _get_data_dirs()
-
-    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
-        print("=== EINZELSCHRITT: TABELLEN-ZUSAMMENFASSUNG ===")
-        summarizer = TableSummarizer(processed_dir=processed_dir)
-        summarizer.process_all_jsons()
-
-    st.session_state.import_details["status"] = "✅ Tabellen-Zusammenfassung abgeschlossen"
-    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.import_details["steps"].append({
-        "step": "3. Tabellen-Zusammenfassung",
-        "status": "✅ Erfolgreich",
-        "info": "Tabellen-Summaries erzeugt."
-    })
+    run_single_step("summarize", target_log_placeholder)
 
 
 def run_facts_step(target_log_placeholder=None):
-    init_import_action()
-    _, processed_dir = _get_data_dirs()
-
-    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
-        print("=== EINZELSCHRITT: STRUKTURIERTE FAKTEN-EXTRAKTION ===")
-        extractor = FactExtractor(processed_dir=processed_dir)
-        extractor.process_all()
-
-    st.session_state.import_details["status"] = "✅ Fakten-Extraktion abgeschlossen"
-    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.import_details["steps"].append({
-        "step": "4. Fakten-Extraktion",
-        "status": "✅ Erfolgreich",
-        "info": "Strukturierte Kerndaten (_facts.json) extrahiert und verifiziert."
-    })
+    run_single_step("facts", target_log_placeholder)
 
 
 def run_vectorstore_step(rebuild_db: bool = False, target_log_placeholder=None):
-    init_import_action()
-    _, processed_dir = _get_data_dirs()
-
-    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
-        print("=== EINZELSCHRITT: VEKTORSTORE INDIZIERUNG ===")
-        vector_store = VectorStore(processed_dir=processed_dir)
-        vector_store.index_documents(rebuild=rebuild_db)
-
-    st.session_state.import_details["status"] = "✅ Vektorstore-Indizierung abgeschlossen"
-    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.import_details["steps"].append({
-        "step": "5. Vektorstore Indizierung",
-        "status": "✅ Erfolgreich",
-        "info": "Chunks & Metadaten in ChromaDB indiziert."
-    })
+    run_single_step("index", target_log_placeholder, rebuild_db=rebuild_db)
 
 
 def run_graph_step(target_log_placeholder=None):
-    init_import_action()
-    _, processed_dir = _get_data_dirs()
-
-    with LogRedirector(st.session_state.import_logs, target_log_placeholder):
-        print("=== EINZELSCHRITT: GRAPHRAG DOKUMENTGRAPH ===")
-        DocumentGraph.build_and_save(processed_dir=processed_dir)
-
-    st.session_state.import_details["status"] = "✅ GraphRAG Dokumentgraph aufgebaut"
-    st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.import_details["steps"].append({
-        "step": "6. GraphRAG Dokumentgraph",
-        "status": "✅ Erfolgreich",
-        "info": "Dokumentgraph mit Entitäten & Zeitreihen aufgebaut."
-    })
+    run_single_step("graph", target_log_placeholder)
 
 
 def run_import_chain(rebuild_db: bool = False, target_log_placeholder=None, progress_bar=None,
-                     prune_removed: bool = False):
-    """Führt die gesamte Import-Pipeline nacheinander aus und zeichnet Terminal-Logs in Echtzeit auf."""
-    init_import_action()
+                     prune_removed: bool = False, force_parse: bool = False):
+    """Führt die gesamte Import-Pipeline nacheinander aus und zeichnet Terminal-Logs in Echtzeit auf.
 
-    raw_dir, processed_dir = _get_data_dirs()
-    files_to_process = source_files(raw_dir)
-    logger.info("Importkette vorbereitet: rebuild_db=%s, Dateien=%s", rebuild_db, files_to_process)
+    Die Schritte kommen aus src/ingestion/pipeline.py (dieselben wie auf der Kommandozeile). Unveränderte
+    Dateien werden nicht erneut geparst, außer `force_parse` ist gesetzt.
+    """
+    init_import_action()
+    ctx = _import_context(rebuild_db=rebuild_db, force_parse=force_parse, prune_removed=prune_removed)
+    files_to_process = source_files(ctx.raw_dir)
+    logger.info("Importkette vorbereitet: rebuild_db=%s, force_parse=%s, prune=%s, Dateien=%s",
+                rebuild_db, force_parse, prune_removed, files_to_process)
 
     if not files_to_process:
-        st.session_state.import_logs.append("Keine Dokumente im Ordner data/raw/ gefunden.")
-        st.session_state.import_details["status"] = "Abgebrochen (Keine Dateien)"
-        if target_log_placeholder:
-            target_log_placeholder.markdown('<div class="log-container">Keine Dokumente im Ordner data/raw/ gefunden.</div>',
-                                     unsafe_allow_html=True)
+        _abort_without_files(target_log_placeholder)
         return
 
     with LogRedirector(st.session_state.import_logs, target_log_placeholder):
@@ -355,91 +320,14 @@ def run_import_chain(rebuild_db: bool = False, target_log_placeholder=None, prog
             print(f"START IMPORTKETTE: {len(files_to_process)} Dokument(e) zu verarbeiten")
             print("==================================================")
 
-            if prune_removed:
-                removed = prune_removed_documents(
-                    raw_dir, processed_dir, VectorStore(processed_dir=processed_dir).collection
-                )
-                print(f"Entfernte Dokumente bereinigt: {', '.join(removed) if removed else 'keine'}")
-
-            # Schritt 1: PDF Parsing
-            if progress_bar:
-                progress_bar.progress(15, text="1/6: Parsing PDFs...")
-            print("\n--- SCHRITT 1/6: PDF Layout Parsing ---")
-            parser = DocumentParser(raw_dir=raw_dir, processed_dir=processed_dir)
-            total_chunks = 0
-            for fname in files_to_process:
-                chunks = parser.parse_file(fname)
-                total_chunks += len(chunks)
-
-            st.session_state.import_details["steps"].append({
-                "step": "1. PDF Layout Parsing",
-                "status": "✅ Erfolgreich",
-                "info": f"{len(files_to_process)} Datei(en) geparst ({total_chunks} Chunks)."
-            })
-
-            # Schritt 2: Bild-Anreicherung
-            if progress_bar:
-                progress_bar.progress(30, text="2/6: Bildbeschreibungen...")
-            print("\n--- SCHRITT 2/6: Multimodale Bild-Anreicherung ---")
-            captioner = ImageCaptioner(processed_dir=processed_dir)
-            captioner.process_all_jsons()
-
-            st.session_state.import_details["steps"].append({
-                "step": "2. Multimodale Bild-Anreicherung",
-                "status": "✅ Erfolgreich",
-                "info": "Bilder analysiert, Captions in Chunks integriert."
-            })
-
-            # Schritt 3: Tabellen-Zusammenfassung
-            if progress_bar:
-                progress_bar.progress(45, text="3/6: Tabellen-Zusammenfassung...")
-            print("\n--- SCHRITT 3/6: Tabellen-Zusammenfassung ---")
-            summarizer = TableSummarizer(processed_dir=processed_dir)
-            summarizer.process_all_jsons()
-
-            st.session_state.import_details["steps"].append({
-                "step": "3. Tabellen-Zusammenfassung",
-                "status": "✅ Erfolgreich",
-                "info": "Komplexe Abrechnungstabellen zusammengefasst."
-            })
-
-            # Schritt 4: Fakten-Extraktion
-            if progress_bar:
-                progress_bar.progress(60, text="4/6: Fakten-Extraktion...")
-            print("\n--- SCHRITT 4/6: Strukturierte Fakten-Extraktion ---")
-            extractor = FactExtractor(processed_dir=processed_dir)
-            extractor.process_all()
-
-            st.session_state.import_details["steps"].append({
-                "step": "4. Fakten-Extraktion",
-                "status": "✅ Erfolgreich",
-                "info": "Strukturierte Kerndaten (_facts.json) extrahiert."
-            })
-
-            # Schritt 5: Vektorstore Indizierung
-            if progress_bar:
-                progress_bar.progress(80, text="5/6: Vektorstore Indizierung...")
-            print("\n--- SCHRITT 5/6: ChromaDB Vektorstore Indizierung ---")
-            vector_store = VectorStore(processed_dir=processed_dir)
-            vector_store.index_documents(rebuild=rebuild_db)
-
-            st.session_state.import_details["steps"].append({
-                "step": "5. Vektorstore Indizierung",
-                "status": "✅ Erfolgreich",
-                "info": "Chunks & Metadaten in ChromaDB gespeichert."
-            })
-
-            # Schritt 6: GraphRAG Dokumentgraph
-            if progress_bar:
-                progress_bar.progress(95, text="6/6: GraphRAG Dokumentgraph...")
-            print("\n--- SCHRITT 6/6: GraphRAG Dokumentgraph aufbauen ---")
-            DocumentGraph.build_and_save(processed_dir=processed_dir)
-
-            st.session_state.import_details["steps"].append({
-                "step": "6. GraphRAG Dokumentgraph",
-                "status": "✅ Erfolgreich",
-                "info": "Entitäts- & Zeitreihen-Graph aufgebaut."
-            })
+            total = len(STAGE_KEYS)
+            for index, key in enumerate(STAGE_KEYS):
+                stage = get_stage(key)
+                if progress_bar:
+                    progress_bar.progress(_CHAIN_PROGRESS[min(index, len(_CHAIN_PROGRESS) - 1)],
+                                          text=f"{index + 1}/{total}: {stage.label}...")
+                print(f"\n--- SCHRITT {index + 1}/{total}: {stage.label} ---")
+                _record_step(run_stage(key, ctx))
 
             if progress_bar:
                 progress_bar.progress(100, text="Fertig!")
@@ -454,6 +342,7 @@ def run_import_chain(rebuild_db: bool = False, target_log_placeholder=None, prog
             print(f"\n❌ FEHLER im Importprozess: {exc}")
             logger.exception("Importprozess fehlgeschlagen.")
             st.session_state.import_details["status"] = f"❌ Fehlgeschlagen: {exc}"
+            st.session_state.import_details["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
             st.sidebar.error(f"Fehler beim Import: {exc}")
 
 
@@ -491,7 +380,7 @@ def render_graph_vis(doc_graph: DocumentGraph, filter_type: str) -> None:
             net.add_node(node_id, label=label, title=title, color=color, shape=shape)
             added_nodes.add(node_id)
 
-        for u, v, k, data in G.edges(keys=True, data=True):
+        for u, v, data in G.edges(data=True):
             if u in added_nodes and v in added_nodes:
                 rel = data.get("relation", "")
                 net.add_edge(u, v, title=rel, label=rel, color="#aaaaaa")
@@ -510,8 +399,9 @@ def render_graph_vis(doc_graph: DocumentGraph, filter_type: str) -> None:
             dot_lines.append(f'  "{node_id}" [label="{label}\\n({ntype})", style=filled, fillcolor="{color}", fontcolor=white];')
 
         for u, v, data in G.edges(data=True):
-            if u in G.nodes and v in G.nodes:
-                if filter_type == "Alle" or G.nodes[u].get("type") == filter_type or G.nodes[v].get("type") == filter_type:
+            if u in G.nodes and v in G.nodes and (
+                filter_type == "Alle" or G.nodes[u].get("type") == filter_type or G.nodes[v].get("type") == filter_type
+            ):
                     rel = data.get("relation", "")
                     dot_lines.append(f'  "{u}" -> "{v}" [label="{rel}"];')
 
@@ -556,6 +446,11 @@ with st.sidebar:
         "Gelöschte Dokumente aus dem Bestand entfernen", value=False,
         help="Entfernt Chunks, Fakten und Vektoren von Dokumenten, deren Datei nicht mehr in data/raw/ liegt.",
     )
+    force_parse_option = st.checkbox(
+        "Alle Dateien neu parsen (auch unveränderte)", value=False,
+        help="Standard: nur neue oder geänderte Dateien werden geparst; das spart je Datei einen LLM-Aufruf. "
+             "Neu parsen z. B. nach Änderungen am Parser.",
+    )
 
     btn_chain = st.button("🚀 Import-Kette starten", use_container_width=True)
 
@@ -574,8 +469,9 @@ with st.sidebar:
     # TERMINAL & IMPORT-DETAILS (DIREKT UNTER DEN BUTTONS)
     terminal_expander = st.expander(
         "🔍 Import-Prozess Details & Terminal-Log",
-        expanded=True if (
-                    btn_chain or btn_s1 or btn_s2 or btn_s3 or btn_s4 or btn_s5 or btn_s6 or st.session_state.import_details) else False
+        expanded=bool(
+            btn_chain or btn_s1 or btn_s2 or btn_s3 or btn_s4 or btn_s5 or btn_s6 or st.session_state.import_details
+        ),
     )
 
     with terminal_expander:
@@ -585,7 +481,7 @@ with st.sidebar:
 
         # Initiale Anzeige vorhandener Logs (falls Seite neu gerendert wird)
         if st.session_state.import_logs:
-            initial_log_content = "\n".join(st.session_state.import_logs)
+            initial_log_content = html.escape("\n".join(st.session_state.import_logs))
             log_placeholder.markdown(f'<div class="log-container">{initial_log_content}</div>', unsafe_allow_html=True)
         else:
             log_placeholder.info(
@@ -595,10 +491,10 @@ with st.sidebar:
     if btn_chain:
         pbar = st.sidebar.progress(0, text="Starte Importkette...")
         run_import_chain(rebuild_db=rebuild_option, target_log_placeholder=log_placeholder, progress_bar=pbar,
-                         prune_removed=prune_option)
+                         prune_removed=prune_option, force_parse=force_parse_option)
 
     if btn_s1:
-        run_parse_step(target_log_placeholder=log_placeholder)
+        run_parse_step(target_log_placeholder=log_placeholder, force_parse=force_parse_option)
 
     if btn_s2:
         run_caption_step(target_log_placeholder=log_placeholder)

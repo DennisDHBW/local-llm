@@ -4,17 +4,17 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-import chromadb
+from collections.abc import Callable
 
 from src.analysis.aggregate import aggregate
 from src.analysis.compare import build_comparison
-from src.config import EMBED_MODEL, GRAPH_PATH, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR, graph_path_for
+from src.config import EMBED_MODEL, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR, graph_path_for
 from src.embeddings import embed_query
 from src.enrichment.facts import format_facts, load_facts
 from src.graph.graph_store import DocumentGraph
+from src.retrieval.collection import open_collection
 from src.retrieval.search import search_collection
-from src.utils import strip_source_suffix
+from src.utils import is_empty, strip_source_suffix
 
 KIND_TO_CHUNK_TYPES = {
     "all": ["text", "table_row", "image"],
@@ -268,11 +268,7 @@ class AgentTools:
         if use_rewriter:
             from src.retrieval.query_rewriter import QueryRewriter
             self.rewriter = QueryRewriter()
-        self.client = chromadb.PersistentClient(path=str(vector_dir))
-        self.collection = self.client.get_or_create_collection(
-            name="energy_docs",
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.client, self.collection = open_collection(vector_dir)
         self._filename_cache: tuple[int, list[str]] = (-1, [])
         self._graph: DocumentGraph | None = None
         self._graph_mtime: float | None = None
@@ -420,7 +416,7 @@ class AgentTools:
             return "Keine Gliederung gefunden."
 
         rows = sorted(
-            zip(results["metadatas"], results["documents"]),
+            zip(results["metadatas"], results["documents"], strict=True),
             key=lambda pair: (pair[0].get("filename", ""), pair[0].get("page_number", 0)),
         )
         out = [f"[{m.get('filename', '')} | S.{m.get('page_number', '?')}] {_strip_prefix(doc)}" for m, doc in rows]
@@ -496,7 +492,7 @@ class AgentTools:
                 facts = (verified.get(fname) or {}).get("facts", {})
                 for key in ("provider", "doc_type", "doc_date", "contract_number", "invoice_number"):
                     value = facts.get(key)
-                    if value is not None and str(value).strip().casefold() not in ("", "unbekannt", "null", "none"):
+                    if not is_empty(value):
                         info[key] = str(value).strip()
 
             output = [f"Gesamtzahl indizierter Dokumente: {len(docs_summary)}\n"]
@@ -669,7 +665,7 @@ class AgentTools:
             return ToolResult(f"Seite {page_number} von '{resolved}' ist nicht im Index (Seitenzahl prüfen).")
         metadatas = results.get("metadatas") or [{}] * len(documents)
         parts = []
-        for meta, doc in zip(metadatas, documents):
+        for meta, doc in zip(metadatas, documents, strict=True):
             ctype = (meta or {}).get("chunk_type", "text")
             if ctype == "heading":
                 parts.append(f"## {_strip_prefix(doc)}")
@@ -746,88 +742,112 @@ class AgentTools:
         return selected, None
 
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
+        """Führt ein Werkzeug aus. Name -> Handler steht in `TOOL_HANDLERS` (eine Tabelle statt if-Kette)."""
         clean = re.sub(r"\(.*?\)$", "", (name or "").strip().strip("`'\"")).strip()
         args = arguments if isinstance(arguments, dict) else {}
-
-        def as_int(value: Any, default: int) -> int:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return default
-
+        handler = TOOL_HANDLERS.get(clean)
+        if handler is None:
+            return ToolResult(f"Fehler: Unbekanntes Werkzeug '{name}'.")
         try:
-            if clean == "get_document_inventory":
-                text = self.get_document_inventory()
-                return ToolResult(text, [_tool_evidence(clean, "Dokumentinventar", text)])
-            if clean == "get_document_facts":
-                return self.get_document_facts(str(args.get("filename") or ""))
-            if clean == "search":
-                return self.search(
-                    str(args.get("query") or ""),
-                    filename=str(args.get("filename") or ""),
-                    kind=str(args.get("kind") or "all"),
-                    top_k=as_int(args.get("top_k"), DEFAULT_TOP_K),
-                )
-            if clean in LEGACY_SEARCH_TOOLS:
-                return self.search(
-                    str(args.get("query") or ""),
-                    filename=str(args.get("filename") or ""),
-                    kind=LEGACY_SEARCH_TOOLS[clean],
-                    top_k=as_int(args.get("top_k"), DEFAULT_TOP_K),
-                )
-            if clean == "get_document_outline":
-                text = self.get_document_outline(str(args.get("filename") or args.get("filename_filter") or ""))
-                ok = not text.startswith(("Keine", "Unbekannte", "Dateiname"))
-                return ToolResult(text, [_tool_evidence(clean, "Dokumentgliederung", text, text[:40])] if ok else [])
-            if clean == "compare_documents":
-                return self.compare_documents(
-                    args.get("filenames") or args.get("filename") or args.get("files") or "",
-                    args.get("fields") or args.get("field") or "",
-                )
-            if clean == "graph_lookup":
-                return self.graph_lookup(str(args.get("entity") or args.get("query") or ""))
-            if clean == "graph_timeline":
-                return self.graph_timeline(str(args.get("entity") or args.get("query") or ""))
-            if clean == "graph_paths":
-                return self.graph_paths(
-                    str(args.get("source") or args.get("entity1") or ""),
-                    str(args.get("target") or args.get("entity2") or "")
-                )
-            if clean == "graph_context":
-                return self.graph_context(str(args.get("query") or args.get("entity") or args.get("question") or ""))
-            if clean == "graph_overview":
-                return self.graph_overview()
-            if clean == "aggregate_facts":
-                return self.aggregate_facts(
-                    str(args.get("field") or args.get("metric") or args.get("fields") or ""),
-                    str(args.get("agg") or args.get("aggregation") or "sum"),
-                    str(args.get("group_by") or "none"),
-                    args.get("filenames") or args.get("filename") or "",
-                    str(args.get("date_from") or ""), str(args.get("date_to") or ""),
-                    str(args.get("contains") or ""),
-                )
-            if clean == "read_page":
-                return self.read_page(str(args.get("filename") or ""), args.get("page") or args.get("page_number"))
-            if clean == "plot_facts":
-                return self.plot_facts(
-                    str(args.get("field") or args.get("metric") or args.get("fields") or ""),
-                    args.get("filenames") or args.get("filename") or "",
-                    str(args.get("series_by") or "auto"), str(args.get("kind") or "auto"),
-                    str(args.get("title") or ""), str(args.get("contains") or ""),
-                )
-            if clean == "create_report":
-                return self.create_report(
-                    str(args.get("format") or "markdown"), args.get("filenames") or args.get("filename") or "",
-                    str(args.get("title") or ""), str(args.get("plot_field") or ""), str(args.get("contains") or ""),
-                )
-            if clean == "calculate":
-                expression = str(args.get("expression") or args.get("query") or "")
-                text = self.calculate(expression)
-                ok = not text.startswith("Fehler")
-                return ToolResult(
-                    text,
-                    [_tool_evidence(clean, "Rechner", f"Berechnung {expression.strip()} = {text}", expression)] if ok else [],
-                )
-        except Exception as exc:
+            return handler(self, args)
+        except Exception as exc:  # noqa: BLE001 - ein fehlerhaftes Werkzeug darf die Agentenschleife nicht beenden
             return ToolResult(f"Fehler beim Werkzeug '{name}': {exc}")
-        return ToolResult(f"Fehler: Unbekanntes Werkzeug '{name}'.")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Werkzeug-Handler: übersetzen die (oft unsauberen) Argumente des Modells in Methodenaufrufe. Alternative
+# Argumentnamen ("entity1", "metric", "page_number" ...) bleiben erlaubt, weil kleine Modelle sie verwenden.
+# ---------------------------------------------------------------------------------------------------------------
+def _arg(args: dict[str, Any], *keys: str, default: Any = "") -> Any:
+    """Erster gesetzte Wert unter `keys` (leere Werte zählen nicht), sonst `default`."""
+    for key in keys:
+        value = args.get(key)
+        if value:
+            return value
+    return default
+
+
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _handle_inventory(tools: AgentTools, args: dict[str, Any]) -> ToolResult:
+    text = tools.get_document_inventory()
+    return ToolResult(text, [_tool_evidence("get_document_inventory", "Dokumentinventar", text)])
+
+
+def _handle_search(tools: AgentTools, args: dict[str, Any], kind: str | None = None) -> ToolResult:
+    return tools.search(
+        str(_arg(args, "query")),
+        filename=str(_arg(args, "filename")),
+        kind=kind or str(_arg(args, "kind", default="all")),
+        top_k=_as_int(args.get("top_k"), DEFAULT_TOP_K),
+    )
+
+
+def _handle_outline(tools: AgentTools, args: dict[str, Any]) -> ToolResult:
+    text = tools.get_document_outline(str(_arg(args, "filename", "filename_filter")))
+    ok = not text.startswith(("Keine", "Unbekannte", "Dateiname"))
+    return ToolResult(text, [_tool_evidence("get_document_outline", "Dokumentgliederung", text, text[:40])] if ok else [])
+
+
+def _handle_calculate(tools: AgentTools, args: dict[str, Any]) -> ToolResult:
+    expression = str(_arg(args, "expression", "query"))
+    text = tools.calculate(expression)
+    ok = not text.startswith("Fehler")
+    evidence = [_tool_evidence("calculate", "Rechner", f"Berechnung {expression.strip()} = {text}", expression)]
+    return ToolResult(text, evidence if ok else [])
+
+
+TOOL_HANDLERS: dict[str, Callable[[AgentTools, dict[str, Any]], ToolResult]] = {
+    "get_document_inventory": _handle_inventory,
+    "get_document_facts": lambda t, a: t.get_document_facts(str(_arg(a, "filename"))),
+    "search": _handle_search,
+    **{
+        legacy: (lambda t, a, _kind=kind: _handle_search(t, a, _kind))
+        for legacy, kind in LEGACY_SEARCH_TOOLS.items()
+    },
+    "get_document_outline": _handle_outline,
+    "compare_documents": lambda t, a: t.compare_documents(
+        _arg(a, "filenames", "filename", "files"), _arg(a, "fields", "field"),
+    ),
+    "graph_lookup": lambda t, a: t.graph_lookup(str(_arg(a, "entity", "query"))),
+    "graph_timeline": lambda t, a: t.graph_timeline(str(_arg(a, "entity", "query"))),
+    "graph_paths": lambda t, a: t.graph_paths(str(_arg(a, "source", "entity1")), str(_arg(a, "target", "entity2"))),
+    "graph_context": lambda t, a: t.graph_context(str(_arg(a, "query", "entity", "question"))),
+    "graph_overview": lambda t, a: t.graph_overview(),
+    "aggregate_facts": lambda t, a: t.aggregate_facts(
+        str(_arg(a, "field", "metric", "fields")),
+        str(_arg(a, "agg", "aggregation", default="sum")),
+        str(_arg(a, "group_by", default="none")),
+        _arg(a, "filenames", "filename"),
+        str(_arg(a, "date_from")), str(_arg(a, "date_to")),
+        str(_arg(a, "contains")),
+    ),
+    "read_page": lambda t, a: t.read_page(str(_arg(a, "filename")), _arg(a, "page", "page_number", default=None)),
+    "plot_facts": lambda t, a: t.plot_facts(
+        str(_arg(a, "field", "metric", "fields")),
+        _arg(a, "filenames", "filename"),
+        str(_arg(a, "series_by", default="auto")), str(_arg(a, "kind", default="auto")),
+        str(_arg(a, "title")), str(_arg(a, "contains")),
+    ),
+    "create_report": lambda t, a: t.create_report(
+        str(_arg(a, "format", default="markdown")), _arg(a, "filenames", "filename"),
+        str(_arg(a, "title")), str(_arg(a, "plot_field")), str(_arg(a, "contains")),
+    ),
+    "calculate": _handle_calculate,
+}
+
+
+def _check_tool_registry() -> None:
+    """Jedes dem Modell angebotene Werkzeug braucht einen Handler (sonst bekäme das Modell nur Fehler zurück)."""
+    offered = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
+    missing = sorted(offered - set(TOOL_HANDLERS))
+    if missing:
+        raise RuntimeError(f"Werkzeuge ohne Handler in TOOL_HANDLERS: {', '.join(missing)}")
+
+
+_check_tool_registry()
