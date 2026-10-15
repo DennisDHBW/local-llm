@@ -7,6 +7,8 @@ sichtbar werden.
 
 Aufbau einer Schema-Datei:
     id              eindeutige Kennung (Dateiname ohne Bedeutung)
+    domain          Fachdomäne mit eigener Logik (optional), z. B. "energy" -> src/domains/energy.py.
+                    Ohne Domäne gelten nur die allgemeinen Regeln (Verifikation, checks, anchors).
     document_types  Begriffe, die im Dokumenttyp oder Text auf dieses Schema hinweisen
     keywords        weitere Hinweise, die nur im Text gesucht werden (optional)
     agent_hints     fachliche Regeln für den Agenten (optional). Sie werden dem Systemprompt nur dann
@@ -38,7 +40,8 @@ from typing import Any
 from src.config import SCHEMAS_DIR
 
 
-# "energy" wird über das eingebaute Modell `DocumentFacts` (src.enrichment.facts) extrahiert.
+# Standard-Schema für Dokumente ohne Schema-Kennung (Bestand aus der Zeit vor den Schemata). Es ist ein normales
+# Schema (config/schemas/energy_schema.json) mit der Fachdomäne "energy" (src/domains/energy.py).
 BUILTIN_SCHEMA_ID = "energy"
 GENERIC_INVOICE = "generic_invoice"
 GENERIC_DOCUMENT = "generic_document"
@@ -68,6 +71,7 @@ class SchemaSpec:
     units: dict[str, str] = field(default_factory=dict)
     anchors: dict[str, tuple[str, ...]] = field(default_factory=dict)   # Feld -> Wörter, die neben dem Wert stehen
     checks: tuple[dict[str, Any], ...] = ()                             # Prüfregeln, z. B. "a + b == c"
+    domain: str | None = None                                           # Fachdomäne (src/domains), z. B. "energy"
 
 
 def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -93,6 +97,14 @@ def _validate_schema(data: dict[str, Any], path: Path) -> dict[str, Any]:
         anchors = definition.get("anchors", [])
         if not isinstance(anchors, list) or not all(isinstance(a, str) for a in anchors):
             raise SchemaConfigurationError(f"{path}: 'anchors' von Feld {name!r} muss eine Liste von Strings sein")
+    domain = data.get("domain")
+    if domain is not None:
+        from src.domains import domain_names
+
+        if not isinstance(domain, str) or domain not in domain_names():
+            raise SchemaConfigurationError(
+                f"{path}: unbekannte Fachdomäne {domain!r} (registriert: {', '.join(sorted(domain_names()))})"
+            )
     checks = data.get("checks", [])
     if not isinstance(checks, list) or not all(isinstance(c, dict) and isinstance(c.get("rule"), str) for c in checks):
         raise SchemaConfigurationError(f"{path}: 'checks' muss eine Liste von Objekten mit 'rule' sein")
@@ -185,11 +197,43 @@ def schema_spec(schema: dict[str, Any]) -> SchemaSpec:
         units={n: str(d["unit"]) for n, d in properties.items() if d.get("unit")},
         anchors={n: tuple(d["anchors"]) for n, d in properties.items() if d.get("anchors")},
         checks=tuple(dict(c) for c in schema.get("checks", [])),
+        domain=schema.get("domain"),
     )
 
 
+def spec_for(schema_id: Any, schema_dir: Path = SCHEMAS_DIR) -> SchemaSpec | None:
+    """Spezifikation zu einer Schema-ID, auch für das Standard-Schema "energy".
+
+    Leere ID: Standard-Schema (BUILTIN_SCHEMA_ID). Unbekannte ID: None.
+    """
+    try:
+        return schema_spec(get_schema(str(schema_id or BUILTIN_SCHEMA_ID), schema_dir))
+    except SchemaConfigurationError:
+        return None
+
+
+def resolve_spec(spec: SchemaSpec | None) -> SchemaSpec | None:
+    """`spec` oder - wenn None - das Standard-Schema. So bleibt `spec=None` gleichbedeutend mit "Energie" wie bisher.
+
+    Nur wenn auch das Standard-Schema fehlt (Schema-Datei gelöscht), bleibt es bei None.
+    """
+    return spec if spec is not None else spec_for(BUILTIN_SCHEMA_ID)
+
+
+def domain_of(spec: SchemaSpec | None) -> Any:
+    """Fachdomäne eines Schemas (src.domains.Domain) oder None."""
+    if spec is None or not spec.domain:
+        return None
+    from src.domains import get_domain
+
+    return get_domain(spec.domain)
+
+
 def configured_spec(schema_id: Any, schema_dir: Path = SCHEMAS_DIR) -> SchemaSpec | None:
-    """Spezifikation zu einer Schema-ID; None für das eingebaute Energie-Schema, fehlende oder unbekannte IDs."""
+    """Spezifikation zu einer Schema-ID; None für das eingebaute Energie-Schema, fehlende oder unbekannte IDs.
+
+    Bisherige Schnittstelle (bleibt unverändert): None bedeutet "Standard-Schema". Neuer Code nutzt `spec_for`.
+    """
     if not schema_id or schema_id == BUILTIN_SCHEMA_ID:
         return None
     try:

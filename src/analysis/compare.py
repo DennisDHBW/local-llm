@@ -6,17 +6,10 @@ from datetime import date
 from typing import Any
 from collections.abc import Mapping, Sequence
 
-from src.analysis.derived import METRICS, METRIC_LABELS, Metric, derive_metrics, format_derived, parse_date
-from src.config import VAT_RATE
-from src.enrichment.schema import configured_spec
+from src.analysis.derived import METRICS, METRIC_LABELS, Metric, derive_metrics, parse_date
+from src.enrichment.schema import domain_of, resolve_spec, spec_for
 
-DEFAULT_COMPARE_KEYS = (
-    "period_days", "consumption_kwh", "working_price_net", "working_price_gross", "working_price_raw",
-    "base_price_year_net", "base_price_year_gross", "base_price_year_raw",
-    "energy_cost_net", "energy_cost_gross",
-    "water_price_eur_per_m3", "wastewater_price_eur_per_m3", "consumption_m3",
-    "monthly_advance_payment_eur", "total_gross_eur",
-)
+# Die Standardauswahl der Energie-Kennzahlen steht jetzt in der Domäne (src/domains/energy.py: COMPARE_KEYS).
 
 
 def resolve_metric_keys(
@@ -43,16 +36,24 @@ def resolve_metric_keys(
     return found, unknown
 
 
-def metrics_for(record: Mapping[str, Any]) -> tuple[str, dict[str, Metric], bool]:
-    """(Gruppe, Kennzahlen, eingebaut?) eines Fakten-Records.
+def _domain_for(record: Mapping[str, Any]) -> Any:
+    return domain_of(resolve_spec(spec_for(record.get("schema_id"))))
 
-    Energie-Dokumente (eingebautes Schema): abgeleitete Kennzahlen, gruppiert nach Energieart.
-    Konfigurierte Schemata: die Zahlenfelder des Schemas mit Bezeichnung und Einheit, gruppiert nach Schema.
+
+def metrics_for(record: Mapping[str, Any]) -> tuple[str, dict[str, Metric], bool]:
+    """(Gruppe, Kennzahlen, von der Fachdomäne berechnet?) eines Fakten-Records.
+
+    Schema mit Fachdomäne (z. B. Energie): abgeleitete Kennzahlen und Gruppe der Domäne (Energie: Energieart).
+    Sonst: die Zahlenfelder des Schemas mit Bezeichnung und Einheit, gruppiert nach Schema.
     """
     facts = record.get("facts") or {}
-    spec = configured_spec(record.get("schema_id"))
-    if spec is None:
+    spec = resolve_spec(spec_for(record.get("schema_id")))
+    if spec is None:      # Rückfall: Schema-Dateien fehlen
         return str(facts.get("energy_type") or "Energieart unbekannt"), derive_metrics(facts), True
+    domain = domain_of(spec)
+    if domain is not None and domain.metrics is not None:
+        group = domain.group(facts) if domain.group is not None else spec.title
+        return group, domain.metrics(facts), True
     metrics: dict[str, Metric] = {}
     for key in spec.fields:
         value = facts.get(key)
@@ -124,10 +125,11 @@ def build_comparison(
         names = sorted(names, key=lambda n: _sort_key(n, ((records.get(n) or {}).get("facts") or {})))
         metrics = {n: per_doc[n][1] for n in names}
         builtin = all(per_doc[n][2] for n in names)
+        domain = _domain_for(records.get(names[0]) or {}) if builtin else None
         if selected_keys is not None:
             keys = list(selected_keys)
-        elif builtin:
-            keys = list(DEFAULT_COMPARE_KEYS)
+        elif builtin and domain is not None and domain.compare_keys:
+            keys = list(domain.compare_keys)
         else:
             keys = list(dict.fromkeys(key for m in metrics.values() for key in m))
         keys = [k for k in keys if any(k in m for m in metrics.values())]
@@ -137,7 +139,11 @@ def build_comparison(
 
         if len(names) == 1:
             only = metrics[names[0]]
-            body = format_derived({k: only[k] for k in keys if k in only}) if builtin else _format_single(only, keys)
+            shown = {k: only[k] for k in keys if k in only}
+            if builtin and domain is not None and domain.format_metrics is not None:
+                body = domain.format_metrics(shown)
+            else:
+                body = _format_single(only, keys)
             blocks.append(f"Kennzahlen {group} - {names[0]}:\n" + body)
             continue
 
@@ -151,7 +157,7 @@ def build_comparison(
             cells = [title, *(_format_value(metrics[n].get(key)) for n in names), diff, percent]
             rows.append(" | ".join(cells))
         footer = "\nDifferenz = letztes minus erstes Dokument; Änderung in % bezogen auf das erste. "
-        footer += f"Brutto = netto * {1 + VAT_RATE:g}; " if builtin else ""
+        footer += domain.comparison_footer if builtin and domain is not None else ""
         blocks.append(
             f"Vergleich {group} ({len(names)} Dokumente, zeitlich geordnet: {' -> '.join(names)}):\n"
             + "\n".join(rows) + footer + "'-' = nicht im Dokument."

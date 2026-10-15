@@ -2,7 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "id": "energy",
   "title": "Energie- und Versorgungsabrechnung",
-  "description": "Eingebautes Schema: Die Felder werden über das Modell DocumentFacts (src/enrichment/facts.py) extrahiert. Diese Datei steuert nur die Erkennung des Dokumenttyps.",
+  "description": "Energie- und Versorgungsabrechnungen (Strom, Gas, Wasser, Abwasser, Fernwärme). Die Felder entsprechen dem Extraktionsmodell DocumentFacts; die Fachlogik (drei Extraktionsdurchgänge, Normalisierung, Prüfungen, abgeleitete Kennzahlen) steckt in der Domäne 'energy' (src/domains/energy.py). Die Felder werden NICHT über diese Beschreibungen extrahiert: Änderungen hier wirken auf Anzeige, Verifikation und Graph, nicht auf den Prompt.",
+  "domain": "energy",
   "document_types": [
     "verbrauchsabrechnung",
     "energieabrechnung",
@@ -37,21 +38,169 @@
     "Ein Gesamt-Grundpreis enthält seine Unterpositionen bereits. Addiere nicht doppelt."
   ],
   "properties": {
+    "provider": {
+      "type": "string",
+      "label": "Anbieter",
+      "description": "Versorger/Absender (Firmenname)"
+    },
+    "customer_name": {
+      "type": "string",
+      "label": "Kunde",
+      "description": "Kunde/Empfänger (Name)"
+    },
+    "doc_type": {
+      "type": "string",
+      "label": "Dokumenttyp",
+      "description": "Dokumentart: 'Verbrauchsabrechnung' (Abrechnung eines Zeitraums mit Verbrauch und Nachzahlung/Guthaben), 'Rechnung', 'Vertragsinformation', 'Preisanpassung'"
+    },
+    "doc_date": {
+      "type": "string",
+      "label": "Datum",
+      "description": "Ausstellungs-/Rechnungsdatum, wie im Text"
+    },
+    "energy_type": {
+      "type": "string",
+      "label": "Energieart",
+      "description": "Art der Lieferung: Strom, Gas, Wasser, Abwasser, Fernwärme (NICHT der Tarifname)"
+    },
+    "contract_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Vertragsnummer/-konto",
+      "description": "Vertragsnummer bzw. Vertragskonto(nummer), nur wenn so bezeichnet; nur die Nummer"
+    },
+    "invoice_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Rechnungsnummer",
+      "description": "Rechnungs-/Abrechnungsnummer; nur die Nummer"
+    },
+    "customer_number": {
+      "type": "string",
+      "role": "identifier",
+      "label": "Kundennummer",
+      "description": "Kundennummer bzw. Geschäftspartner; nur die Nummer"
+    },
     "meter_number": {
       "type": "string",
-      "description": "Zählernummer"
+      "role": "identifier",
+      "label": "Zählernummer",
+      "description": "Zählernummer (bei mehreren die aktuelle/letzte)",
+      "short_description": "Zählernummer"
+    },
+    "tariff_name": {
+      "type": "string",
+      "label": "Tarif",
+      "description": "Tarif-/Produktname"
+    },
+    "billing_period_start": {
+      "type": "string",
+      "label": "Abrechnungszeitraum von",
+      "description": "Beginn des Abrechnungszeitraums"
+    },
+    "billing_period_end": {
+      "type": "string",
+      "label": "Abrechnungszeitraum bis",
+      "description": "Ende des Abrechnungszeitraums"
     },
     "consumption_kwh": {
       "type": "number",
-      "description": "Verbrauch in kWh"
+      "label": "Verbrauch",
+      "unit": "kWh",
+      "description": "Gesamtverbrauch im Abrechnungszeitraum in kWh",
+      "short_description": "Verbrauch in kWh"
+    },
+    "consumption_m3": {
+      "type": "number",
+      "label": "Wasserverbrauch",
+      "unit": "m³",
+      "description": "Gesamtverbrauch Wasser im Abrechnungszeitraum in m³"
     },
     "working_price_ct_per_kwh": {
       "type": "number",
-      "description": "Arbeitspreis in ct/kWh"
+      "label": "Arbeitspreis",
+      "unit": "ct/kWh",
+      "description": "Arbeitspreis/Verbrauchspreis in ct/kWh",
+      "short_description": "Arbeitspreis in ct/kWh"
     },
     "base_price_eur": {
       "type": "number",
-      "description": "Grundpreis pro Zeiteinheit in EUR"
+      "label": "Grundpreis",
+      "unit": "EUR",
+      "description": "Grundpreis als PREIS PRO ZEITEINHEIT in EUR (z. B. 11.70 pro Monat), NICHT der Gesamtbetrag für den Abrechnungszeitraum",
+      "short_description": "Grundpreis pro Zeiteinheit in EUR"
+    },
+    "base_price_unit": {
+      "type": "string",
+      "label": "Grundpreis-Bezug",
+      "description": "Bezug des Grundpreises: 'pro Jahr', 'pro Monat' oder 'pro Tag'"
+    },
+    "water_price_eur_per_m3": {
+      "type": "number",
+      "label": "Wasserpreis",
+      "unit": "EUR/m³",
+      "description": "Wasserpreis in EUR/m³ (erster/aktueller Zeitraum)"
+    },
+    "wastewater_price_eur_per_m3": {
+      "type": "number",
+      "label": "Schmutzwassergebühr",
+      "unit": "EUR/m³",
+      "description": "Schmutzwassergebühr in EUR/m³ (erster/aktueller Zeitraum)"
+    },
+    "price_basis": {
+      "type": "string",
+      "label": "Preisbasis (Arbeits-/Grundpreis)",
+      "description": "'brutto' wenn die Preise inkl. MwSt. angegeben sind, 'netto' wenn als Nettopreis angegeben, sonst null"
+    },
+    "monthly_advance_payment_eur": {
+      "type": "number",
+      "label": "Monatlicher Abschlag",
+      "unit": "EUR",
+      "description": "Monatlicher Abschlag (brutto) in EUR; bei neuem Abschlag den neuen"
+    },
+    "total_gross_eur": {
+      "type": "number",
+      "label": "Rechnungsbetrag brutto",
+      "unit": "EUR",
+      "description": "Rechnungsbetrag brutto in EUR vor Abzug geleisteter Zahlungen (positive Zahl)"
+    },
+    "credit_eur": {
+      "type": "number",
+      "label": "Guthaben/Rückerstattung",
+      "unit": "EUR",
+      "description": "Guthaben/Rückerstattung zugunsten des Kunden in EUR (immer positive Zahl, ohne Minus)"
+    },
+    "amount_due_eur": {
+      "type": "number",
+      "label": "Nachzahlung/zu zahlen",
+      "unit": "EUR",
+      "description": "Nachzahlung/zu zahlender Betrag zugunsten des Anbieters in EUR (immer positive Zahl, ohne Minus)"
+    },
+    "advances_paid_eur": {
+      "type": "number",
+      "label": "Geleistete Abschläge",
+      "unit": "EUR",
+      "description": "Summe der geleisteten Abschläge in EUR; wird nicht vom Sprachmodell extrahiert, sondern bei der Normalisierung aus Rechnungsbetrag und Saldo abgeleitet"
+    },
+    "contract_start": {
+      "type": "string",
+      "label": "Vertragsbeginn",
+      "description": "Vertragsbeginn/Lieferbeginn, NUR wenn ausdrücklich so bezeichnet (nicht der Abrechnungszeitraum)"
+    },
+    "contract_end": {
+      "type": "string",
+      "label": "Vertragsende",
+      "description": "Vertragsende/Mindestlaufzeit bis, NUR wenn ausdrücklich so bezeichnet (nicht der Abrechnungszeitraum)"
+    },
+    "notice_period": {
+      "type": "string",
+      "label": "Kündigungsfrist",
+      "description": "Kündigungsfrist als Dauer, z. B. '1 Monat' oder '6 Wochen' (kein Datum)"
+    },
+    "price_guarantee_until": {
+      "type": "string",
+      "label": "Preisgarantie bis",
+      "description": "Preisgarantie bis, NUR wenn eine Preisgarantie ausdrücklich genannt ist"
     }
   }
 }

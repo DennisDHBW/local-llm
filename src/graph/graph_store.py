@@ -61,7 +61,7 @@ import networkx as nx
 
 from src.analysis.derived import parse_date
 from src.config import GRAPH_PATH, PROCESSED_DIR
-from src.enrichment.schema import configured_spec
+from src.enrichment.schema import resolve_spec, spec_for
 from src.utils import EMPTY_VALUES, is_empty, strip_source_suffix
 
 FIELD_MAP = [
@@ -337,7 +337,7 @@ def records_from_processed(processed_dir: Path = PROCESSED_DIR) -> list[dict[str
                 schema_id = facts_record.get("schema_id") or schema_id
             except (OSError, json.JSONDecodeError, AttributeError):
                 facts = {}
-        spec = configured_spec(schema_id)
+        spec = resolve_spec(spec_for(schema_id))
 
         record: dict[str, Any] = {
             "filename": meta.get("filename") or f"{stem}.pdf",
@@ -829,7 +829,7 @@ class DocumentGraph:
         numbers = data.get("numeric_facts") or {}
         if not numbers:
             return ""
-        spec = configured_spec(data.get("schema_id"))
+        spec = resolve_spec(spec_for(data.get("schema_id")))
         labels = spec.labels if spec else {}
         units = spec.units if spec else {}
         parts = []
@@ -1110,7 +1110,7 @@ class DocumentGraph:
         result: list[dict[str, Any]] = []
         for index, members in enumerate(groups, start=1):
             counter: Counter[str] = Counter()
-            for doc in members:
+            for doc in sorted(members):
                 for entity_id in self._entities_of(doc):
                     entity_type = self.graph.nodes[entity_id].get("type")
                     if entity_type not in ATTRIBUTE_TYPES and entity_type not in WEAK_LINK_TYPES:
@@ -1123,7 +1123,8 @@ class DocumentGraph:
                 value for doc in members for value in
                 (self.graph.nodes[doc].get("billing_start"), self.graph.nodes[doc].get("billing_end")) if value
             ]
-            types = Counter(self.graph.nodes[doc].get("doc_type") or "Unbekannt" for doc in members)
+            # sortiert: Mengen haben je Programmstart eine andere Reihenfolge, die Ausgabe soll stabil sein
+            types = Counter(self.graph.nodes[doc].get("doc_type") or "Unbekannt" for doc in sorted(members))
             result.append({
                 "id": index,
                 "documents": sorted(members, key=self._doc_sort_key),

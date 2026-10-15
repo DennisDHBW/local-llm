@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 from src.analysis.aggregate import doc_rows, filter_rows, fmt_number
 from src.analysis.compare import build_comparison
 from src.enrichment.facts import LABELS, UNITS
-from src.enrichment.schema import configured_spec
+from src.enrichment.schema import resolve_spec, spec_for
 from src.output import output_path
 
 ID_FIELDS_ORDER = (
@@ -66,7 +66,7 @@ def comparison_to_markdown(text: str) -> str:
 
 
 def _labels(record: Mapping[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
-    spec = configured_spec(record.get("schema_id"))
+    spec = resolve_spec(spec_for(record.get("schema_id")))
     return {**LABELS, **(spec.labels if spec else {})}, {**UNITS, **(spec.units if spec else {})}
 
 

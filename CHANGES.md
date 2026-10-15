@@ -123,3 +123,30 @@ uv run pytest tests -q
 - `pyproject.toml`: pytest- und ruff-Konfiguration; `ruff check .` ist sauber. zip-Aufrufe mit `strict=`.
 - `.gitignore`: `*.toml` entfernt (pyproject.toml gehört ins Repo), `.testmondata*` ergänzt.
 - Neue Tests: 26 (insgesamt 234, Laufzeit ca. 6 s, Python 3.10 und 3.13 geprüft).
+
+## 2026-10-15 – Qualitätsrunde 3: Energie als normales Schema mit Fachdomäne (Claude)
+
+### Architektur
+- **Fachdomänen** (`src/domains/`): Fachlogik hängt über `"domain": "<name>"` an einem Schema. Schnittstelle
+  `Domain` mit `extract`, `normalize`, `checks`, `anchors`, `metrics`, `group`, `compare_keys`, `format_metrics`,
+  `comparison_footer`. Neue Domäne = Modul + Eintrag in `_REGISTRY` + `"domain"` im Schema; Laden erst bei Bedarf.
+- **Energie** (`src/domains/energy.py`): Extraktionsmodell `DocumentFacts`, drei Durchgänge, Normalisierung,
+  Prüfungen, Ankerwörter, Vergleichskennzahlen – vorher fest im Kern (`spec is None`-Zweige).
+- **`config/schemas/energy_schema.json`** beschreibt jetzt alle 29 Felder (Typ, Rolle, Bezeichnung, Einheit,
+  Beschreibung wie im Extraktionsmodell). Die bisherigen Kurzbeschreibungen bleiben als `short_description`.
+- **Kern ohne Energie-Sonderfälle**: Fakten (`facts.py`), Vergleich (`compare.py`), Berichte und Graph-Anzeige
+  fragen Schema und Domäne. Schemaunabhängige Werkzeuge liegen in `src/enrichment/fact_utils.py`.
+- **Neue Schema-Schnittstelle**: `spec_for(id)` (auch für "energy"), `resolve_spec(spec)`, `domain_of(spec)`.
+  `configured_spec` bleibt unverändert (None = Standard-Schema).
+- **Kompatibilität**: Alle 110 Namen, die `src/enrichment/facts.py` vorher hatte, bleiben importierbar (Test).
+  Der Quell-Hash für Energie bleibt "legacy": keine neue LLM-Extraktion.
+- Graph-Überblick: Reihenfolge der Dokumenttypen je Vorgang ist jetzt stabil (vorher von Lauf zu Lauf zufällig).
+
+### Werkzeuge
+- `evaluation/snapshot.py`: Regressions-Snapshot aller deterministischen Ergebnisse (Fakten, Prüfungen,
+  Vergleich, Auswertungen, Graph, Bericht, CSV) plus Vergleich zweier Snapshots; meldet, ob ein LLM-Lauf nötig würde.
+
+### Tests
+- `tests/test_domains.py`: Energie-Schema = Extraktionsmodell/Bezeichnungen/Einheiten, Rückwärtskompatibilität,
+  Test-Domäne für Kassenbons (Normalisierung, Prüfungen, Anker, Vergleich) als Nachweis der Erweiterbarkeit.
+- Vorher/Nachher auf 9 Testdokumenten (Energie, Rechnung, Gutschrift, Bon, Mietvertrag, Altdokument): identisch.
