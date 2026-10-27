@@ -1,0 +1,90 @@
+
+=== Bon1_Lidl.png
+Haendler: Lidl | Datum: None  | Summe: 71.8 | Positionen: 32 | Summe Positionen: 71.8
+  Pruefung ok     Summe der Positionen (inkl. Rabatte) = Gesamtbetrag: 71.80 vs. 71.80
+  Pruefung ok     MwSt A 7 %: Netto + MwSt = Brutto: 53.98 + 3.78 = 57.76
+  Pruefung ok     Positionen mit Kennzeichen A = Brutto 7 %: 57.76 vs. 57.76
+  Pruefung ok     MwSt B 19 %: Netto + MwSt = Brutto: 11.80 + 2.24 = 14.04
+  Pruefung ok     Positionen mit Kennzeichen B = Brutto 19 %: 14.04 vs. 14.04
+  Pruefung ok     Gesamter Preisvorteil = Summe der Rabatte: 3.54 vs. 3.54
+  Pruefung ok     Netto + MwSt. je Steuersatz = Gesamtbetrag: 71.8 = 71.8
+  - 'Pflaumen dunkel': 0.51 (0.128 kg x 3.99) MwSt 7.0
+  - 'Birnen lose': 0.49 (0.244 kg x 1.99) MwSt 7.0
+  - 'Erdbeeren kg': 2.01 (0.506 kg x 3.98) MwSt 7.0
+  - 'Apfelgrun': 0.36 (0.18 kg x 1.99) MwSt 7.0
+  - 'Banane lose': 0.57 (0.438 kg x 1.29) MwSt 7.0
+  - 'K.champignons': 2.19 MwSt 7.0
+  - 'Trauben hell kernlos': 1.59 MwSt 7.0
+  - 'Gurken': 0.98 (2 x 0.49) MwSt 7.0
+  - 'Tomaten Mix 500g': 2.49 MwSt 7.0 Rabatt -0.5
+  - 'Brombeeren': 1.69 MwSt 7.0 Rabatt -0.2
+  - 'Heidelbeeren': 2.49 MwSt 7.0
+  - 'PeperoniMix': 1.99 MwSt 7.0 Rabatt -0.3
+  - 'Riesengarnelen Natur': 3.49 MwSt 7.0
+  - 'GoudaScheiben48%': 2.45 MwSt 7.0 Rabatt -0.46
+  - 'Kochschinken Hauchdu': 2.89 MwSt 7.0
+  - 'Hahnchenbr. Classic': 1.49 MwSt 7.0
+  - 'Hahnchenbrustf.Papr.': 1.59 MwSt 7.0
+  - 'Hahnchenbrustf.Curry': 1.59 MwSt 7.0
+  - 'Del. Hähnchenbrust': 1.59 MwSt 7.0
+  - 'Skyr Natur OGT HF3': 2.19 MwSt 7.0
+  - 'Bio Korni.Frischkase': 1.45 MwSt 7.0
+  - 'Eier 10er Freilandh.': 2.99 MwSt 7.0
+  - 'Erfris.limonade': 7.8 (12 x 0.65) MwSt 19.0
+  - 'Pfand 0,25 EM': 3.0 (12 x 0.25) MwSt 19.0 PFAND
+  - 'wasser medium': 1.74 (6 x 0.29) MwSt 19.0
+  - 'Pfand 0,25 EM': 1.5 (6 x 0.25) MwSt 19.0 PFAND
+  - 'Brunchmix Brotchen': 1.29 MwSt 7.0
+  - 'ProteinRiegelPeanut': 2.55 (3 x 0.85) MwSt 7.0
+  - 'ProteinR.Kokosnuss': 5.1 (6 x 0.85) MwSt 7.0
+  - 'ProteinR.WeiBSchoko': 1.7 (2 x 0.85) MwSt 7.0
+  - "Teddy's Hit Ketchup": 1.19 MwSt 7.0
+  - 'Rinderhackfleisch': 10.39 MwSt 7.0 Rabatt -2.08
+
+=== Bon2_Lidl.png
+Haendler: Lidl | Datum: None  | Summe: 18.51 | Positionen: 11 | Summe Positionen: 18.51
+  Pruefung ok     Summe der Positionen (inkl. Rabatte) = Gesamtbetrag: 18.51 vs. 18.51
+  Pruefung ok     MwSt A 7 %: Netto + MwSt = Brutto: 17.30 + 1.21 = 18.51
+  Pruefung ok     Positionen mit Kennzeichen A = Brutto 7 %: 18.51 vs. 18.51
+  Pruefung ok     Netto + MwSt. je Steuersatz = Gesamtbetrag: 18.51 = 18.51
+  - 'Zucchini': 0.55 (0.464 kg x 1.19) MwSt 7.0
+  - 'Kopfsalat mit wurzel': 1.49 MwSt 7.0
+  - 'Gurken': 0.77 MwSt 7.0
+  - 'Tomaten Mix 500g': 2.99 MwSt 7.0
+  - 'Paprika rot': 1.59 MwSt 7.0
+  - 'Geflugel Mortadella': 0.89 MwSt 7.0
+  - 'Mozzarella': 0.85 MwSt 7.0
+  - 'Räucherkäse Schinken': 1.55 MwSt 7.0
+  - 'Räucherkäse Papchili': 1.55 MwSt 7.0
+  - 'Finesse Hahn.gegril.': 1.29 MwSt 7.0
+  - 'Hähn.-Geschnetzeltes': 4.99 MwSt 7.0
+
+=== Bon3_Kaufland.png
+Haendler: Kaufland | Datum: None  | Summe: 42.81 | Positionen: 21 | Summe Positionen: 42.81
+  Pruefung ok     Summe der Positionen (inkl. Rabatte) = Gesamtbetrag: 42.81 vs. 42.81
+  Pruefung ok     MwSt A 19 %: Netto + MwSt = Brutto: 10.50 + 2.00 = 12.50
+  Pruefung ok     Positionen mit Kennzeichen A = Brutto 19 %: 12.50 vs. 12.50
+  Pruefung ok     MwSt B 7 %: Netto + MwSt = Brutto: 28.33 + 1.98 = 30.31
+  Pruefung ok     Positionen mit Kennzeichen B = Brutto 7 %: 30.31 vs. 30.31
+  Pruefung ok     Netto + MwSt. je Steuersatz = Gesamtbetrag: 42.81 = 42.81
+  - 'KLC.Korniger FK': 2.38 (2 x 1.19) MwSt 7.0
+  - 'Mu.Milchreis': 0.7 (2 x 0.35) MwSt 7.0
+  - 'KLC Kichererbsen': 0.59 MwSt 7.0
+  - 'KLC Sonnenbl 400g': 0.99 MwSt 7.0
+  - 'KLC Hygienespuler': 1.25 MwSt 19.0
+  - 'KLC Kurbiskerne': 1.49 MwSt 7.0
+  - 'KBio.LK-Reis 1kg': 2.35 MwSt 7.0
+  - 'KLC Geh.Tomaten': 1.18 (2 x 0.59) MwSt 7.0
+  - 'Hackfleisch gem.': 3.49 MwSt 7.0
+  - 'K.Naturjoghurt': 0.79 MwSt 7.0
+  - 'KLC Skyr natur': 1.29 MwSt 7.0
+  - 'Salat Multicolor': 1.49 MwSt 7.0
+  - 'K.H-Milch': 1.7 (2 x 0.85) MwSt 7.0
+  - 'Sagr.Bad-Reiniger': 7.5 (2 x 3.75) MwSt 19.0
+  - 'Fro.Thai Hahnchen': 3.59 MwSt 7.0
+  - 'Frosta Hahn.Paella': 4.79 MwSt 7.0
+  - 'Sagr.WC-Reiniger': 3.75 MwSt 19.0
+  - 'Barchen Streich': 1.39 MwSt 7.0
+  - 'Paprika rot kg': 1.04 (0.298 kg x None) MwSt 7.0
+  - 'Zwiebeln Kg': 0.22 (0.148 kg x None) MwSt 7.0
+  - 'Knoblauch Kg': 0.84 (0.084 kg x None) MwSt 7.0
