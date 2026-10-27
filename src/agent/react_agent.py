@@ -124,6 +124,11 @@ def _format_action_input(arguments: dict) -> str:
     return ", ".join(f"{k}={v}" for k, v in items.items())
 
 
+# Werkzeuge, deren Ausgabe eine vollständige Liste ist: nicht auf MAX_OBSERVATION_CHARS kürzen, sonst fehlen dem
+# Agenten die hinteren Dokumente (alphabetisch sortiert) und er hält sie für nicht vorhanden.
+FULL_LIST_TOOLS = {"get_document_inventory": 4000}
+
+
 def _truncate_observation(text: str, limit: int = MAX_OBSERVATION_CHARS) -> str:
     """Kürzt eine Werkzeugausgabe für den Modellverlauf (der Kopf enthält meist die besten Treffer)."""
     if limit <= 0 or len(text) <= limit:
@@ -358,7 +363,8 @@ class ReActAgent:
                         if path not in self.last_files:
                             self.last_files.append(path)
 
-                messages.append({"role": "tool", "tool_name": name, "content": _truncate_observation(observation)})
+                limit = max(MAX_OBSERVATION_CHARS, FULL_LIST_TOOLS.get(name, 0))
+                messages.append({"role": "tool", "tool_name": name, "content": _truncate_observation(observation, limit)})
                 if callback:
                     callback({"type": "observation_result", "iteration": iteration, "observation": observation})
 

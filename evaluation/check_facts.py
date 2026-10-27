@@ -48,6 +48,26 @@ def compare_field(value: Any, gold: Any) -> str:
     return "ok" if any(_norm(alt) in _norm(value) for alt in str(gold).split("|") if alt.strip()) else "FALSCH"
 
 
+def compare_item(items: Any, want: dict[str, Any]) -> tuple[str, Any]:
+    """Bonposition: die erste Position, deren Name `want["name"]` enthält, muss alle übrigen Sollwerte haben.
+
+    Rückgabe: (Status, gefundene Position). 'fehlt' = keine Position mit diesem Namen.
+    """
+    needle = _norm(want.get("name", ""))
+    for item in items if isinstance(items, list) else []:
+        if needle and needle in _norm(item.get("name", "")):
+            for key, gold in want.items():
+                if key == "name":
+                    continue
+                if isinstance(gold, bool):
+                    if bool(item.get(key)) != gold:
+                        return "FALSCH", item
+                elif compare_field(item.get(key), gold) not in ("ok", "ignoriert"):
+                    return "FALSCH", item
+            return "ok", item
+    return "fehlt", None
+
+
 def check(records: dict[str, dict[str, Any]], gold: dict[str, dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {"docs": {}, "totals": {"ok": 0, "FALSCH": 0, "fehlt": 0, "ERFUNDEN": 0}}
     for filename, expected in gold.items():
@@ -60,6 +80,13 @@ def check(records: dict[str, dict[str, Any]], gold: dict[str, dict[str, Any]]) -
         facts = record.get("facts", {})
         fields = {}
         for field, want in expected.items():
+            if field == "line_items" and isinstance(want, list):
+                # je Sollposition ein eigener Eintrag ("line_items[Rinderhack]")
+                for entry in want:
+                    status, item = compare_item(facts.get("line_items"), entry)
+                    fields[f"line_items[{entry.get('name')}]"] = {"status": status, "value": item, "gold": entry}
+                    result["totals"][status] += 1
+                continue
             status = compare_field(facts.get(field), want)
             fields[field] = {"status": status, "value": facts.get(field), "gold": want}
             if status in result["totals"]:

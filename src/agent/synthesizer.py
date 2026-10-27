@@ -7,6 +7,9 @@ import ollama
 from src.config import SYNTH_MODEL, ollama_options
 
 MAX_CHUNK_CHARS = 1200
+# Werkzeugergebnisse (Evidenz-ID "tool:..."), z. B. das Dokumentinventar, sind Listen über ALLE Dokumente. Mit
+# 1200 Zeichen sah die Antwort nur die ersten ~7 Dokumente und meldete die übrigen als "nicht gefunden".
+MAX_TOOL_CHARS = 4000
 
 _DATE_RE = re.compile(r"\b\d{1,2}\.\d{1,2}\.(?:\d{4}|\d{2})\b")
 _CITATION_RE = re.compile(r"\[\d+\]")
@@ -113,8 +116,9 @@ class SourceSynthesizer:
             meta = chunk.get("metadata") or {}
             heading = meta.get("heading_stack_str", "")
             content = str(chunk.get("content", "")).strip()
-            if len(content) > MAX_CHUNK_CHARS:
-                content = content[:MAX_CHUNK_CHARS] + " ... [gekürzt]"
+            limit = MAX_TOOL_CHARS if str(chunk.get("id", "")).startswith("tool:") else MAX_CHUNK_CHARS
+            if len(content) > limit:
+                content = content[:limit] + " ... [gekürzt]"
             where = self._source_label(chunk)
             chapter = f" | Kapitel: {heading}" if heading else ""
             context_str += f"[{idx}] Quelle: {where}{chapter}\nInhalt: {content}\n\n"

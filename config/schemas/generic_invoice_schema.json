@@ -29,11 +29,6 @@
       "label": "Kundennummer",
       "description": "Kundennummer; nur die Nummer"
     },
-    "recipient": {
-      "type": "string",
-      "label": "Empfänger",
-      "description": "Empfänger oder Rechnungskunde"
-    },
     "net_amount_eur": {
       "type": "number",
       "unit": "EUR",

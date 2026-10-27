@@ -55,6 +55,9 @@ class Domain:
     # Fakten -> Felder, die die Domäne selbst belegt hat (z. B. aus einer rechnerisch geprüften Tabelle). Sie werden
     # nicht als "unsicher" markiert, auch wenn ihr Label nur im Spaltenkopf steht.
     trusted: Callable[[Mapping[str, Any]], set[str]] | None = None
+    # Felder, die aus den Parser-Metadaten übernommen werden, wenn die Extraktion sie nicht liefert.
+    # None: alle (Anbieter, Kunde, Typ, Datum, Vertrags- und Rechnungsnummer).
+    metadata_fields: tuple[str, ...] | None = None
 
 
 # Name -> "modul:attribut" (lazy) oder bereits geladene Domain

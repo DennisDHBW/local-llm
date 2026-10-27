@@ -480,7 +480,9 @@ def postprocess_facts(
     verified, dropped = verify_facts(normalized, source_text, spec)
     meta_notes: list[str] = []
     compact_text = re.sub(r"\s+", "", source_text.replace(" ", " ")).casefold()
-    for key in METADATA_DEFAULTS:
+    allowed = domain.metadata_fields if domain is not None and domain.metadata_fields is not None \
+        else METADATA_DEFAULTS
+    for key in allowed:
         fallback = (meta or {}).get(key)
         if key not in verified and fallback and str(fallback).strip().casefold() not in _EMPTY:
             # Die Parser-Metadaten stammen von einem kleinen Modell und nur von Seite 1. Nummern daraus gelten
@@ -614,11 +616,14 @@ class FactExtractor:
 
     @staticmethod
     def _source_text(chunks: list[dict], clip: bool = True) -> str:
-        """Dokumenttext aus Text- und Tabellenchunks. `clip=False` liefert den vollständigen Text (für Regex,
-        Normalisierung und Verifikation); der Prompt bekommt die gekürzte Fassung."""
+        """Dokumenttext aus Text-, Überschriften- und Tabellenchunks. `clip=False` liefert den vollständigen Text
+        (für Regex, Normalisierung und Verifikation); der Prompt bekommt die gekürzte Fassung.
+
+        Überschriften gehören dazu: Fett gesetzte Zeilen sind auf Rechnungen oft gerade die wichtigen
+        ("Herrn Thomas Kramer", "Rechnungsbetrag gesamt:", "Beitragsrechnung Kraftfahrt-Versicherung 2027")."""
         items = [
             c for c in chunks
-            if c.get("chunk_type") in ("text", "table_row")
+            if c.get("chunk_type") in ("text", "heading", "table_row")
             and not c.get("metadata", {}).get("is_table_summary")
         ]
         items.sort(key=lambda c: c.get("page_number", 0))

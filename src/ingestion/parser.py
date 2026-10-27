@@ -21,6 +21,9 @@ OCR_MAX_SIDE = 4000
 LINE_CHUNK_CHARS = 800
 # Zwei Textstücke gehören zur selben Zeile, wenn ihre Mitten höchstens so weit (x Zeilenhöhe) auseinanderliegen.
 ROW_TOLERANCE = 0.5
+# Kürzere Textstücke werden an den vorherigen Text-Chunk angehängt statt verworfen (Summen wie "784,21 €").
+MIN_TEXT_CHUNK_CHARS = 20
+MAX_MERGED_CHUNK_CHARS = 2000
 # OCR liest "1,25" gern als "1, 25". Im Zeilenmodus (Beträge in Spalten) wird das zusammengezogen.
 _OCR_SPLIT_AMOUNT_RE = re.compile(r"(\d),\s+(\d{2})(?!\d)")
 
@@ -377,6 +380,39 @@ Textauszug:
                 ))
         return chunks
 
+    def _emit_paragraph(self, chunks: list[DocumentChunk], paragraph: str, doc_stem: str, page_num: int,
+                        heading_stack: list[str], base_chunk_meta: dict[str, Any]) -> None:
+        """Absatz als Text-Chunk(s) anhängen. Kurze Stücke (< MIN_TEXT_CHUNK_CHARS) gehen NICHT verloren:
+
+        Auf Rechnungen stehen Summen oft allein in einem Block ("784,21 €", "Rechnungsbetrag:"). Früher wurden sie
+        verworfen, und die Fakten-Extraktion fand den Rechnungsbetrag nicht. Jetzt werden sie an den vorherigen
+        Text-Chunk derselben Seite und desselben Kapitels angehängt (bleibt lesbar und durchsuchbar) oder bilden,
+        wenn es keinen gibt, einen eigenen kleinen Chunk.
+        """
+        for text_chunk in self._split_semantically(paragraph):
+            text_chunk = text_chunk.strip()
+            if not text_chunk:
+                continue
+            previous = chunks[-1] if chunks else None
+            if (
+                len(text_chunk) < MIN_TEXT_CHUNK_CHARS
+                and previous is not None
+                and previous.chunk_type == "text"
+                and previous.page_number == page_num
+                and previous.heading_stack == list(heading_stack)
+                and len(previous.content) + len(text_chunk) < MAX_MERGED_CHUNK_CHARS
+            ):
+                previous.content = f"{previous.content} {text_chunk}"
+                continue
+            chunks.append(DocumentChunk(
+                chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
+                chunk_type="text",
+                content=text_chunk,
+                heading_stack=list(heading_stack),
+                page_number=page_num,
+                metadata=dict(base_chunk_meta)
+            ))
+
     def _parse_document(self, doc: Any, filename: str, doc_stem: str) -> list[DocumentChunk]:
         """Zerlegt ein geöffnetes PyMuPDF-Dokument in Chunks (Text, Überschriften, Tabellenzeilen, Bilder)."""
         chunks: list[DocumentChunk] = []
@@ -537,16 +573,8 @@ Textauszug:
                             is_heading = self._is_heading_span(size, flags, base_font_size)
 
                             if is_heading and self._is_valid_heading(text):
-                                for text_chunk in self._split_semantically(current_paragraph):
-                                    if len(text_chunk) >= 20:
-                                        chunks.append(DocumentChunk(
-                                            chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
-                                            chunk_type="text",
-                                            content=text_chunk,
-                                            heading_stack=list(heading_stack),
-                                            page_number=page_num,
-                                            metadata=dict(base_chunk_meta)
-                                        ))
+                                self._emit_paragraph(chunks, current_paragraph, doc_stem, page_num, heading_stack,
+                                                     base_chunk_meta)
                                 current_paragraph = ""
 
                                 heading_stack = self._push_heading(heading_stack, text, size, base_font_size)
@@ -566,29 +594,12 @@ Textauszug:
                                     current_paragraph = text
 
                     if current_paragraph:
-                        for text_chunk in self._split_semantically(current_paragraph):
-                            if len(text_chunk) >= 20:
-                                chunks.append(DocumentChunk(
-                                    chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
-                                    chunk_type="text",
-                                    content=text_chunk,
-                                    heading_stack=list(heading_stack),
-                                    page_number=page_num,
-                                    metadata=dict(base_chunk_meta)
-                                ))
+                        self._emit_paragraph(chunks, current_paragraph, doc_stem, page_num, heading_stack,
+                                             base_chunk_meta)
                         current_paragraph = ""
 
             if current_paragraph:
-                for text_chunk in self._split_semantically(current_paragraph):
-                    if len(text_chunk) >= 20:
-                        chunks.append(DocumentChunk(
-                            chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
-                            chunk_type="text",
-                            content=text_chunk,
-                            heading_stack=list(heading_stack),
-                            page_number=page_num,
-                            metadata=dict(base_chunk_meta)
-                        ))
+                self._emit_paragraph(chunks, current_paragraph, doc_stem, page_num, heading_stack, base_chunk_meta)
 
             image_list = page.get_images(full=True)
             for img_idx, img in enumerate(image_list):

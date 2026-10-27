@@ -176,3 +176,25 @@ uv run pytest tests -q
 - `Architecture.md` und `KONZEPT.md` auf den aktuellen Stand gebracht: 16 Werkzeuge, hybride Suche mit
   Reranker, Fakten-Schemata, Dokumentgraph, Messwerte. `STATUS.md` und `README.md` aktualisiert
   (Speicherhinweis, `pytest -m ollama` hat noch keine Tests).
+
+## Paket 1 nach der Bestandsaufnahme (27.10.2026)
+Grundlage: Abgleich aller Testbelege (6 Rechnungen, 3 Energieabrechnungen, 8 Kassenbons) mit dem Originaltext.
+- `src/ingestion/parser.py`: kurze Textblöcke (< 20 Zeichen, z. B. "784,21 €") werden an den vorherigen Text-Chunk
+  angehängt statt verworfen (`_emit_paragraph`). Vorher fehlten Netto/Brutto der Werkstattrechnung und die
+  Versicherungssteuer in den Fakten.
+- `src/enrichment/facts.py`: der Fakten-Quelltext enthält jetzt auch Überschriften (fett gesetzte Zeilen wie
+  "Herrn Thomas Kramer"). Damit deckt er 100 % der Textzeilen aller Test-PDFs ab. Domänen können festlegen, welche
+  Parser-Metadaten übernommen werden (`Domain.metadata_fields`).
+- `config/schemas/generic_invoice_schema.json`: Feld `recipient` entfernt (war 0/6 richtig, doppelt zu `customer_name`).
+- `src/agent/synthesizer.py`, `src/agent/react_agent.py`: Werkzeugergebnisse (Dokumentinventar) werden nicht mehr auf
+  1200 bzw. 2500 Zeichen gekürzt (jetzt 4000). Vorher meldete der Agent alphabetisch hintere Dokumente als "nicht gefunden".
+- `src/domains/receipt.py` (digitale Bons): MwSt-Tabelle mit 3 Nachkommastellen, Mengenzeile "2 Stk x 0,39 EUR",
+  Bonnummer "Bon: 84920"/"Trans: 9182", TSE "#918204"/"TSE-TX", Zahlart "Bar Gegeben" -> "Bar"; bonweiter Rabatt
+  ohne zuordenbaren Artikel bleibt eigene Zeile (`discount_line`), zählt in `discount_eur`; relativer Rabatt je Position
+  (`discount_pct`); Kaufdatum wird Dokumentdatum; Kunde/Vertragsnummer werden bei Bons nicht mehr aus den
+  Parser-Metadaten übernommen.
+- `evaluation/gold_belege.json` (neu): Sollwerte für alle Testbelege inkl. einzelner Bonpositionen;
+  `evaluation/check_facts.py` prüft Positionen (`line_items`). Aufruf:
+  `uv run python -m evaluation.check_facts --gold evaluation/gold_belege.json`
+- Bekannte Grenzen (bewusst nicht in Paket 1): Sammel-PDF mit mehreren Rechnungen wird nicht aufgeteilt;
+  Wasser-/Heizstromabrechnung (Energie-Domäne) teils falsch; Kategorien für Bonpositionen fehlen noch.

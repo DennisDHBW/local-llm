@@ -35,7 +35,9 @@ _AMOUNT = r"-?\d{1,4}(?:\.\d{3})*,\d{2}"
 _AMOUNT_RE = re.compile(rf"(?<![\d,]){_AMOUNT}(?![\d])")
 _ITEM_RE = re.compile(rf"^(?P<body>.*?)\s*(?P<amount>{_AMOUNT})(?:\s+(?P<stray>\d))?\s+(?P<tax>[A-Z])$")
 _WEIGHT_DETAIL_RE = re.compile(r"^(?P<w>\d+,\d{3})\s*kg\s*x?\s*(?P<p>\d+,\d{2})\s*(?:EUR|€)?\s*/\s*kg$", re.I)
-_QTY_DETAIL_RE = re.compile(r"^(?P<a>\d+(?:,\d{2})?)\s*(?:stk|st|stück)?\.?\s*[xX*]\s*(?P<b>\d+(?:,\d{2})?)$", re.I)
+_QTY_DETAIL_RE = re.compile(
+    r"^(?P<a>\d+(?:,\d{2})?)\s*(?:stk|st|stück)?\.?\s*[xX*]\s*(?P<b>\d+(?:,\d{2})?)\s*(?:EUR|€)?$", re.I
+)
 _WEIGHT_TAIL_RE = re.compile(r"(?P<w>\d+,\d{3})\s*kg$", re.I)
 _TRAIL_TOKEN_RE = re.compile(r"\d+(?:,\d{2,3})?|[xX*]")
 _TOTAL_LABEL_RE = re.compile(
@@ -43,15 +45,23 @@ _TOTAL_LABEL_RE = re.compile(
 )
 _PAYMENT_WORDS = ("karte", "girocard", "ec-", "ec ", "kredit", "visa", "master", "maestro", "pay", "paypal", "bar",
                   "gutschein", "kontaktlos", "debit", "amex", "v pay")
+# Beträge in der MwSt-Tabelle: manche Kassen drucken Netto/MwSt mit drei Nachkommastellen ("8,897 0,623 9,52")
+_VAT_AMOUNT_RE = re.compile(r"(?<![\d,])-?\d{1,4}(?:\.\d{3})*,\d{2,3}(?![\d])")
 _VAT_ROW_RE = re.compile(r"^(?P<code>[A-Z])\s*=?\s*(?P<rate>\d{1,2}(?:,\d{1,2})?)\s*%\s+(?P<rest>.*)$")
 _SAVINGS_RE = re.compile(r"(?:preisvorteil|gespart|ersparnis)", re.I)
 _DATE_RE = re.compile(r"(?<!\d)(\d{2}\.\d{2}\.(?:\d{4}|\d{2}))(?!\d)")
 _TIME_RE = re.compile(r"(?<!\d)((?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)(?!\d)")
-_RECEIPT_NO_RE = re.compile(r"(?:bon|beleg)[\s.\-]*(?:nr|nummer)\.?\s*:?\s*(\d{2,})", re.I)
-_TSE_RE = re.compile(r"tse[\s\-]*transaktion(?:snummer)?\.?\s*:?\s*(\d+)", re.I)
+# "Bon-Nr: 49102", "Beleg-Nr. 123", "Bon: 84920", "Trans: 9182" - nicht "Kassenbon" und nicht "TSE-Transaktion"
+_RECEIPT_NO_RE = re.compile(
+    r"(?<![\w-])(?:(?:bon|beleg)(?:[\s.\-]*(?:nr|nummer)\.?)?|trans(?:aktion)?(?:[\s.\-]*(?:nr|nummer)\.?)?)"
+    r"\s*:\s*#?(\d{2,})", re.I
+)
+_TSE_RE = re.compile(r"tse[\s\-]*(?:transaktion(?:snummer)?|tx)\.?\s*:?\s*#?(\d+)", re.I)
 _PLZ_RE = re.compile(r"^(?P<plz>\d{5})\s*(?P<city>[0O]?[A-Za-zÄÖÜäöüß][\wÄÖÜäöüß .\-]*)$")
 _DEPOSIT_RE = re.compile(r"^(?:pfand|leergut|einwegpfand|mehrwegpfand)", re.I)      # auch "Pfandrückgabe"
 _DISCOUNT_NAME_RE = re.compile(r"^(?:rabatt|preisvorteil|coupon|nachlass|aktion|sofortrabatt|preisnachlass)", re.I)
+# Bonweiter Rabatt ("* Lidl Plus Rabatt * -0,50 A", "Coupon 10 % -1,20 B"): Wort irgendwo im Namen
+_DISCOUNT_WORD_RE = re.compile(r"(?:rabatt|preisvorteil|coupon|nachlass|gutschein|vorteil)", re.I)
 _PAGE_MARKER_RE = re.compile(r"^\[Seite \d+\]$")
 # Bekannte Händler (Erkennung im Kopf, in der Zahlart "Lidl Pay" oder im Dateinamen). Logos sind oft nur Bild.
 CHAINS = {
@@ -73,6 +83,8 @@ class LineItem:
     discount: float = 0.0          # Summe der Rabatte/Preisvorteile (negativ)
     deposit: bool = False          # Pfand/Leergut
     vat_rate: float | None = None
+    # Rabatt, der keinem Artikel zuzuordnen ist (z. B. "Lidl Plus Rabatt" auf den ganzen Einkauf): eigene Zeile
+    discount_line: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         data = {"name": self.name, "amount": self.amount, "tax_code": self.tax_code}
@@ -82,8 +94,13 @@ class LineItem:
                 data[key] = value
         if self.discount:
             data["discount"] = round(self.discount, 2)
+            if self.amount > 0:
+                # relativer Rabatt in Prozent des Artikelpreises (Rinderhack 10,39 / -2,08 -> 20,0 %)
+                data["discount_pct"] = round(-self.discount / self.amount * 100, 1)
         if self.deposit:
             data["deposit"] = True
+        if self.discount_line:
+            data["discount_line"] = True
         return data
 
 
@@ -120,9 +137,10 @@ class ParsedReceipt:
         }
         if self.items:
             out["line_items"] = [item.as_dict() for item in self.items]
-            out["item_count"] = len([i for i in self.items if not i.deposit])
+            out["item_count"] = len([i for i in self.items if not i.deposit and not i.discount_line])
             deposit = round(sum(i.amount for i in self.items if i.deposit and i.amount > 0), 2)   # ohne Rückgabe
-            discount = round(-sum(i.discount for i in self.items), 2)
+            discount = round(-sum(i.discount for i in self.items)
+                             - sum(i.amount for i in self.items if i.discount_line), 2)
             out["deposit_eur"] = deposit if deposit else None
             out["discount_eur"] = discount if discount else None
         if self.vat_rows:
@@ -150,7 +168,7 @@ def clean_line(line: str) -> str:
     text = re.sub(r"(\d,\d{2})([A-Z])\b", r"\1 \2", text)       # "2,38B" -> "2,38 B"
     text = re.sub(r"(\d)\s*\*\s*(\d)", r"\1 * \2", text)        # "2*1,19" -> "2 * 1,19"
     text = re.sub(r"(?<![A-Za-z])[xX](?=\d)", "x ", text)       # "x3,98" -> "x 3,98"
-    text = re.sub(r"(\d)[xX](?=\s*\d)", r"\1 x ", text)          # "0,65x 12" -> "0,65 x 12"
+    text = re.sub(r"(\d,\d{2})[xX](?=\s*\d)", r"\1 x ", text)    # "0,65x 12" -> "0,65 x 12" (nicht "4x")
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -253,13 +271,18 @@ def parse_receipt(text: str, filename: str = "") -> ParsedReceipt:
                 name, qty, unit, kg = _split_body(item_match.group("body"), amount)
                 if not name:
                     name, pending_name = pending_name, ""
-                if amount < 0 and _DISCOUNT_NAME_RE.match(name) and receipt.items:
-                    # "Rabatt -0,50 A": gehört zum vorherigen Artikel, ist kein eigener
-                    receipt.items[-1].discount = round(receipt.items[-1].discount + amount, 2)
+                plain = name.strip(" *#")
+                previous = receipt.items[-1] if receipt.items else None
+                if (amount < 0 and _DISCOUNT_NAME_RE.match(plain) and previous is not None
+                        and not previous.discount_line and previous.tax_code == item_match.group("tax")):
+                    # "Rabatt -0,50 A" direkt unter einem Artikel mit gleichem Steuerkennzeichen: gehört zu ihm
+                    previous.discount = round(previous.discount + amount, 2)
                     continue
-                item = LineItem(name=name or "(ohne Bezeichnung)", amount=round(amount, 2),
+                item = LineItem(name=plain or name or "(ohne Bezeichnung)", amount=round(amount, 2),
                                 tax_code=item_match.group("tax"), quantity=qty, unit_price=unit, weight_kg=kg)
                 item.deposit = bool(_DEPOSIT_RE.match(item.name))
+                # Rabatt, der keinem Artikel zuzuordnen ist: bleibt eine eigene (negative) Zeile
+                item.discount_line = amount < 0 and not item.deposit and bool(_DISCOUNT_WORD_RE.search(item.name))
                 if pending_qty is not None:
                     match = fits(pending_qty[0], pending_qty[1], amount) if qty is None and kg is None else None
                     if match:
@@ -289,8 +312,9 @@ def parse_receipt(text: str, filename: str = "") -> ParsedReceipt:
         # nach der Summe: Zahlart, MwSt-Tabelle, Preisvorteil
         amounts = _AMOUNT_RE.findall(line)
         vat = _VAT_ROW_RE.match(line)
-        if vat and len(amounts) >= 3:
-            row = _vat_row(vat.group("code"), _number(vat.group("rate")), [_number(a) for a in amounts[-3:]])
+        vat_amounts = _VAT_AMOUNT_RE.findall(vat.group("rest")) if vat else []
+        if vat and len(vat_amounts) >= 3:
+            row = _vat_row(vat.group("code"), _number(vat.group("rate")), [_number(a) for a in vat_amounts[-3:]])
             if row:
                 receipt.vat_rows.append(row)
             else:
@@ -299,7 +323,8 @@ def parse_receipt(text: str, filename: str = "") -> ParsedReceipt:
         low = line.casefold()
         is_payment = any(w in f"{low} " for w in _PAYMENT_WORDS) and "payback" not in low
         if receipt.payment_method is None and len(amounts) == 1 and is_payment:
-            receipt.payment_method = _AMOUNT_RE.sub("", line).replace("EUR", "").strip(" :")
+            method = _AMOUNT_RE.sub("", line).replace("EUR", "").strip(" :")
+            receipt.payment_method = re.sub(r"\s*\b(?:gegeben|erhalten)\b", "", method, flags=re.I).strip(" :") or method
             continue
         if _SAVINGS_RE.search(line):
             source = line if amounts else (lines[index + 1] if index + 1 < len(lines) else "")
@@ -348,7 +373,7 @@ def looks_like_receipt(text: str) -> bool:
         if _ITEM_RE.match(line):
             items += 1
         elif (_TOTAL_LABEL_RE.match(line) and len(_AMOUNT_RE.findall(line)) == 1) or (
-            _VAT_ROW_RE.match(line) and len(_AMOUNT_RE.findall(line)) >= 3
+            _VAT_ROW_RE.match(line) and len(_VAT_AMOUNT_RE.findall(line)) >= 3
         ):
             closing = True
         if items >= MIN_ITEM_LINES and closing:
@@ -423,6 +448,9 @@ def normalize(facts: dict[str, Any], source_text: str) -> tuple[dict[str, Any], 
             out[key] = found[key]
     if out.get("merchant"):
         out["provider"] = out["merchant"]
+    if out.get("receipt_date"):
+        # Dokumentdatum = Kaufdatum laut Bon (nicht das Datum, das das kleine Metadaten-Modell geraten hat)
+        out["doc_date"] = out["receipt_date"]
     if parsed.items and parsed.unparsed:
         notes.append(f"{len(parsed.unparsed)} Zeile(n) mit Betrag nicht zugeordnet: " + " | ".join(parsed.unparsed[:5]))
     return out, notes
@@ -508,4 +536,7 @@ DOMAIN = Domain(
     render=render,
     detect=looks_like_receipt,
     trusted=trusted,
+    # Von den Parser-Metadaten (kleines Modell, Seite 1) nur diese übernehmen: Kunde, Vertrags- und
+    # Rechnungsnummer gibt es auf einem Kassenbon nicht (das Modell trug sonst Ort oder USt-IdNr. ein).
+    metadata_fields=("provider", "doc_type", "doc_date"),
 )
