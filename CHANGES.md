@@ -1,27 +1,7 @@
 # Änderungen (Reihenfolge der Umsetzung)
 
-## Einmalig vorbereiten
-```bash
-ollama pull qwen2.5:7b             # Standardmodell (~4,7 GB). Mit >= 16 GB freiem RAM/VRAM: qwen2.5:14b + ENERGY_AGENT_MODEL=qwen2.5:14b
-ollama pull nomic-embed-text
-uv add networkx                    # neue Abhängigkeit für den Dokumentgraph
-uv add --dev pytest httpx          # zum Ausführen der Tests
-```
-
-Stürzt Ollama ab ("Server disconnected", danach "Failed to connect"): Meist Speichermangel. Prüfen mit
-`ollama ps`, `free -h`, `journalctl -u ollama -n 50`; neu starten mit `sudo systemctl restart ollama`.
-Dann kleineres Modell (`ENERGY_AGENT_MODEL`) oder kleineres `ENERGY_NUM_CTX` (z. B. 4096) wählen.
-
-## Neu aufbauen (in dieser Reihenfolge)
-```bash
-uv run python -m src.enrichment.summarizer     # Tabellen-Summaries (neue Version, volle Metadaten)
-uv run python -m src.enrichment.facts          # strukturierte Kerndaten (neu)
-uv run python -m src.retrieval.vector_store    # rebuild: neue Embeddings mit nomic-Prefixen
-uv run python -m src.graph.graph_store         # Dokumentgraph (neu)
-uv run python -m evaluation.run_eval --retrieval-only
-uv run pytest tests -q
-```
-Alternativ erledigt `run_ingestion(...)` aus `src/ingestion/pipeline.py` alle Schritte automatisch.
+Einrichtung, Befehle und Fehlerbehebung: [`README.md`](README.md). Neu aufbauen nach Änderungen an Parser,
+Fakten oder Index: `uv run python -m src.ingestion.pipeline` (Optionen siehe README).
 
 ## Schritt 1 - Kontext und Embeddings
 - `src/config.py` (neu): Modelle, `NUM_CTX` (Standard 12288), Pfade; alles per `ENERGY_*`-Umgebungsvariable änderbar.
@@ -124,6 +104,15 @@ uv run pytest tests -q
 - `.gitignore`: `*.toml` entfernt (pyproject.toml gehört ins Repo), `.testmondata*` ergänzt.
 - Neue Tests: 26 (insgesamt 234, Laufzeit ca. 6 s, Python 3.10 und 3.13 geprüft).
 
+## 2026-10-15 – Qualitätsrunde 2: Komposita, genannte Dateien, Bonus-Plausibilität (Claude)
+
+- **Suche:** Deutsche Komposita in der Stichwortsuche (`_BM25Index.term_matches`: exakt 1.0, Wortbestandteil
+  `COMPOUND_WEIGHT`). Nennt die Frage einen Dateinamen vollständig („Montana_25“), zählen Treffer aus dieser Datei
+  mehr (nach dem Reranking, damit `Montana_Vertragsinformation_25` nicht gleichzieht).
+- **Fakten:** Boni/Rabatte aus dem Text (z. B. Neukundenbonus -70,00 EUR) gehen in die Plausibilitätsprüfung des
+  Rechnungsbetrags ein. `run_checks` bekommt dafür den Quelltext.
+- Tests: `tests/test_search_german.py`, Erweiterung `tests/test_facts_price_basis.py`.
+
 ## 2026-10-15 – Qualitätsrunde 3: Energie als normales Schema mit Fachdomäne (Claude)
 
 ### Architektur
@@ -150,3 +139,40 @@ uv run pytest tests -q
 - `tests/test_domains.py`: Energie-Schema = Extraktionsmodell/Bezeichnungen/Einheiten, Rückwärtskompatibilität,
   Test-Domäne für Kassenbons (Normalisierung, Prüfungen, Anker, Vergleich) als Nachweis der Erweiterbarkeit.
 - Vorher/Nachher auf 9 Testdokumenten (Energie, Rechnung, Gutschrift, Bon, Mietvertrag, Altdokument): identisch.
+
+## 2026-10-15 – Runde 4: Kassenbons als Fotos und PDFs (Claude)
+
+- **Parser:** Bilder (Fotos/Bildschirmfotos) per RapidOCR mit Zeilenrekonstruktion über die Box-Koordinaten;
+  Betragsreparatur im Zeilenmodus (`1, 25` -> `1,25`).
+- **Domäne `receipt`** (`src/domains/receipt.py`): deterministischer Bon-Parser (Positionen mit Menge/Einzelpreis
+  bzw. Gewicht, MwSt-Tabelle rechnerisch zugeordnet, Rabatte, Pfand, Händler, Filialadresse). Das LLM füllt nur
+  Lücken des Parsers (`needs_llm`). `config/schemas/receipt_schema.json` erweitert (`line_items`, `vat_table`, ...).
+- **Werkzeug `receipt_items`** (`src/analysis/receipts.py`): Bonpositionen suchen, auflisten, summieren und
+  gruppieren, exakt und ohne Sprachmodell. `select_tool_schemas` bietet Ausgabe-Werkzeuge (Diagramm, Bericht) nur
+  an, wenn die Frage danach verlangt.
+- Tests: `tests/test_receipts.py`, `tests/test_receipt_items.py`, OCR-Fixtures in `tests/fixtures/receipts/`.
+
+## 2026-10-22 – Aufräumen (Claude)
+
+- Neu: `STATUS.md` (Stand, Messwerte, bekannte Fehler, nächste Schritte); übernimmt die offenen Punkte aus
+  `ROADMAP.md`. `README.md` neu auf aktuellem Stand, inklusive der Befehle aus `Commands.md`.
+- `README2.md` -> `KONZEPT.md`. Entfernt: `ROADMAP.md`, `Commands.md`, `.gitignore.bak`, `project_dump.sh`
+  (ersetzt durch die zweite Fassung), `streamlit/app.py` (Weiterleitung auf `app.py`, nirgends genutzt).
+- `scripts/`: `project_dump.sh` (vorher `project_dump2.sh`), `check_ollama.py` (vorher `test_ollama.py`; prüft jetzt
+  die Modelle aus `src/config.py` statt fest `llama3.1:8b`). Aufruf: `uv run python -m scripts.check_ollama`.
+- Lokale Dumps (`output*.txt`, `project_content.txt`) und Eval-Logs nach `archiv/` verschoben (ignoriert).
+
+## 2026-10-24 – Prüfung gegen das laufende System, Dokumentation (Claude)
+
+- Geprüft: 309 Tests grün, `ruff` ohne Befund, `scripts.check_ollama` (alle vier Modelle bereit),
+  `check_facts` 95 % (unverändert), Retrieval hit@5 0,923 / MRR 0,776. Die Agentenfrage
+  `calc_verbrauchsdifferenz` war korrekt.
+- Geklärt: Der Retrieval-Lauf vom 15.10. mit 0,77 / 0,60 lief ohne Reranker (`ENERGY_USE_RERANKER=0` ergibt
+  exakt diese Werte).
+- Behoben: `run_eval` und `compare_prototypes.py` messen die Laufzeit mit `time.perf_counter()` statt
+  `time.time()`. Vorher zählte ein Ruhezustand des Rechners mit (eine Frage stand mit 158 475 s im Ergebnis).
+- `.gitignore`: `projekt_export*.txt`. Der Export von `export_project.sh` enthält `data/processed/`, also
+  personenbezogene Daten.
+- `Architecture.md` und `KONZEPT.md` auf den aktuellen Stand gebracht: 16 Werkzeuge, hybride Suche mit
+  Reranker, Fakten-Schemata, Dokumentgraph, Messwerte. `STATUS.md` und `README.md` aktualisiert
+  (Speicherhinweis, `pytest -m ollama` hat noch keine Tests).

@@ -43,7 +43,7 @@ def run_evaluation():
         print(f"Frage: {query}")
 
         # --- Prototyp 1: Modulare Pipeline (Direct RAG) ---
-        p1_start = time.time()
+        p1_start = time.perf_counter()
         try:
             opt_query = rewriter.rewrite(query)
             ret_query = f"{query}\n{opt_query}"
@@ -59,17 +59,17 @@ def run_evaluation():
         except Exception as e:
             p1_answer = f"Fehler P1: {e}"
             p1_status = "Fehlgeschlagen"
-        p1_duration = time.time() - p1_start
+        p1_duration = time.perf_counter() - p1_start
 
         # --- Prototyp 2: Agentic RAG (ReAct Agent mit Tools) ---
-        p2_start = time.time()
+        p2_start = time.perf_counter()
         try:
             p2_answer = agent.run(query, max_iterations=5)
             p2_status = "Erfolgreich"
         except Exception as e:
             p2_answer = f"Fehler P2: {e}"
             p2_status = "Fehlgeschlagen"
-        p2_duration = time.time() - p2_start
+        p2_duration = time.perf_counter() - p2_start
 
         print(f"\n🟢 P1 (Modulare Pipeline): {p1_answer[:120]}... ({p1_duration:.2f}s)")
         print(f"🔵 P2 (ReAct Agent):       {p2_answer[:120]}... ({p2_duration:.2f}s)")

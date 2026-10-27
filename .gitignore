@@ -34,3 +34,9 @@ output*.txt
 eval_*.txt
 evaluation/results/
 data/outputs/
+
+# Lokales Archiv (alte Dumps, Logs) und Regressions-Snapshots von evaluation.snapshot
+archiv/
+snapshot_*.json
+# Projekt-Export von export_project.sh (enthält auch data/processed, also personenbezogene Daten)
+projekt_export*.txt

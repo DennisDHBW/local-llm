@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Projekt-Dump (Verzeichnisbaum + Inhalte von src/ und config/) zum Weitergeben.
+# Aufruf aus dem Projektstamm: scripts/project_dump.sh  ->  output.txt (per .gitignore ausgeschlossen)
 
 # ==============================================================================
 # KONFIGURATION / VARIABLEN (Hier deine Einstellungen anpassen)

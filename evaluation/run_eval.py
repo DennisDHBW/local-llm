@@ -91,7 +91,7 @@ def evaluate_answer(agent: Any, question: dict[str, Any]) -> dict[str, Any]:
         if event.get("type") == "action_execution":
             steps["count"] += 1
 
-    started = time.time()
+    started = time.perf_counter()
     try:
         answer = agent.run(question["question"], callback=callback)
         error = None
@@ -103,7 +103,7 @@ def evaluate_answer(agent: Any, question: dict[str, Any]) -> dict[str, Any]:
         "error": error,
         "correct": bool(expected) and _contains_all(answer, expected),
         "tool_calls": steps["count"],
-        "seconds": round(time.time() - started, 1),
+        "seconds": round(time.perf_counter() - started, 1),
     }
 
 

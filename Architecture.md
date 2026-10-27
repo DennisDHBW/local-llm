@@ -1,156 +1,235 @@
-### 1. Übersicht aller Komponenten und deren Aufgaben (Reverse Engineering)
+# Architektur
 
-Das vorliegende Projekt implementiert eine **lokale, datensouveräne KI-Agenten-Architektur (Local Agentic AI)** auf Basis von Ollama und ChromaDB[cite: 1, 4, 12]. Es teilt sich in vier logische Hauptschichten auf[cite: 1, 20]:
+Stand: 24.10.2026 (Branch `qualitaet-v3`). Ersetzt die Fassung vom 08.10.2026 (5 Werkzeuge, reines Vektor-RAG,
+kein Graph). Messwerte und offene Punkte stehen in [`STATUS.md`](STATUS.md), die Änderungen je Runde in
+[`CHANGES.md`](CHANGES.md).
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        1. INGESTION LAYER                              │
-│  src/ingestion/parser.py (DocumentParser & DocumentChunk)              │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                        2. ENRICHMENT LAYER                             │
-│  src/enrichment/captioner.py (ImageCaptioner)                          │
-│  src/enrichment/summarizer.py (TableSummarizer)                        │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   3. STORAGE & RETRIEVAL LAYER                         │
-│  src/retrieval/vector_store.py (VectorStore)                           │
-│  src/retrieval/query_rewriter.py (QueryRewriter)                      │
-│  src/retrieval/search.py (search_collection)                           │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   4. AGENTIC & SYNTHESIS LAYER                         │
-│  src/agent/tools.py (AgentTools)                                       │
-│  src/agent/react_agent.py (ReActAgent)                                 │
-│  src/agent/synthesizer.py (SourceSynthesizer)                          │
-└────────────────────────────────────────────────────────────────────────┘
-```
+## 1. Komponenten
 
----
-
-#### A. Ingestion Layer (Datenimport & Strukturerkennung)
-* **`src/ingestion/parser.py`**[cite: 1]:
-  * **`DocumentChunk`**: Pydantic-Datenmodell zur Typsicherheit[cite: 1]. Es strukturiert jedes Dokumentenelement mit `chunk_id`, `chunk_type` (`text`, `heading`, `table_row`, `image`), `content`, `heading_stack`, `page_number` und `metadata`[cite: 1, 19, 30].
-  * **`DocumentParser`**: Liest PDF-Dateien aus `data/raw/` mit PyMuPDF (`pymupdf`) ein[cite: 1].
-    * **Tabellenerkennung**: Nutzt `find_tables()`, um Bounding-Boxes von Tabellen zu ermitteln und vom normalen Fließtext auszuschließen[cite: 1, 17]. Tabellen werden zeilenweise mit ihren Spaltenköpfen als `table_row` serialisiert[cite: 1, 19].
-    * **Hierarchie-Erkennung**: Erkennt Überschriften anhand von Schriftgröße (`font_size`) und Fett-Formatierung (`is_bold`) und pflegt den `heading_stack` (Kapitelhierarchie)[cite: 1, 17].
-    * **Fließtext-Aggregation**: Fasst Text-Spans zu Absätzen zusammen und versieht sie mit dem aktiven Kapitelpfad[cite: 1, 18].
-    * **Bildextraktion**: Extrahiert eingebettete Bild-Bytes und speichert diese unter `data/processed/images/` ab[cite: 1, 18].
-    * **Ergebnis**: Speichert das Ergebnis atomar in `data/processed/<datei>_chunks.json`[cite: 1, 24].
-
----
-
-#### B. Enrichment Layer (Anreicherung & Caching)
-* **`src/enrichment/captioner.py` (`ImageCaptioner`)**[cite: 1]:
-  * **Aufgabe**: Liest `image`-Chunks aus den JSON-Dateien, entfernt identische Bildduplikate per SHA-256-Hash und generiert Bildbeschreibungen (Captions) für Diagramme oder Zählerstände[cite: 1, 23, 31].
-  * **Modell & Cache**: Verwendet das lokale Vision-Modell `gemma3:4b` via Ollama[cite: 1, 23, 32]. Ergebnisse werden dauerhaft in `.cache/image_captions` (`diskcache`) gespeichert[cite: 1, 24].
-* **`src/enrichment/summarizer.py` (`TableSummarizer`)**[cite: 1]:
-  * **Aufgabe**: Gruppiert zusammengehörige `table_row`-Chunks pro Tabelle/Seite und lässt eine prägnante Zusammenfassung (Summary) der Tabelle generieren[cite: 1, 23, 31].
-  * **Modell & Cache**: Verwendet `llama3.1:latest` via Ollama[cite: 1]. Speichert Zusammenfassungen in `.cache/table_summaries` und bettet sie als neue Chunks mit `is_table_summary = True` in die JSONs ein[cite: 1, 23, 24].
-
----
-
-#### C. Storage & Retrieval Layer (Vektordatenbank & Suche)
-* **`src/retrieval/vector_store.py` (`VectorStore`)**[cite: 1]:
-  * **Aufgabe**: Vektorisiert Chunks aus `data/processed/*.json` und speichert diese in ChromaDB unter `data/vectors/` (Collection: `energy_docs`, Metrik: Cosine-Distanz)[cite: 1, 24].
-  * **Embedding & Prefixing**: Verwendet `nomic-embed-text`[cite: 1, 32]. Fügt jedem Chunk vor dem Embedding ein Hierarchie-Prefix voran: `[Dateiname | Kapitel > Unterkapitel] Inhalt`[cite: 1, 25].
-* **`src/retrieval/query_rewriter.py` (`QueryRewriter`)**[cite: 1]:
-  * **Aufgabe**: Wandelt unpräzise Nutzerfragen mithilfe von `llama3.2:latest` in suchoptimierte Stichwort-Phrasen um[cite: 1, 26, 32].
-* **`src/retrieval/search.py` (`search_collection`)**[cite: 1]:
-  * **Aufgabe**: Sucht Vektoren in ChromaDB und wendet ein **Hierarchie-Boosting** an[cite: 1, 26]. Multipliziert den Score mit $1.5$, wenn Suchbegriffe im Dateinamen oder Kapitelpfad vorkommen, und mit $1.25$, wenn sie im Text stehen[cite: 1, 26].
-
----
-
-#### D. Agentic Layer & Synthese (ReAct-Loop & Vorlagen)
-* **`src/agent/tools.py` (`AgentTools`)**[cite: 1]:
-  * **Aufgabe**: Stellt dem Agenten 5 Werkzeuge bereit[cite: 1, 42]:
-    1. `search_documents`: Semantische Suche in Fließtexten[cite: 1, 42].
-    2. `search_tables`: Gezielte Suche in Tabellenzeilen[cite: 1, 42].
-    3. `search_images`: Suche in Bildbeschreibungen[cite: 1, 42].
-    4. `get_document_outline`: Liest Kapitelstrukturen/Überschriften aus[cite: 1, 42].
-    5. `calculate`: Führt arithmetische Berechnungen sicher per Python AST-Parsing aus[cite: 1, 42].
-* **`src/agent/react_agent.py` (`ReActAgent`)**[cite: 1]:
-  * **Aufgabe**: Steuert den ReAct-Zyklus (`Thought` $\rightarrow$ `Action` $\rightarrow$ `Action Input` $\rightarrow$ `Observation` $\rightarrow$ `Final Answer`) auf Basis von `llama3.1:latest`[cite: 1, 36, 41]. Enthält Parsing für Actions und Callbacks zur Visualisierung von Denkschritten[cite: 1, 41].
-* **`src/agent/synthesizer.py` (`SourceSynthesizer`)**[cite: 1]:
-  * **Aufgabe**: Dient der statischen Pipeline als Evidence-First-Synthesizer, der aus gefundenen Chunks Antworten mit durchnummerierten Quellenbelegen `[1]`, `[2]` erzeugt[cite: 1, 28, 35].
-
----
-
-### 2. Datenfluss und Beziehungen zwischen den Komponenten
-
-Der Prozess gliedert sich in eine Vorverarbeitungs-Pipeline und eine Laufzeit-Schleife[cite: 1, 20, 24]:
+Das Projekt ist ein lokaler, datensouveräner Agent auf Basis von Ollama, ChromaDB und networkx. Kein Teil
+schickt Daten in die Cloud. Die Schichten:
 
 ```
-[ PDF-Dateien (data/raw/) ]
+1. Import        src/ingestion/    parser.py (PDF + Bild/OCR), pipeline.py (6 Schritte)
        │
-       ▼
-DocumentParser (src/ingestion/parser.py)
-       │  ==> Erzeugt unvollständige Chunks & extrahiert Bilder
-       ▼
-[ JSON-Zwischenformat (data/processed/*_chunks.json) ] ◄────────┐
-       │                                                         │
-       ├───────────────────────────────┐                         │
-       ▼                               ▼                         │ (Updates)
-ImageCaptioner                  TableSummarizer                  │
-(src/enrichment/captioner.py)   (src/enrichment/summarizer.py)   │
-(Ollama: gemma3:4b)             (Ollama: llama3.1)               │
-       │ (.cache/)                     │ (.cache/)               │
-       └───────────────────────────────┴─────────────────────────┘
-                                       │
-                                       ▼
-                         VectorStore (src/retrieval/vector_store.py)
-                         (Ollama: nomic-embed-text)
-                                       │
-                                       ▼
-                         [ ChromaDB (data/vectors/) ]
+2. Anreicherung  src/enrichment/   captioner.py, summarizer.py, facts.py, schema.py
+                 src/domains/      energy.py, receipt.py (Fachlogik je Schema)
+                 config/schemas/   Felder je Dokumenttyp (JSON)
+       │
+3. Speicher      src/retrieval/    vector_store.py, search.py (hybrid), query_rewriter.py
+   und Suche     src/graph/        graph_store.py (Dokumentgraph)
+       │
+4. Auswertung    src/analysis/     compare, aggregate, derived, receipts (exakt, ohne LLM)
+                 src/output/       plots.py, reports.py (PNG, Markdown, CSV)
+       │
+5. Agent         src/agent/        react_agent.py, tools.py (16 Werkzeuge), synthesizer.py, chat.py
+       │
+6. Oberfläche    app.py (Streamlit), evaluation/, compare_prototypes.py
 ```
 
-#### Ablauf zur Laufzeit (Agentic RAG):
-1. **Anfrage**: Der Nutzer stellt eine Frage an den `ReActAgent`[cite: 1, 36].
-2. **Reasoning**: Der Agent entscheidet per System-Prompt, welches Werkzeug in `AgentTools` aufgerufen wird[cite: 1, 36, 41].
-3. **Retrieval**: Werkzeuge wie `search_documents` nutzen den `QueryRewriter` und rufen `search_collection` in `src/retrieval/search.py` auf, um ChromaDB abzufragen[cite: 1, 26, 42].
-4. **Execution**: Berechnungen laufen sicher über `calculate` (AST)[cite: 1, 42].
-5. **Observation & Final Answer**: Die Rückgabe wird als `Observation` in die Message-History eingefügt, bis das LLM eine `Final Answer` liefert[cite: 1, 36].
+Alle Modelle, Pfade und Schalter stehen in `src/config.py` und lassen sich per `ENERGY_*`-Umgebungsvariable
+ändern.
 
----
+| Aufgabe | Modell (Standard) | Variable |
+|---|---|---|
+| Agent, Fakten, Tabellen-Summaries, Synthese, Folgefragen | `qwen2.5:7b` | `ENERGY_AGENT_MODEL` (und je Aufgabe einzeln) |
+| Bildbeschreibung | `gemma3:4b` | `ENERGY_CAPTION_MODEL` |
+| Metadaten beim Parsen, Query-Rewriter | `llama3.2:latest` | `ENERGY_PARSER_MODEL`, `ENERGY_REWRITER_MODEL` |
+| Embeddings | `nomic-embed-text` (768 Dim., mit `search_document:`/`search_query:`-Prefix) | `ENERGY_EMBED_MODEL` |
+| Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` (sentence-transformers) | `ENERGY_USE_RERANKER`, `ENERGY_RERANKER_MODEL` |
+| OCR | RapidOCR (onnxruntime) | – |
 
-### 3. Kritische Würdigung & Optimierungspotenziale
+### A. Import (`src/ingestion/`)
 
-Ziel ist die Verarbeitung **privater Dokumente (Verträge, Rechnungen etc.)** mit dem Anspruch, **Bezüge zwischen Dokumenten sinnvoll herzustellen** (z. B. Zuordnung einer Rechnung zu einem Vertrag oder Abgleich von Fristen und Beträgen). 
+- **`parser.py` – `DocumentParser`, `DocumentChunk`.** Liest PDFs mit PyMuPDF und Bilder (PNG/JPEG) per RapidOCR.
+  - Tabellen zuerst (`page.find_tables()`); ihre Flächen werden aus dem Fließtext ausgeschlossen. Jede Zeile wird
+    als `table_row` mit Spaltenköpfen serialisiert (`Spalte: Wert | ...`).
+  - Überschriften per Schrift-Heuristik (Größe, fett) mit `heading_stack`; Labels wie „Rechnungsnummer“ gelten
+    nicht als Überschrift.
+  - Bilder werden extrahiert (unter `ENERGY_MIN_IMAGE_PX` übersprungen: Logos, Icons).
+  - Bildseiten ohne Textebene und Fotos laufen über OCR mit Zeilenrekonstruktion über die Box-Koordinaten
+    (`group_rows`). Schemata mit `"layout": "lines"` (Kassenbons) werden zeilenweise gelesen, Beträge wie
+    `1, 25` repariert.
+  - Ein LLM-Aufruf (`llama3.2`) liefert Metadaten (Typ, Datum, Anbieter); das Schema wird per
+    `detect_schema_id` zugeordnet.
+  - Chunk-Typen: `text`, `heading`, `table_row`, `image`. Ergebnis: `data/processed/<stem>_chunks.json`.
+- **`pipeline.py`.** Die sechs Schritte an einer Stelle, für App, Kommandozeile und Skripte gleich:
 
-Gemäß den Architekturgrundsätzen aus der Vorlesung (*01.pdf*) ergeben sich folgende Anpassungsbedarfe[cite: 2, 4, 14, 15, 21, 46, 47]:
+  | # | Schlüssel | Schritt |
+  |---|---|---|
+  | 1 | `parse` | Parsen (nur geänderte Dateien, Manifest mit Datei-Hash) |
+  | 2 | `caption` | Bildbeschreibung |
+  | 3 | `summarize` | Tabellen-Summaries |
+  | 4 | `facts` | Fakten-Extraktion und Verifikation |
+  | 5 | `index` | Vektorindex |
+  | 6 | `graph` | Dokumentgraph |
 
-#### A. Wichtigster Punkt: Reines Vektor-RAG reicht für Dokumentenbezüge nicht aus $\rightarrow$ GraphRAG / Knowledge Graph einbinden
-* **Ist-Zustand**: Vektor-Retrieval sucht nach Ähnlichkeiten von Textabschnitten[cite: 1, 13, 20]. Vektordatenbanken verstehen jedoch keine logischen Verknüpfungen (z. B. *"Rechnung 2026-04 gehört zu Vertrag V-123"* oder *"Stimmt der Abrechnungsbetrag in der Rechnung mit der Preisklausel aus dem Vertrag überein?"*)[cite: 14, 15, 21].
-* **Kritik & Vorlesungsbezug**: In den Folien (Slides 13, 14, 15, 20, 21, 46, 47) wird ausdrücklich hervorgehoben, dass GraphRAG für Multi-Hop-Fragen, Querverweise und Entitätsbeziehungen benötigt wird[cite: 14, 15, 20, 21, 47].
-* **Empfehlung**:
-  1. Extraktion von Schlüsselentitäten (z. B. `Vertragsnummer`, `Kundennummer`, `Rechnungsnummer`, `Vertragspartner`, `Start-/Enddatum`) beim Einlesen[cite: 14, 15, 30].
-  2. Aufbau eines leichten Knowledge-Graphs (oder einer relationalen Verknüpfungstabelle), um Beziehungen wie `RECHNUNG_GEHOERT_ZU_VERTRAG` abzubilden[cite: 14, 15].
+  `--prune` entfernt Chunks, Fakten, Bilder und Vektoren von Dokumenten ohne Quelldatei. `run_pipeline` läuft
+  synchron (für Streamlit nötig), `AsyncIngestionPipeline` parst mehrere Dateien parallel.
 
-#### B. Strukturierte Metadaten-Extraktion im Parser aktivieren
-* **Ist-Zustand**: In `parser.py` filtert `_is_valid_heading` typische Labels wie `Rechnungsnummer`, `Vertragsnummer` oder `Kundennummer` bewusst aus den Überschriften heraus, um die Outline nicht zu verschmutzen[cite: 1]. Sie verbleiben als reiner Fließtext[cite: 1].
-* **Kritik**: Dadurch gehen Schlüsselattribute verloren, die für die Filterung und Verknüpfung von Dokumenten unverzichtbar sind[cite: 1].
-* **Empfehlung**: Den `DocumentParser` so erweitern, dass er Dokumententypen (`Vertrag`, `Rechnung`, `Kündigung`) sowie Kerndaten (`vertragsnummer`, `rechnungsdatum`, `gesamtsumme`) automatisch erkennt und im `metadata`-Dictionary der Chunks ablegt[cite: 1, 30].
+### B. Anreicherung (`src/enrichment/`, `src/domains/`, `config/schemas/`)
 
-#### C. Fachbereichs-Hardcodings verallgemeinern
-* **Ist-Zustand**: System-Prompts und Tool-Beschreibungen in `react_agent.py`, `tools.py` und `captioner.py` enthalten feste Begriffe wie *"Private Energie- & Versorgungs-Auditor"*, *"Stromlieferung"* oder *"GmbH"*[cite: 1].
-* **Empfehlung**: Entfernung der bereichsspezifischen Einschränkungen, damit Verträge und Rechnungen aller Art (z. B. Versicherungen, Mietverträge, Kaufverträge) neutral analysiert werden können.
+- **`captioner.py` / `summarizer.py`.** Bildbeschreibungen (`gemma3:4b`) und Tabellen-Summaries
+  (`is_table_summary = True`). Beide mit SHA-256-Cache in `.cache/` (diskcache), damit erneute Läufe kein LLM
+  brauchen.
+- **`facts.py` – Fakten je Dokument.** Ein Datensatz pro Dokument (`<stem>_facts.json`), Ablauf:
+  1. Extraktion per LLM nach dem Schema des Dokumenttyps → `raw` (wird unverändert gespeichert).
+     Energie: drei kleine Durchgänge (Identität, Verbrauch/Preise, Beträge/Vertrag).
+  2. Deterministische Extraktion: Nummern und Zeiträume direkt hinter einem Label überstimmen das Modell.
+  3. Normalisierung durch die Fachdomäne.
+  4. Verifikation: Zahlen und Nummern müssen im Quelltext stehen, sonst landen sie in `unverified`.
+     Prüfregeln (`a + b == c`), Ankerwörter („unsicher“, wenn das passende Label an der Fundstelle fehlt),
+     Fundstellen mit Seite.
 
-#### D. Agenten-Tools für Dokumentenbeziehungen erweitern
-* **Ist-Zustand**:
-  * Der Agent besitzt Werkzeuge für Text-, Tabellen- und Bildsuchen, aber kein Werkzeug zur gezielten Abfrage von Verknüpfungen oder Metadaten[cite: 1, 42].
-  * Das Tool `get_document_outline` ist in `tools.py` künstlich auf 15 Einträge beschränkt (`out[:15]`)[cite: 1]. Bei einer größeren Sammlung privater Dokumente werden Dadurch Ordner/Dateien übersehen[cite: 1].
-* **Empfehlung**:
-  * Aufhebung der Beschränkung `out[:15]` in `get_document_outline`[cite: 1].
-  * Hinzufügen von Spezial-Tools wie `search_by_metadata(key, value)` (z. B. Suche nach einer bestimmten Vertragsnummer über alle Dateien hinweg) oder `get_related_documents(filename)`.
+  Schritte 2–4 laufen bei jedem Aufruf neu über `raw`, ohne LLM. Eine Regeländerung wirkt dadurch in Sekunden.
+- **`schema.py` + `config/schemas/*.json`.** Felder, Typen, Rollen (`identifier`, `entity`), Bezeichnungen,
+  Einheiten, Prüfformeln, Ankerwörter, Agenten-Hinweise und optional eine Fachdomäne. Vorhanden: `energy`,
+  `receipt`, `generic_invoice`, `real_estate`, `generic_document`. Ein neuer Dokumenttyp braucht nur eine
+  JSON-Datei.
+- **`src/domains/` – Fachlogik je Schema** (Registry in `__init__.py`):
+  - `energy.py`: Extraktionsmodell, Normalisierung (Guthaben/Nachzahlung, netto/brutto, Grundpreis-Einheit,
+    Abschlag), Plausibilitätsprüfungen, Kennzahlen und Gruppierung für Vergleiche.
+  - `receipt.py`: deterministischer Bon-Parser (Positionen mit Menge/Einzelpreis bzw. Gewicht, Rabatte, Pfand,
+    MwSt-Tabelle mit rechnerisch zugeordneten Spalten, Zahlart, Händler). Das LLM füllt nur Lücken
+    (`needs_llm`). Rechenproben: Positionen = Summe, Netto + MwSt = Brutto je Steuersatz.
 
-#### E. Keyword-Boost flexibler gestalten
-* **Ist-Zustand**: `search_collection` in `search.py` nutzt ein exaktes Regex-Wortmatching für den Pfad-Boost[cite: 1, 26].
-* **Kritik**: Im Deutschen scheitert dies häufig an Wortzusammensetzungen (z. B. Suchanfrage "Vertrag" findet "Vertragslaufzeit" oder "Versicherungsvertrag" im Pfad nicht zuverlässig)[cite: 1].
-* **Empfehlung**: Umstellung auf eine flexible Stemming-/Lemmatisierungslösung oder Nutzung eines hybriden Retrievals (z. B. BM25 + Vektorsuche/Reranking).
+### C. Speicher und Suche (`src/retrieval/`, `src/graph/`)
+
+- **`vector_store.py` – `VectorStore`.** ChromaDB unter `data/vectors/` (Collection `energy_docs`, Kosinus).
+  Jeder Chunk wird mit Pfad-Prefix eingebettet: `[Dateiname | Kapitel > Unterkapitel] Inhalt`. Embeddings in
+  Batches (`ENERGY_EMBED_BATCH_SIZE`), Cache-Schlüssel enthält Modell und Prefix.
+- **`search.py` – `search_collection`, hybride Suche:**
+  1. Kandidaten aus der Vektorsuche und aus BM25. Die Tokenisierung hält Dezimalzahlen zusammen
+     (`28,45` → `28.45`). Deutsche Komposita zählen als Teiltreffer (`COMPOUND_WEIGHT = 0,6`).
+  2. Reciprocal Rank Fusion (`RRF_K = 60`), normiert auf 0..1.
+  3. Kleine Boosts: ×1,15, wenn Suchbegriffe im Pfad stehen (reine Zahlen ausgenommen); ×1,05, wenn sie im Text
+     stehen.
+  4. Cross-Encoder-Reranking der besten `RERANK_TOP_N = 20` (Sigmoid), Mischung 40 % RRF / 60 % Reranker.
+  5. Nennt die Frage einen Dateinamen vollständig, zählen dessen Treffer ×1,5 (nach dem Reranking).
+
+  Der BM25-Index wird je Collection/Filter/Größe gecacht (TTL `ENERGY_BM25_TTL`).
+- **`query_rewriter.py`.** Formuliert Fragen zu Suchphrasen um. Standard: **aus** (`ENERGY_USE_REWRITER=0`), weil
+  das 3B-Modell Rauschen an die Anfrage hängte.
+- **`graph_store.py` – `DocumentGraph`** (networkx, gespeichert unter `data/graph/document_graph.json`).
+  Gebaut aus Metadaten und verifizierten Fakten, ohne LLM.
+  - Knoten: Dokument, Anbieter, Kunde, Konto/Vertrag, Rechnung, Zähler, Tarif, Energieart, Kündigungsfrist,
+    Preisgarantie, dazu die Felder mit Rolle `identifier`/`entity` aus den Schemata.
+  - Kanten: `ISSUED_BY`, `ADDRESSED_TO`, `BELONGS_TO_CONTRACT`, `HAS_INVOICE_NUMBER`, `HAS_METER`,
+    `USES_TARIFF`, …
+  - Abfragen: Nachbarn, Zeitachse, Pfade, Kontext zu einer Frage (mit Belegen für Zitate), Vorgänge/Cluster.
+  - Namen werden kanonisiert (I/l-Verwechslung, Rechtsform).
+
+### D. Auswertung (`src/analysis/`, `src/output/`)
+
+Alles exakt in Code, ohne Sprachmodell:
+
+| Modul | Aufgabe |
+|---|---|
+| `derived.py` | Kennzahlen pro Dokument mit Formel (Arbeitspreis brutto, Grundpreis/Jahr, Zeitraum in Tagen, …). Netto/Brutto nur bei bekannter Preisbasis, Wasser wird nicht umgerechnet. |
+| `compare.py` | Dokumentvergleich gleichen Typs mit Differenz und Änderung in %. |
+| `aggregate.py` | Summe, Mittelwert, Min, Max, Anzahl über viele Dokumente, gruppiert nach Monat/Jahr/Absender. |
+| `receipts.py` | Bonpositionen suchen, auflisten, summieren, gruppieren (Rabatte der Position zugerechnet). |
+| `output/plots.py`, `output/reports.py` | Diagramme (PNG), Markdown-Berichte, CSV-Export nach `data/outputs/`. |
+
+### E. Agent (`src/agent/`)
+
+- **`react_agent.py` – `ReActAgent`.** Natives Tool-Calling über die Ollama-Chat-API (kein Regex-Parsing von
+  „Action:“-Text mehr), höchstens 6 Runden.
+  - Der Systemprompt enthält die Agenten-Hinweise der Schemata, die im Bestand vorkommen.
+  - Werkzeugausgaben werden im Verlauf auf `ENERGY_MAX_OBSERVATION_CHARS` gekürzt; die Evidenz bleibt
+    vollständig.
+  - Ab 90 % von `num_ctx` warnt das Log (Ollama schneidet zu lange Prompts still ab).
+  - Ein Ollama-Ausfall ergibt eine ⚠️-Antwort statt einer Exception.
+- **`tools.py` – 16 Werkzeuge:**
+
+  | Gruppe | Werkzeuge |
+  |---|---|
+  | Bestand und Fakten | `get_document_inventory`, `get_document_facts`, `get_document_outline`, `read_page` |
+  | Suche | `search` (hybrid, Filter nach Datei und Art `text`/`table`/`image`). Die alten Namen `search_documents`, `search_tables`, `search_images` sind Aliase. |
+  | Graph | `graph_lookup`, `graph_timeline`, `graph_paths`, `graph_context`, `graph_overview` |
+  | Rechnen und Vergleichen | `compare_documents`, `aggregate_facts`, `receipt_items`, `calculate` (AST, nur Arithmetik) |
+  | Ausgabe | `plot_facts`, `create_report` |
+
+  `select_tool_schemas` bietet die Ausgabe-Werkzeuge nur an, wenn die Frage nach Diagramm/Bericht/Export
+  fragt, und `receipt_items` nur, wenn Kassenbons im Bestand sind. Das hält die Werkzeugliste für das 7B-Modell
+  kurz.
+- **`synthesizer.py` – `SourceSynthesizer`.** Formuliert die Antwort aus der gesammelten Evidenz mit
+  `[n]`-Zitaten. Abschaltbar mit `ENERGY_USE_SYNTHESIZER=0`; dann bleibt die Antwort des Agenten stehen und
+  bekommt nur die Quellenliste angehängt. Optional prüft `ENERGY_CHECK_NUMBERS=1` die Zahlen der Antwort gegen
+  die Quellen. Auch Prototyp 1 (modulare Pipeline) nutzt den Synthesizer.
+- **`chat.py` – `ChatSession`.** Formuliert Folgefragen zu eigenständigen Fragen um („und bei Berlin2?“).
+  Der Agent selbst bleibt zustandslos.
+
+### F. Oberfläche und Evaluation
+
+- **`app.py` (Streamlit).**
+  - Seitenleiste: Wahl des Prototyps (Agentic RAG oder modulare Pipeline), Upload, Import-Kette bzw.
+    Einzelschritte.
+  - Tabs: *Chat & Analyse* (Denkschritte, Evidenz, Quellen), *Indizierte Dokumente & Fakten* (mit Vergleich),
+    *GraphRAG Explorer* (Entitäten, Timeline, Pfadsuche).
+- **`evaluation/`.**
+  - `questions.json`: 49 Fragen in 7 Kategorien.
+  - `run_eval.py`: Retrieval hit@k/MRR und Antwortqualität.
+  - `gold_facts.json` + `check_facts.py`: Fakten gegen Sollwerte.
+  - `snapshot.py`: deterministischer Regressions-Snapshot ohne LLM.
+  - `show_results.py`: zeigt gespeicherte Läufe.
+- **`compare_prototypes.py`.** 9-Fragen-Benchmark, modulare Pipeline (P1) gegen Agent (P2).
+- **`tests/`.** 309 pytest-Tests ohne Ollama. `conftest.py` sperrt echte Ollama-Aufrufe und schaltet den
+  Reranker ab.
+
+## 2. Datenfluss
+
+```
+data/raw/ (PDF, PNG, JPG)
+   │
+   ▼ 1 parse      DocumentParser (PyMuPDF / RapidOCR, Metadaten per llama3.2, Schema-Zuordnung)
+data/processed/<stem>_chunks.json  ◄──────────────────────────┐
+   │                                                          │ Captions / Summaries
+   ├─▶ 2 caption    ImageCaptioner (gemma3:4b, .cache/) ──────┤ werden in die Chunks
+   ├─▶ 3 summarize  TableSummarizer (qwen2.5:7b, .cache/) ────┘ geschrieben
+   │
+   ├─▶ 4 facts      FactExtractor: LLM → raw → Regex → Domäne → Verifikation
+   │                data/processed/<stem>_facts.json
+   │
+   ├─▶ 5 index      VectorStore (nomic-embed-text) → data/vectors/ (ChromaDB)
+   │
+   └─▶ 6 graph      DocumentGraph (Metadaten + Fakten) → data/graph/document_graph.json
+```
+
+**Zur Laufzeit (Agentic RAG):**
+
+1. Die Frage geht an `ChatSession`. Folgefragen werden umformuliert.
+2. `ReActAgent` bekommt die passenden Werkzeuge und ruft sie nativ auf. Beispiele:
+   - Faktenfragen: `get_document_facts`
+   - Textstellen: `search` und `read_page`
+   - Zahlen über mehrere Dokumente: `compare_documents` bzw. `aggregate_facts`
+   - Bonpositionen: `receipt_items`
+   - Zusammenhänge: `graph_*`
+3. Jede Werkzeugausgabe wird als Evidenz gesammelt (Datei, Seite, Text).
+4. `SourceSynthesizer` schreibt die Antwort mit `[n]`-Zitaten. Die App zeigt Antwort, Denkschritte und Quellen.
+
+**Modulare Pipeline (Prototyp 1, zum Vergleich):** Frage → (Rewriter) → `search_collection` (Top 5) →
+`SourceSynthesizer`. Fester Ablauf, kein Werkzeugaufruf.
+
+## 3. Würdigung
+
+### Umgesetzte Empfehlungen der Fassung vom 08.10.
+
+| Empfehlung damals | Umsetzung |
+|---|---|
+| A. Bezüge zwischen Dokumenten (GraphRAG / Knowledge Graph) | Dokumentgraph aus Kennungen, Absendern, Verträgen; 5 Graph-Werkzeuge; Explorer in der App |
+| B. Strukturierte Metadaten im Parser | Metadaten beim Parsen, dazu verifizierte Fakten je Schema; Kennungen werden zu Graph-Knoten |
+| C. Fachbegriffe im Code verallgemeinern | Schemata in JSON, Fachlogik in Domänen; Rechnungen, Mietunterlagen, Kassenbons, allgemeine Dokumente |
+| D. Werkzeuge für Beziehungen und Metadaten | `get_document_inventory`, `get_document_facts`, `graph_lookup`/`graph_context`, `compare_documents`, `aggregate_facts` |
+| E. Flexibler Keyword-Boost (Komposita) | BM25 mit Kompositum-Teiltreffern + RRF + Cross-Encoder; der ×1,5-Boost auf Pfadtreffer ist durch ×1,15 ersetzt |
+
+### Offene Schwächen
+
+- **Saldo und Rechnungsdatum** bei Energieabrechnungen (Guthaben vs. Nachzahlung, Abrechnungszeitraum statt
+  Rechnungsdatum). Siehe `STATUS.md`.
+- **Kassenbons:** Kaufdatum wird nicht erkannt; `customer_name` enthält OCR-Fragmente.
+- **Speicherbedarf:** Reranker (torch, ca. 1 GB) und `qwen2.5:7b` gleichzeitig füllen einen 14-GB-Rechner fast.
+  Auf solchen Rechnern für lange Läufe `ENERGY_USE_RERANKER=0` setzen (kostet aber Retrieval-Qualität, siehe
+  `STATUS.md`).
+- **Logging:** 52 `print`-Aufrufe in `src/` statt `logging`.
+- **Mehrseitige Tabellen** werden nicht zusammengeführt; die Parser-Tests laufen nicht mit echten PDFs.
