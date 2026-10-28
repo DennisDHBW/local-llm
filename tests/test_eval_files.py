@@ -134,3 +134,19 @@ def test_answer_matching_supports_alternatives():
     assert run_eval._contains_all("Frist: 1 Monat zum 22.03.2025", ["1 Monat", "22.03.2025"])
     assert not run_eval._contains_all("Frist: 1 Monat", ["1 Monat", "22.03.2025"])
     assert run_eval._contains_all("Das steht nicht in den Dokumenten.", ["nicht|keine|kein"])
+
+
+# ------------------------------------------------------------------ Fragenkatalog für die aktuellen Testbelege
+
+def test_belege_questions_cover_required_test_types():
+    """01.pdf verlangt mindestens 5 Standardfragen, 2 Grenzfälle und 2 Fragen ohne Antwort im Bestand."""
+    questions = json.loads((EVAL_DIR / "questions_belege.json").read_text(encoding="utf-8"))
+    gold = json.loads((EVAL_DIR / "gold_belege.json").read_text(encoding="utf-8"))
+    ids = [q["id"] for q in questions]
+    assert len(ids) == len(set(ids))
+    counts = {c: sum(1 for q in questions if q["category"] == c) for c in ("standard", "grenzfall", "negativ")}
+    assert counts["standard"] >= 5 and counts["grenzfall"] >= 2 and counts["negativ"] >= 2
+    for q in questions:
+        assert q["question"].strip().endswith("?") and q["expected_substrings"], q["id"]
+        for src in q.get("expected_sources", []):
+            assert src["filename"] in gold or src["filename"] == "Alle6RechnungenSammeldokument.pdf", q["id"]

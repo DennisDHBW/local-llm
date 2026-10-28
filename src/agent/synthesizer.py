@@ -134,7 +134,10 @@ class SourceSynthesizer:
             "3. Wenn die Information in den Quellen fehlt, sage das ausdrücklich.\n"
             "4. Bei widersprüchlichen Angaben nenne beide Angaben mit ihrer jeweiligen Quelle.\n"
             "5. Nenne bei Preisen und Beträgen immer Einheit, Brutto/Netto (falls angegeben) und Zeitraum.\n"
-            "6. Gib Rechenergebnisse aus den Quellen unverändert wieder.\n\n"
+            "6. Gib Rechenergebnisse aus den Quellen unverändert wieder.\n"
+            "7. Steht in einer Quelle 'Diagramm gespeichert' oder 'Bericht gespeichert', ist die Datei bereits erstellt: "
+            "schreibe das im Indikativ ('Das Diagramm wurde erstellt'), nenne den Dateipfad und wiederhole den "
+            "Dateiinhalt nicht.\n\n"
             f"Quellen:\n{context_str}"
             f"Nutzerfrage: {query}\n"
             + (f"Korrekturhinweis: {feedback}\n" if feedback else "")

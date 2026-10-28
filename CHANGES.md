@@ -218,3 +218,12 @@ Grundlage: Abgleich aller Testbelege (6 Rechnungen, 3 Energieabrechnungen, 8 Kas
   (vorher bezweifelte die Antwort, dass die Zahlen zum Oktober gehören, und ein irrtümlich gesetzter Filter
   "Lebensmittel" war im Diagramm nicht zu erkennen); `category` nur bei ausdrücklich gefragter Kategorie; Antwort auf
   einen Bericht kurz statt Wiederholung des Dateiinhalts.
+
+## Paket 3 - Fragenkatalog für die aktuellen Testbelege (28.10.2026)
+- `evaluation/questions_belege.json` (neu): 14 Fragen zu den 17 Testbelegen, gegliedert wie in der Aufgabenstellung
+  gefordert: 6 Standardfragen, 1 Rechenfrage, 1 Zusammenhangsfrage (Graph), 4 Grenzfälle (Wasser-Nachzahlung,
+  Sammel-PDF, Bon ohne Datum, Kategorie ohne Positionen), 2 Fragen ohne Antwort im Bestand (Gas, Miete).
+  Aufruf: `uv run python -m evaluation.run_eval --questions evaluation/questions_belege.json [--retrieval-only]`.
+  Die bisherigen `questions.json`/`gold_facts.json` beziehen sich auf frühere Energieabrechnungen, die nicht mehr im
+  Bestand sind.
+- `src/agent/synthesizer.py`: erzeugte Dateien werden im Indikativ gemeldet ("wurde erstellt"), Inhalt nicht wiederholt.
