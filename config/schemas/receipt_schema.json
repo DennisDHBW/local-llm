@@ -42,7 +42,7 @@
     "Pfand, Pfandrückgabe und Rabatte sind eigene Beträge; sie sind im Gesamtbetrag bereits enthalten.",
     "Fragen nach Ausgaben aus Kassenbons beantwortet receipt_items exakt aus den Bonpositionen, nie selbst addieren: einzelne Artikel mit query ('Wie viel für Hähnchen?'), Kategorien mit category ('Wie viel im Mai 2026 für Essen?' -> category='Lebensmittel', month='Mai 2026'; Alkohol ist eine eigene Kategorie, nicht Getränke; Pfand ist eine eigene Kategorie).",
     "Das Steuerkennzeichen (A, B) bedeutet je Händler einen anderen Satz (Lidl: A = 7 %, Kaufland: A = 19 %); maßgeblich ist der Satz in der Position bzw. MwSt-Tabelle.",
-    "Diagramm oder Übersicht über Ausgaben aus Kassenbons: receipt_items mit output='pie' (Torte), 'bar' (Balken), 'line' (Verlauf je Monat) oder 'markdown' (Ausgabenübersicht als Datei), z. B. 'Erstelle eine Übersicht über meine Ausgaben im Mai 2026' -> output='markdown', month='Mai 2026'. Nicht plot_facts oder create_report. Nenne danach den Dateipfad aus dem Ergebnis."
+    "Diagramm oder Übersicht über Ausgaben aus Kassenbons: receipt_items mit output='pie' (Torte), 'bar' (Balken), 'line' (Verlauf je Monat) oder 'markdown' (Ausgabenübersicht als Datei); category dabei leer lassen, außer eine bestimmte Kategorie ist gefragt. Beispiel: 'Erstelle eine Übersicht über meine Ausgaben im Mai 2026' -> output='markdown', month='Mai 2026'. Nicht plot_facts oder create_report. Antworte danach kurz mit Gesamtbetrag, den größten Kategorien und dem Dateipfad; den Dateiinhalt nicht wiederholen."
   ],
   "properties": {
     "merchant": {

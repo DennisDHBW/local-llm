@@ -214,3 +214,7 @@ Grundlage: Abgleich aller Testbelege (6 Rechnungen, 3 Energieabrechnungen, 8 Kas
   Fachhinweise im Schema `receipt` verweisen den Agenten darauf.
 - `app.py`: vom Agenten erzeugte Diagramme und Berichte erscheinen direkt im Chat (mit Download).
 - `src/enrichment/facts.py`: eine Vertragsnummer, die gleich der Rechnungsnummer ist, wird verworfen.
+- Nachbesserung nach dem ersten Agent-Test: Ergebnistext und Diagrammtitel nennen Zeitraum und Kategorie-Filter
+  (vorher bezweifelte die Antwort, dass die Zahlen zum Oktober gehören, und ein irrtümlich gesetzter Filter
+  "Lebensmittel" war im Diagramm nicht zu erkennen); `category` nur bei ausdrücklich gefragter Kategorie; Antwort auf
+  einen Bericht kurz statt Wiederholung des Dateiinhalts.

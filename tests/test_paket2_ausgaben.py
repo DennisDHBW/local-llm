@@ -128,3 +128,7 @@ def test_tool_creates_files(tmp_path, records, monkeypatch):
     assert any(f.endswith(".md") for f in report.files) and any(f.endswith(".png") for f in report.files)
     food = tools.execute("receipt_items", {"kategorie": "Lebensmittel", "monat": "Mai 2026"})
     assert "Summe bezahlt" in food.text and not food.files
+    assert "im Zeitraum Mai 2026" in food.text                                  # Zeitraum steht im Ergebnis
+    assert "Ausgaben nach Kategorie - Mai 2026:" in pie.text
+    filtered = tools.execute("receipt_items", {"category": "Lebensmittel", "month": "Mai 2026", "output": "pie"})
+    assert "Ausgaben Lebensmittel nach Kategorie - Mai 2026:" in filtered.text   # Filter im Titel sichtbar

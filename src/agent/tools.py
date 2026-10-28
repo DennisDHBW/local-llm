@@ -155,7 +155,7 @@ TOOL_SCHEMAS: list[dict] = [
         "Mit output erzeugt es zusätzlich ein Diagramm (pie/bar/line) oder einen Markdown-Bericht.",
         {
             "query": {"type": "string", "description": "Artikelname(n), mehrere durch Komma = oder, z. B. 'Hähnchen, Pute'. Leer = alle Positionen."},
-            "category": {"type": "string", "description": "Kategorie oder Obergruppe, z. B. 'Lebensmittel' (= Essen), 'Getränke', 'Alkohol', 'Drogerie', 'Haushalt', 'Pfand' (optional)."},
+            "category": {"type": "string", "description": "NUR setzen, wenn nach einer bestimmten Kategorie gefragt ist, z. B. 'Lebensmittel' (= Essen), 'Getränke', 'Alkohol', 'Drogerie', 'Haushalt', 'Pfand'. Leer lassen bei 'alle Ausgaben' oder 'nach Kategorien'."},
             "month": {"type": "string", "description": "Ein Monat, z. B. 'Mai 2026' (optional, statt date_from/date_to)."},
             "group_by": {"type": "string", "enum": ["none", "category", "group", "item", "merchant", "month", "document"], "description": "none = Positionen auflisten (Standard); category = je Kategorie; group = je Obergruppe."},
             "date_from": {"type": "string", "description": "Ab Datum, z. B. '01.01.2026' oder '2026' (optional)."},
@@ -709,7 +709,17 @@ class AgentTools:
                                month=str(month or ""))
         text, files = result.text, []
         if chart_kind and result.rows:
-            chart = spending_chart(result.rows, chart_kind, grouping, str(title or ""))
+            from src.analysis.receipts import period_label
+            from src.output.spending import GROUP_TITLES
+
+            heading = str(title or "").strip()
+            if not heading:
+                # Titel nennt Filter und Zeitraum: eine falsch gewählte Kategorie ist im Bild sofort sichtbar
+                about = f" {category.strip()}" if category and str(category).strip() else ""
+                by = "Monat" if chart_kind == "line" else GROUP_TITLES.get(grouping, grouping)
+                period = period_label(month, date_from, date_to)
+                heading = f"Ausgaben{about} nach {by}" + (f" - {period}" if period else "")
+            chart = spending_chart(result.rows, chart_kind, grouping, heading)
             text = f"{text}\n\n{chart.text}"
             files = [str(chart.path)] if chart.path else []
         key = "|".join(str(x) for x in (query, grouping, ",".join(selected), date_from, date_to, contains, category,

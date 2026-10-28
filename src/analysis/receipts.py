@@ -109,6 +109,20 @@ def item_rows(records: Mapping[str, Mapping[str, Any]]) -> list[ItemRow]:
     return rows
 
 
+def period_label(month: Any = "", date_from: Any = None, date_to: Any = None) -> str:
+    """Lesbarer Zeitraum für Überschriften: 'Oktober 2026' oder '01.10.2026 - 31.10.2026' (leer = alle Bons)."""
+    if month and str(month).strip() and month_bounds(month):
+        return str(month).strip()
+    parts = [str(x).strip() for x in (date_from, date_to) if x and str(x).strip()]
+    if len(parts) == 2:
+        return f"{parts[0]} - {parts[1]}"
+    if date_from and str(date_from).strip():
+        return f"ab {str(date_from).strip()}"
+    if date_to and str(date_to).strip():
+        return f"bis {str(date_to).strip()}"
+    return ""
+
+
 def _alternatives(query: str) -> list[list[str]]:
     parts = re.split(r"[,;|/]| oder ", query or "")
     return [words for words in (normalize_name(part).split() for part in parts) if words]
@@ -210,6 +224,10 @@ def receipt_items(
     about = f" zu {query.strip()!r}" if query.strip() else ""
     if category and category.strip():
         about += f" in Kategorie {', '.join(sorted(wanted_groups | wanted_cats))}"
+    # Zeitraum ausdrücklich nennen: sonst bezweifelt die Antwort-Synthese, dass die Zahlen zum Monat gehören
+    period = period_label(month, date_from, date_to)
+    if period:
+        about += f" im Zeitraum {period}"
     title = f"Bonpositionen{about}: {len(rows)} Position(en) auf {len(files)} Bon(s)"
     lines = [title]
     if group_by == "none":
