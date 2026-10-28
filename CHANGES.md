@@ -240,3 +240,13 @@ auf Platz 1), Antworten 8/14. Ursachen der vermeidbaren Fehler und Korrektur:
 - Systemprompt: Werte zu Dingen ohne Dokument (Gas, Miete) nie aus anderen Dokumenten herleiten; vorher "berechnete"
   der Agent einen Gaspreis aus der Heizstromrechnung.
 Nicht behoben (bekannte Grenzen): Nachzahlung der Wasserabrechnung (Energie-Domäne), Sammel-PDF mit sechs Rechnungen.
+
+## Paket 5 - Testmodul zur Qualitätsmessung (28.10.2026)
+- Nachmessung nach Paket 4: die vier korrigierten Fragen 4/4 richtig (Testsatz A damit 12/14).
+- `evaluation/quality.py` (neu): misst den Prototyp auf zwei Testsätzen mit RAGAS-analogen Kennzahlen, ohne
+  Sprachmodell als Richter: A = kontextspezifischer Fragenkatalog (`questions_belege.json`), B = synthetisch per
+  Vorlage aus den geprüften Sollwerten (`gold_belege.json`, 31 Fragen). Kennzahlen: Feldgenauigkeit (Extraktion),
+  Kontext-Recall@5, Kontext-Präzision@5, Dokument@1, MRR (Retrieval), Korrektheit, Treue (Anteil belegter Zahlen,
+  analog Faithfulness), Halluzinationsrate, Quellen-Korrektheit, Enthaltung bei Fragen ohne Antwort, Dauer und
+  Werkzeugaufrufe (Antwort). Ergebnis je Frage sofort als JSONL (fortsetzbar mit `--resume`), am Ende ein
+  Markdown-Qualitätsbericht.

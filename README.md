@@ -36,6 +36,8 @@ uv run ruff check .
 
 uv run python -m evaluation.check_facts         # extrahierte Fakten gegen evaluation/gold_facts.json
 uv run python -m evaluation.check_facts --gold evaluation/gold_belege.json   # Testbelege (Rechnungen, Bons)
+uv run python -m evaluation.quality --retrieval-only    # Qualitätsbericht: Extraktion + Retrieval (schnell)
+uv run python -m evaluation.quality --synthetic-agent 6 # dazu Agent: Korrektheit, Treue, Halluzination (langsam)
 uv run python -m evaluation.run_eval --retrieval-only     # Retrieval (hit@k, MRR) über 49 Fragen
 uv run python -m evaluation.run_eval --category wert --limit 8   # Antwortqualität des Agenten (langsam)
 uv run python -m evaluation.snapshot --out snapshot_vorher.json  # deterministischer Regressions-Snapshot
