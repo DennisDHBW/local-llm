@@ -267,6 +267,36 @@ def resolve_name(names: list[str], wanted: str) -> tuple[str | None, str | None]
     return None, f"Unbekannte Datei '{wanted}'. Verfügbar: {', '.join(names) or 'keine'}."
 
 
+_MATCH_STOPWORDS = {"rechnung", "dokument", "datei", "abrechnung", "bitte", "gmbh", "von", "der", "die", "das"}
+
+
+def match_documents(records: dict[str, dict[str, Any]], description: str, limit: int = 3) -> list[str]:
+    """Dokumente zu einer Beschreibung: Wörter (ab 4 Zeichen) in Dateiname, Absender, Händler, Kunde, Dokumenttyp.
+
+    Nur die Dokumente mit den meisten Treffern; mehr als `limit` gleich gute = zu unklar, dann keine.
+    """
+    def norm(text: Any) -> str:
+        return re.sub(r"[^a-z0-9äöüß]+", " ", str(text or "").casefold())
+
+    words = [w for w in norm(description).split() if len(w) >= 4 and w not in _MATCH_STOPWORDS]
+    if not words:
+        return []
+    scores: dict[str, int] = {}
+    for name, record in records.items():
+        facts = record.get("facts") or {}
+        hay = norm(" ".join(str(x) for x in (name, facts.get("provider"), facts.get("merchant"),
+                                             facts.get("customer_name"), facts.get("doc_type"))))
+        compact = hay.replace(" ", "")
+        score = sum(1 for w in words if w in hay or w in compact)
+        if score:
+            scores[name] = score
+    if not scores:
+        return []
+    best = max(scores.values())
+    top = sorted(name for name, score in scores.items() if score == best)
+    return top if len(top) <= limit else []
+
+
 def _tool_evidence(tool: str, label: str, text: str, key: str = "") -> dict:
     return {
         "id": f"tool:{tool}:{key}" if key else f"tool:{tool}",
@@ -546,18 +576,27 @@ class AgentTools:
                 "oder stattdessen `search` verwenden."
             )
         selected = sorted(records)
+        note = ""
         if filename and filename.strip():
             resolved, error = resolve_name(selected, filename)
             if error:
-                return ToolResult(error)
-            selected = [resolved]
+                # Das Modell übergibt oft eine Beschreibung ("Werkstattrechnung von Auto & Service Müller") statt
+                # des Dateinamens: dann über Absender, Händler und Dateiname das passende Dokument suchen.
+                matches = match_documents(records, filename)
+                if not matches:
+                    return ToolResult(error)
+                note = (f"Hinweis: '{filename.strip()}' ist kein Dateiname; passend nach Absender/Dateiname: "
+                        f"{', '.join(matches)}\n\n")
+                selected = matches
+            else:
+                selected = [resolved]
 
         blocks, evidence = [], []
         for name in selected:
             block = format_facts(records[name])
             blocks.append(block)
             evidence.append(_tool_evidence("get_document_facts", f"{name} (extrahierte Kerndaten)", block, name))
-        text = "\n\n".join(blocks) + (
+        text = note + "\n\n".join(blocks) + (
             "\n\nHinweis: automatisch extrahierte Kerndaten. Bei Zweifeln mit `search` im Dokument gegenprüfen."
         )
         return ToolResult(text, evidence)

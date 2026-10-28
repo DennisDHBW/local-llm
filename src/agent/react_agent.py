@@ -54,6 +54,8 @@ Vorgehen:
 Nenne danach den Dateipfad aus dem Werkzeugergebnis.
 - Steht bei einem Wert "Unsicher" oder "Prüfung fehlgeschlagen", prüfe ihn mit search oder read_page, bevor du ihn nennst, \
 und weise in der Antwort darauf hin.
+- Fragt der Nutzer nach etwas, das in keinem Dokument vorkommt (z. B. Gas oder eine Miete, wenn kein solches Dokument im Inventar steht), \
+sage, dass dazu kein Dokument vorliegt. Leite solche Werte nie aus anderen Dokumenten oder mit calculate her.
 - Rechne immer mit calculate, nie im Kopf. Übergib nur Zahlen und Operatoren.
 - Rufe pro Schritt höchstens ein bis drei Werkzeuge auf und wiederhole keine identischen Aufrufe.
 - Sobald du genug Fakten hast, antworte ohne weiteren Werkzeugaufruf kurz mit Zahlen, Einheiten und Zeiträumen. \
@@ -111,6 +113,32 @@ def _parse_tool_calls(raw: Any) -> list[tuple[str, dict]]:
         if name:
             calls.append((str(name), arguments))
     return calls
+
+
+_TEXT_CALL_RE = re.compile(
+    r"^\s*(?:```(?:json)?\s*)?(?:"
+    r"\{\s*\"name\"\s*:\s*\"(?P<n1>\w+)\"\s*,\s*\"(?:arguments|parameters)\"\s*:\s*(?P<a1>\{.*\})\s*\}"
+    r"|(?P<n2>\w+)\s*\(?\s*(?P<a2>\{.*\})\s*\)?"
+    r")\s*(?:```)?\s*$",
+    re.DOTALL,
+)
+
+
+def _parse_text_tool_call(content: str, known: set[str]) -> list[tuple[str, dict]]:
+    """Kleine Modelle schreiben den Werkzeugaufruf manchmal als Text ('graph_context {"query": ...}') statt
+    als natives Tool-Calling. Ist der GANZE Text ein solcher Aufruf eines bekannten Werkzeugs, gilt er als Aufruf."""
+    match = _TEXT_CALL_RE.match(content or "")
+    if not match:
+        return []
+    name = match.group("n1") or match.group("n2")
+    raw = match.group("a1") or match.group("a2")
+    if name not in known:
+        return []
+    try:
+        arguments = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [(name, arguments)] if isinstance(arguments, dict) else []
 
 
 def _clean_content(content: Any) -> str:
@@ -314,6 +342,11 @@ class ReActAgent:
             message = _get(response, "message")
             content = _clean_content(_get(message, "content"))
             calls = _parse_tool_calls(_get(message, "tool_calls"))[:MAX_CALLS_PER_STEP]
+            if not calls:
+                calls = _parse_text_tool_call(content, {s["function"]["name"] for s in tool_schemas})
+                if calls:
+                    logger.info("Werkzeugaufruf als Text erkannt: %s", calls[0][0])
+                    content = ""
 
             if not calls:
                 if not content:

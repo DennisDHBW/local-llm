@@ -251,6 +251,13 @@ def receipt_items(
     lines.append(summary + ". Berechnet aus den geprüften Bonpositionen.")
     if any(row.deposit for row in rows):
         lines.append("Hinweis: enthält Pfand.")
+    if not query.strip() and not (category and category.strip()):
+        # "Summe der Bons" meint die Gesamtbeträge (mit Pfand); die Positionssumme oben ist ohne Pfand
+        bon_files = sorted({r.filename for r in item_rows(records) if r.filename in allowed})
+        totals = [float(((records.get(f) or {}).get("facts") or {}).get("total_gross_eur") or 0) for f in bon_files]
+        if bon_files:
+            lines.append(f"Summe der Gesamtbeträge der {len(bon_files)} Bon(s) (inkl. Pfand): "
+                         f"{_eur(round(sum(totals), 2))}.")
     if not deposit_wanted and not query.strip():
         deposit_skipped = round(sum(r.paid for r in item_rows(records) if r.deposit and r.filename in allowed), 2)
         if deposit_skipped:

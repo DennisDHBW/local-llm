@@ -227,3 +227,16 @@ Grundlage: Abgleich aller Testbelege (6 Rechnungen, 3 Energieabrechnungen, 8 Kas
   Die bisherigen `questions.json`/`gold_facts.json` beziehen sich auf frühere Energieabrechnungen, die nicht mehr im
   Bestand sind.
 - `src/agent/synthesizer.py`: erzeugte Dateien werden im Indikativ gemeldet ("wurde erstellt"), Inhalt nicht wiederholt.
+
+## Paket 4 - Korrekturen aus Messung 1 des Fragenkatalogs (28.10.2026)
+Messung 1 (14 Fragen, ohne Reranker): Suche 4/6 Belegstellen unter den ersten 5 (die richtige Datei stand jedes Mal
+auf Platz 1), Antworten 8/14. Ursachen der vermeidbaren Fehler und Korrektur:
+- `react_agent.py`: Werkzeugaufruf als Text (`graph_context {"query": ...}`) wird erkannt und ausgeführt; vorher war
+  er selbst die Antwort (Kundennummer-Frage, 0 Werkzeugaufrufe).
+- `tools.py`: `get_document_facts` findet ein Dokument auch über eine Beschreibung ("Werkstattrechnung von Auto &
+  Service Müller") per Absender/Händler/Dateiname (`match_documents`); vorher meldete der Agent es als nicht vorhanden.
+- `receipts.py`: Ohne Artikel-/Kategoriefilter steht zusätzlich die Summe der Bon-Gesamtbeträge (inkl. Pfand) im
+  Ergebnis; vorher antwortete der Agent auf "Summe der Gesamtbeträge" mit der Positionssumme ohne Pfand.
+- Systemprompt: Werte zu Dingen ohne Dokument (Gas, Miete) nie aus anderen Dokumenten herleiten; vorher "berechnete"
+  der Agent einen Gaspreis aus der Heizstromrechnung.
+Nicht behoben (bekannte Grenzen): Nachzahlung der Wasserabrechnung (Energie-Domäne), Sammel-PDF mit sechs Rechnungen.
