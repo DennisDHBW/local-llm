@@ -548,6 +548,28 @@ st.markdown(f'<div class="sub-title">Aktive Architektur: <b>{st.session_state.cu
 
 tab_chat, tab_docs, tab_graph = st.tabs(["💬 Chat & Analyse", "📚 Indizierte Dokumente & Fakten", "🕸️ GraphRAG Explorer"])
 
+def _show_files(paths) -> None:
+    """Vom Agenten erzeugte Dateien direkt im Chat zeigen: Diagramme als Bild, Berichte lesbar + Download."""
+    for raw in paths or []:
+        path = Path(raw)
+        if not path.exists():
+            st.caption(f"Datei nicht mehr vorhanden: {path}")
+            continue
+        suffix = path.suffix.casefold()
+        if suffix in (".png", ".jpg", ".jpeg", ".svg"):
+            st.image(str(path), caption=path.name)
+        elif suffix == ".md":
+            text = path.read_text(encoding="utf-8")
+            with st.expander(f"📄 {path.name}", expanded=True):
+                # Bilder im Bericht stehen relativ daneben; Streamlit zeigt sie oben als eigenes Bild an
+                st.markdown("\n".join(line for line in text.splitlines() if not line.startswith("![")))
+            st.download_button("Bericht herunterladen", text, file_name=path.name, mime="text/markdown",
+                               key=f"dl_{path}")
+        else:
+            st.download_button(f"{path.name} herunterladen", path.read_bytes(), file_name=path.name,
+                               key=f"dl_{path}")
+
+
 # ---------------------------------------------------------------------
 # TAB 1: CHAT & ANALYSE
 # ---------------------------------------------------------------------
@@ -564,6 +586,7 @@ with tab_chat:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            _show_files(msg.get("files"))
 
     # Chat Eingabe
     if user_query := st.chat_input("Ihre Frage zu den Dokumenten (Beträge, Fristen, Verträge, Zusammenhänge)..."):
@@ -627,7 +650,10 @@ with tab_chat:
                     )
                     st.markdown("### 🎯 Finale Antwort:")
                     st.markdown(final_response)
-                    st.session_state.messages.append({"role": "assistant", "content": final_response})
+                    created = list(getattr(agent, "last_files", []) or [])
+                    _show_files(created)
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": final_response, "files": created})
                 except Exception as err:
                     logger.exception("Agenten-Ausführung fehlgeschlagen.")
                     _log_chat_event(chat_log_placeholder, f"FEHLER: {type(err).__name__}: {err}", logging.ERROR)

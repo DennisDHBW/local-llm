@@ -198,3 +198,19 @@ Grundlage: Abgleich aller Testbelege (6 Rechnungen, 3 Energieabrechnungen, 8 Kas
   `uv run python -m evaluation.check_facts --gold evaluation/gold_belege.json`
 - Bekannte Grenzen (bewusst nicht in Paket 1): Sammel-PDF mit mehreren Rechnungen wird nicht aufgeteilt;
   Wasser-/Heizstromabrechnung (Energie-Domäne) teils falsch; Kategorien für Bonpositionen fehlen noch.
+
+## Paket 2 - Kategorien, Diagramme und Ausgabenbericht für Kassenbons (28.10.2026)
+- `config/categories.json` (neu), `src/analysis/categories.py` (neu): Kategorien für Bonpositionen per Stichwort-
+  katalog (Reihenfolge = Priorität, Ausschlusswörter), Alkohol getrennt von Getränken, Pfand und Einkaufsrabatt als
+  eigene Kategorien, Rückfall über den Steuersatz (7 % -> Lebensmittel). Obergruppen mit Synonymen ("Essen" =
+  Lebensmittel). Wird bei der Auswertung bestimmt: Katalogänderungen wirken ohne neuen Import. Alle 103 Positionen
+  der Testbons werden richtig eingeordnet.
+- `src/analysis/receipts.py`: Positionen tragen Kategorie, Obergruppe und Quelle der Zuordnung; Filter `category`,
+  `month` ("Mai 2026"); `group_by` category/group; Hinweis auf ausgeklammertes Pfand und geschätzte Zuordnungen.
+- `src/analysis/derived.py`, `aggregate.py`: Monatsangaben ("Mai 2026", "05.2026", "2026-05") als Zeitraum.
+- `src/output/spending.py` (neu): Torten-, Balken- und Liniendiagramm der Ausgaben (kleine Anteile -> "Sonstiges",
+  feste Farbe je Kategorie) und Markdown-Ausgabenbericht mit Tortendiagramm, Tabellen und Summenprobe.
+- `src/agent/tools.py`: `receipt_items` mit `category`, `month`, `output` (pie, bar, line, markdown) und `title`;
+  Fachhinweise im Schema `receipt` verweisen den Agenten darauf.
+- `app.py`: vom Agenten erzeugte Diagramme und Berichte erscheinen direkt im Chat (mit Download).
+- `src/enrichment/facts.py`: eine Vertragsnummer, die gleich der Rechnungsnummer ist, wird verworfen.

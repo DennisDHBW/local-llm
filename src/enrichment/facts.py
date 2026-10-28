@@ -491,6 +491,12 @@ def postprocess_facts(
                 meta_notes.append(f"{key}: Metadaten-Wert {fallback!r} steht nicht im Text -> nicht übernommen")
                 continue
             verified[key] = fallback
+    # Dieselbe Nummer als Rechnungs- UND Vertragsnummer: das Modell hat sie doppelt eingetragen
+    # (StreamPulse: "Rechnungsnummer SP-2026-992184", keine Vertragsnummer). Die Rechnungsnummer hat ein Label.
+    contract, invoice = verified.get("contract_number"), verified.get("invoice_number")
+    if contract and invoice and re.sub(r"\s+", "", str(contract)).casefold() == re.sub(r"\s+", "", str(invoice)).casefold():
+        verified.pop("contract_number")
+        meta_notes.append(f"contract_number: {contract!r} ist die Rechnungsnummer -> verworfen")
     return verified, dropped, det_notes + norm_notes + meta_notes
 
 

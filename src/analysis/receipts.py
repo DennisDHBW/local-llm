@@ -16,9 +16,14 @@ from typing import Any
 from collections.abc import Mapping, Sequence
 
 from src.analysis.aggregate import doc_rows, filter_rows, fmt_number
+from src.analysis.categories import classify, load_catalog
+from src.analysis.derived import month_bounds
 
 RECEIPT_SCHEMA = "receipt"
-GROUP_BY = ("none", "item", "merchant", "month", "document")
+GROUP_BY = ("none", "item", "merchant", "month", "document", "category", "group")
+GROUP_ALIASES = {"kategorie": "category", "kategorien": "category", "obergruppe": "group", "gruppe": "group",
+                 "artikel": "item", "händler": "merchant", "haendler": "merchant", "laden": "merchant",
+                 "monat": "month", "bon": "document", "dokument": "document", "keine": "none", "": "none"}
 MAX_LINES = 40
 
 
@@ -34,6 +39,10 @@ class ItemRow:
     weight_kg: float | None
     vat_rate: float | None
     deposit: bool
+    category: str = ""             # z. B. "Milchprodukte & Eier" (config/categories.json)
+    group: str = ""                # z. B. "Lebensmittel"
+    category_source: str = ""      # "katalog" | "steuersatz" (geschätzt) | "bon" (Pfand/Rabatt)
+    discount_line: bool = False    # Rabatt auf den ganzen Einkauf (eigene negative Zeile)
 
     @property
     def paid(self) -> float:
@@ -74,6 +83,7 @@ def _matches(name: str, alternatives: list[list[str]]) -> bool:
 def item_rows(records: Mapping[str, Mapping[str, Any]]) -> list[ItemRow]:
     """Alle Positionen aller Kassenbons (Reihenfolge: Datum, Datei, Position)."""
     when_by_file = {row.filename: row.when for row in doc_rows(records)}
+    catalog = load_catalog()
     rows: list[ItemRow] = []
     for name, record in records.items():
         if str(record.get("schema_id") or "") != RECEIPT_SCHEMA:
@@ -84,11 +94,16 @@ def item_rows(records: Mapping[str, Mapping[str, Any]]) -> list[ItemRow]:
         for item in facts.get("line_items") or []:
             if not isinstance(item, Mapping) or not isinstance(item.get("amount"), (int, float)):
                 continue
+            name_text = str(item.get("name") or "(ohne Bezeichnung)")
+            assigned = classify(name_text, item.get("vat_rate"), bool(item.get("deposit")),
+                                bool(item.get("discount_line")), catalog)
             rows.append(ItemRow(
                 filename=filename, merchant=merchant, when=when_by_file.get(filename),
-                name=str(item.get("name") or "(ohne Bezeichnung)"), amount=float(item["amount"]),
+                name=name_text, amount=float(item["amount"]),
                 discount=float(item.get("discount") or 0.0), quantity=item.get("quantity"),
                 weight_kg=item.get("weight_kg"), vat_rate=item.get("vat_rate"), deposit=bool(item.get("deposit")),
+                category=assigned.category, group=assigned.group, category_source=assigned.source,
+                discount_line=bool(item.get("discount_line")),
             ))
     rows.sort(key=lambda r: (r.when or date.max, r.filename))
     return rows
@@ -110,6 +125,7 @@ def _describe(row: ItemRow) -> str:
     elif row.weight_kg:
         detail = f", {fmt_number(row.weight_kg)} kg"
     rate = f", {row.vat_rate:g} % MwSt" if row.vat_rate is not None else ""
+    rate += f", {row.category}" if row.category else ""
     discount = f" (Rabatt {_eur(row.discount)}, bezahlt {_eur(row.paid)})" if row.discount else ""
     when = f"{row.when:%d.%m.%Y}" if row.when else "ohne Datum"
     return f"- {when} {row.merchant} ({row.filename}): {row.name} {_eur(row.amount)}{detail}{rate}{discount}"
@@ -122,6 +138,10 @@ def _group_key(row: ItemRow, group_by: str) -> str:
         return row.merchant
     if group_by == "month":
         return f"{row.when:%Y-%m}" if row.when else "ohne Datum"
+    if group_by == "category":
+        return row.category or "Sonstiges"
+    if group_by == "group":
+        return row.group or "Sonstiges"
     return row.filename
 
 
@@ -134,21 +154,46 @@ def receipt_items(
     date_to: Any = None,
     contains: str = "",
     include_deposit: bool | None = None,
+    category: str = "",
+    month: str = "",
 ) -> ItemsResult:
     """Positionen suchen, auflisten und summieren. `query`: Artikelname(n), mehrere mit Komma = oder.
 
-    Pfand zählt nur mit, wenn danach gefragt wird (`include_deposit` oder 'pfand' in der Suche).
+    `category`: Kategorie oder Obergruppe ("Lebensmittel"/"Essen", "Alkohol", "Getränke", "Drogerie", ...).
+    `month`: ein Monat ("Mai 2026", "05.2026") statt date_from/date_to.
+    Pfand zählt nur mit, wenn danach gefragt wird (`include_deposit`, 'pfand' in Suche oder Kategorie).
     """
-    group_by = (group_by or "none").strip().casefold()
+    group_by = GROUP_ALIASES.get((group_by or "none").strip().casefold(), (group_by or "none").strip().casefold())
     if group_by not in GROUP_BY:
         return ItemsResult(f"Fehler: group_by muss einer von {', '.join(GROUP_BY)} sein.")
+    notes_month: list[str] = []
+    if month and str(month).strip():
+        bounds = month_bounds(month)
+        if bounds:
+            date_from, date_to = bounds[0].strftime("%d.%m.%Y"), bounds[1].strftime("%d.%m.%Y")
+        else:
+            notes_month.append(f"month '{month}' ist kein Monat mit Jahr (z. B. 'Mai 2026') und wurde ignoriert.")
     docs, notes = filter_rows(doc_rows(records), filenames, date_from, date_to, contains, RECEIPT_SCHEMA)
+    notes = notes_month + notes
     allowed = {row.filename for row in docs}
     alternatives = _alternatives(query)
-    deposit_wanted = include_deposit if include_deposit is not None else "pfand" in normalize_name(query)
+    wanted_cats, wanted_groups = load_catalog().resolve(category) if category and category.strip() else (set(), set())
+    if category and category.strip() and not (wanted_cats or wanted_groups):
+        known = ", ".join(load_catalog().labels())
+        return ItemsResult(f"Unbekannte Kategorie '{category}'. Bekannt: {known}; Obergruppen: Lebensmittel (= Essen), "
+                           "Getränke, Alkohol, Drogerie & Haushalt, Pfand, Rabatt.")
+    deposit_wanted = include_deposit if include_deposit is not None else (
+        "pfand" in normalize_name(query) or "Pfand" in wanted_groups or "Pfand" in wanted_cats)
+
+    def category_ok(row: ItemRow) -> bool:
+        if not (wanted_cats or wanted_groups):
+            return True
+        return row.category in wanted_cats or row.group in wanted_groups
+
     rows = [
         row for row in item_rows(records)
         if row.filename in allowed and _matches(row.name, alternatives) and (deposit_wanted or not row.deposit)
+        and category_ok(row)
     ]
     receipts_total = len({r.filename for r in item_rows(records)})
     if not rows:
@@ -163,6 +208,8 @@ def receipt_items(
     discount = round(sum(row.discount for row in rows), 2)
     files = sorted({row.filename for row in rows})
     about = f" zu {query.strip()!r}" if query.strip() else ""
+    if category and category.strip():
+        about += f" in Kategorie {', '.join(sorted(wanted_groups | wanted_cats))}"
     title = f"Bonpositionen{about}: {len(rows)} Position(en) auf {len(files)} Bon(s)"
     lines = [title]
     if group_by == "none":
@@ -186,5 +233,13 @@ def receipt_items(
     lines.append(summary + ". Berechnet aus den geprüften Bonpositionen.")
     if any(row.deposit for row in rows):
         lines.append("Hinweis: enthält Pfand.")
+    if not deposit_wanted and not query.strip():
+        deposit_skipped = round(sum(r.paid for r in item_rows(records) if r.deposit and r.filename in allowed), 2)
+        if deposit_skipped:
+            lines.append(f"Pfand ({_eur(deposit_skipped)}) ist nicht enthalten (eigene Kategorie 'Pfand').")
+    guessed = [r for r in rows if r.category_source == "steuersatz"]
+    if guessed and group_by in ("category", "group"):
+        lines.append(f"{len(guessed)} Position(en) nur über den Steuersatz eingeordnet (kein Stichwort im Katalog): "
+                     + ", ".join(sorted({r.name for r in guessed})[:10]))
     lines += notes
     return ItemsResult("\n".join(lines), rows, total)

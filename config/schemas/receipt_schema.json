@@ -40,8 +40,9 @@
     "Kassenbons weisen Bruttobeträge aus; die Mehrwertsteuer steht je Steuersatz (7 % und 19 %) getrennt. Nenne bei Steuerbeträgen immer den Satz.",
     "Summen über mehrere Bons nie schätzen: Werte mit get_document_facts holen und mit calculate addieren.",
     "Pfand, Pfandrückgabe und Rabatte sind eigene Beträge; sie sind im Gesamtbetrag bereits enthalten.",
-    "Fragen nach einzelnen Artikeln ('Wie viel habe ich für Hähnchen ausgegeben?', 'Wann habe ich zuletzt Milch gekauft?') beantwortet receipt_items exakt aus den Bonpositionen; nicht selbst addieren.",
-    "Das Steuerkennzeichen (A, B) bedeutet je Händler einen anderen Satz (Lidl: A = 7 %, Kaufland: A = 19 %); maßgeblich ist der Satz in der Position bzw. MwSt-Tabelle."
+    "Fragen nach Ausgaben aus Kassenbons beantwortet receipt_items exakt aus den Bonpositionen, nie selbst addieren: einzelne Artikel mit query ('Wie viel für Hähnchen?'), Kategorien mit category ('Wie viel im Mai 2026 für Essen?' -> category='Lebensmittel', month='Mai 2026'; Alkohol ist eine eigene Kategorie, nicht Getränke; Pfand ist eine eigene Kategorie).",
+    "Das Steuerkennzeichen (A, B) bedeutet je Händler einen anderen Satz (Lidl: A = 7 %, Kaufland: A = 19 %); maßgeblich ist der Satz in der Position bzw. MwSt-Tabelle.",
+    "Diagramm oder Übersicht über Ausgaben aus Kassenbons: receipt_items mit output='pie' (Torte), 'bar' (Balken), 'line' (Verlauf je Monat) oder 'markdown' (Ausgabenübersicht als Datei), z. B. 'Erstelle eine Übersicht über meine Ausgaben im Mai 2026' -> output='markdown', month='Mai 2026'. Nicht plot_facts oder create_report. Nenne danach den Dateipfad aus dem Ergebnis."
   ],
   "properties": {
     "merchant": {

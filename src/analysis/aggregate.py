@@ -11,7 +11,6 @@ Typische Fragen:
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -19,7 +18,7 @@ from typing import Any
 from collections.abc import Mapping, Sequence
 
 from src.analysis.compare import metrics_for, resolve_metric_keys
-from src.analysis.derived import METRICS, parse_date
+from src.analysis.derived import METRICS, month_bounds, parse_date
 from src.utils import is_empty
 
 # Reihenfolge = Priorität bei der Wahl des Dokumentdatums
@@ -164,11 +163,12 @@ def filter_rows(
     start, end = parse_date(date_from) if date_from else None, parse_date(date_to) if date_to else None
     for raw, parsed, label in ((date_from, start, "date_from"), (date_to, end, "date_to")):
         if raw and not parsed:
-            year = re.fullmatch(r"\s*(\d{4})\s*", str(raw))
-            if year and label == "date_from":
-                start = date(int(year[1]), 1, 1)
-            elif year:
-                end = date(int(year[1]), 12, 31)
+            # Jahr oder Monat ("2026", "Mai 2026", "05.2026"): ab dem ersten bzw. bis zum letzten Tag
+            bounds = month_bounds(raw)
+            if bounds and label == "date_from":
+                start = bounds[0]
+            elif bounds:
+                end = bounds[1]
             else:
                 notes.append(f"{label} '{raw}' ist kein Datum und wurde ignoriert.")
     if start or end:

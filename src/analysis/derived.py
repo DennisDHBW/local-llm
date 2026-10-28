@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from collections.abc import Mapping
 
@@ -84,6 +84,39 @@ def parse_date(text: Any) -> date | None:
     except ValueError:
         return None
     return None
+
+
+_MONTH_ABBR = {name[:3]: number for name, number in _MONTHS.items()}
+
+
+def month_bounds(text: Any) -> tuple[date, date] | None:
+    """Monat oder Jahr -> (erster Tag, letzter Tag). 'Mai 2026', 'Okt. 2026', '05.2026', '5/2026', '2026-05', '2026'.
+
+    Ein vollständiges Datum ist KEIN Monat (dafür `parse_date`). Ohne Jahr: None (nicht raten).
+    """
+    if text is None:
+        return None
+    value = str(text).strip().casefold()
+    if parse_date(value):
+        return None
+    month = year = None
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})", value)
+    if match:
+        year, month = int(match[1]), int(match[2])
+    match = match or re.fullmatch(r"(\d{1,2})\s*[./]\s*(\d{4})", value)
+    if match and month is None:
+        month, year = int(match[1]), int(match[2])
+    match = match or re.fullmatch(r"([a-zäöü]+)\.?\s+(\d{4})", value)
+    if match and month is None:
+        name = match[1]
+        month = _MONTHS.get(name) or _MONTH_ABBR.get(name[:3])
+        year = int(match[2])
+    if month is None and re.fullmatch(r"\d{4}", value):
+        return date(int(value), 1, 1), date(int(value), 12, 31)
+    if not month or not year or not 1 <= month <= 12:
+        return None
+    last = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1))
+    return date(year, month, 1), last
 
 
 def _number(value: Any) -> float | None:
