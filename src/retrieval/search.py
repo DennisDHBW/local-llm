@@ -14,6 +14,7 @@ Optimierungen:
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import threading
@@ -21,7 +22,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import Any
 
-from src.config import BM25_CACHE_TTL, RERANK_TOP_N, RERANKER_MODEL, USE_RERANKER
+from src.config import BM25_CACHE_TTL, RERANK_TOP_N, RERANKER_LOCAL_ONLY, RERANKER_MODEL, USE_RERANKER
 
 
 @dataclass(frozen=True)
@@ -85,10 +86,14 @@ def _as_probabilities(scores: list[float]) -> list[float]:
 # --- Reranker Singleton Lazy Loader ---
 _RERANKER_MODEL_INSTANCE: Any = None
 _RERANKER_LOCK = threading.Lock()
+_RERANKER_ERROR: str | None = None
+logger = logging.getLogger(__name__)
 
 
 def _get_reranker():
-    global _RERANKER_MODEL_INSTANCE
+    """Lädt den Cross-Encoder einmal pro Prozess. Ein Ladefehler wird protokolliert (früher: still verschluckt,
+    die Suche lief dann unbemerkt ohne Reranker) und in `reranker_status()` gemeldet."""
+    global _RERANKER_MODEL_INSTANCE, _RERANKER_ERROR
     if not USE_RERANKER:
         return None
     if _RERANKER_MODEL_INSTANCE is None:
@@ -96,10 +101,45 @@ def _get_reranker():
             if _RERANKER_MODEL_INSTANCE is None:
                 try:
                     from sentence_transformers import CrossEncoder
-                    _RERANKER_MODEL_INSTANCE = CrossEncoder(RERANKER_MODEL)
-                except Exception:
+                    _RERANKER_MODEL_INSTANCE = CrossEncoder(RERANKER_MODEL, local_files_only=RERANKER_LOCAL_ONLY)
+                    _RERANKER_ERROR = None
+                except Exception as exc:
                     _RERANKER_MODEL_INSTANCE = False
+                    _RERANKER_ERROR = f"{type(exc).__name__}: {exc}"[:300]
+                    hint = (" Modell lokal nicht vorhanden: einmal mit ENERGY_RERANKER_LOCAL_ONLY=0 laden."
+                            if RERANKER_LOCAL_ONLY else "")
+                    logger.warning("Reranker %s nicht geladen, Suche ohne Reranker: %s.%s",
+                                   RERANKER_MODEL, _RERANKER_ERROR, hint)
     return _RERANKER_MODEL_INSTANCE if _RERANKER_MODEL_INSTANCE is not False else None
+
+
+def reranker_status(load: bool = False) -> dict[str, Any]:
+    """Tatsächlicher Zustand des Rerankers (für Berichte): eingeschaltet, geladen, Modell, Fehler.
+
+    `load=True` lädt ihn dafür (sonst gilt 'nicht geladen', solange noch keine Suche lief)."""
+    if load:
+        _get_reranker()
+    instance = _RERANKER_MODEL_INSTANCE
+    return {
+        "enabled": USE_RERANKER,
+        "loaded": bool(instance) and instance is not False,
+        "model": RERANKER_MODEL,
+        "local_only": RERANKER_LOCAL_ONLY,
+        "error": _RERANKER_ERROR,
+    }
+
+
+def release_reranker() -> bool:
+    """Gibt den Cross-Encoder frei (RAM). Die nächste Suche lädt ihn bei Bedarf neu. Rückgabe: war geladen."""
+    global _RERANKER_MODEL_INSTANCE, _RERANKER_ERROR
+    with _RERANKER_LOCK:
+        was_loaded = bool(_RERANKER_MODEL_INSTANCE) and _RERANKER_MODEL_INSTANCE is not False
+        _RERANKER_MODEL_INSTANCE = None
+        _RERANKER_ERROR = None
+    if was_loaded:
+        import gc
+        gc.collect()
+    return was_loaded
 
 
 def _normalize_number(token: str) -> str:
@@ -350,7 +390,8 @@ def search_collection(
         head, tail = ranked[:max(RERANK_TOP_N, top_k)], ranked[max(RERANK_TOP_N, top_k):]
         try:
             raw_scores = [float(s) for s in reranker.predict([[query, hit.document] for hit in head])]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Reranking fehlgeschlagen, Reihenfolge nach RRF: %s", exc)
             raw_scores = []
         if len(raw_scores) == len(head):
             probabilities = _as_probabilities(raw_scores)

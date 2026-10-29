@@ -19,7 +19,7 @@ import pytest
 # Muss VOR dem ersten Import von src.config passieren (die Konfiguration liest die Variable beim Import).
 os.environ.setdefault("ENERGY_USE_RERANKER", "0")
 
-_OLLAMA_FUNCTIONS = ("chat", "generate", "embed", "embeddings")
+_OLLAMA_FUNCTIONS = ("chat", "generate", "embed", "embeddings", "ps")
 
 
 class RealOllamaCallError(RuntimeError):

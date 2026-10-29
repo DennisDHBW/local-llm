@@ -250,3 +250,25 @@ Nicht behoben (bekannte Grenzen): Nachzahlung der Wasserabrechnung (Energie-Dom�
   analog Faithfulness), Halluzinationsrate, Quellen-Korrektheit, Enthaltung bei Fragen ohne Antwort, Dauer und
   Werkzeugaufrufe (Antwort). Ergebnis je Frage sofort als JSONL (fortsetzbar mit `--resume`), am Ende ein
   Markdown-Qualitätsbericht.
+
+## Paket 6 - Speicher, belastbare Qualitätsmessung, multimodaler Test, Aufräumen (29.10.2026)
+- Entfernt (veraltet, bezogen auf die frühere Energie-Domäne oder ersetzt): `KONZEPT.md`, `Architecture.md`,
+  `STATUS.md`, `bon_rohtext.txt`, `bon_stand.txt`, `evaluation/questions.json`, `evaluation/gold_facts.json`,
+  `scripts/project_dump.sh` (doppelt zu `export_project.sh`). `check_facts` und `run_eval` nutzen jetzt
+  `gold_belege.json` bzw. `questions_belege.json` als Standard; Tests auf die aktuellen Dateien umgestellt.
+- `src/model_memory.py` (neu): entlädt Ollama-Modelle per `keep_alive=0`, nur wenn sie laut `ollama ps` geladen
+  sind. `pipeline.run_stage` gibt nach jedem Schritt (auch nach einem Fehler) die Modelle des Schritts frei, außer
+  denen des nächsten Schritts (`STAGE_MODELS`, `next_stage_models`); App und Kommandozeile nutzen das.
+- `src/retrieval/search.py`: Ladefehler des Rerankers werden protokolliert statt verschluckt; `reranker_status()`
+  (tatsächlicher Zustand) und `release_reranker()`; `ENERGY_RERANKER_LOCAL_ONLY=1` bzw. `HF_HUB_OFFLINE=1` lädt nur
+  lokal. Mehrsprachige Kandidaten in `config.py` dokumentiert.
+- `evaluation/quality.py`: 95-%-Konfidenzintervall nach Wilson für Ja/Nein-Kennzahlen; tatsächlicher
+  Reranker-Status und Modelle im Bericht; Testsatz C (`questions_heldout.json`, 13 Fragen, nach Abschluss der
+  Korrekturen geschrieben und nie zum Nachbessern verwendet); `--sets`, `--repeat N` (Mehrheitsurteil, Konsistenz);
+  manuelle Prüfung über `<lauf>_review.json` und `--report` (automatische und geprüfte Korrektheit getrennt).
+- Multimodaler Test: `scripts/make_chart_testdoc.py` erzeugt `Verbrauchsuebersicht2025.pdf` (Monatswerte nur im
+  Balkendiagramm); Frage in A (höchster Monat) und in C (niedrigster Monat).
+- `evaluation/pick_reranker.py` (neu): wählt aus Retrieval-Läufen die beste Reranker-Einstellung, nur anhand von
+  Testsatz A und B; Modelle über 1 GB RAM (bge-reranker-v2-m3) werden gemessen, aber nicht gewählt.
+- `compare_prototypes.py`: Vergleich P1 (Suche + Synthese) gegen P2 (ReAct-Agent) auf Testsatz A/C mit denselben
+  Bewertungsregeln; P2-Antworten können aus einem Qualitätslauf übernommen werden (`--p2-from`).

@@ -1,13 +1,13 @@
-"""Vergleicht die extrahierten Fakten (data/processed/*_facts.json) mit den Sollwerten (gold_facts.json).
+"""Vergleicht die extrahierten Fakten (data/processed/*_facts.json) mit den Sollwerten (gold_belege.json).
 
-Aufruf:  uv run python -m evaluation.check_facts [--gold evaluation/gold_facts.json] [--verbose]
+Aufruf:  uv run python -m evaluation.check_facts [--gold evaluation/gold_belege.json] [--verbose]
 
 Status je Feld:
     ok          Wert stimmt mit dem Sollwert überein
     FALSCH      Wert weicht ab
     fehlt       Sollwert vorhanden, aber nichts extrahiert (oder als nicht im Text auffindbar verworfen)
     ERFUNDEN    Feld sollte leer sein, enthält aber einen Wert (z. B. Vertragsende = Rechnungsdatum)
-Sollwert-Syntax siehe "_hinweis" in gold_facts.json.
+Sollwert-Syntax siehe "_hinweis" in gold_belege.json.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any
 from src.config import PROCESSED_DIR
 from src.enrichment.facts import LABELS, load_facts
 
-GOLD_PATH = Path(__file__).resolve().parent / "gold_facts.json"
+GOLD_PATH = Path(__file__).resolve().parent / "gold_belege.json"
 NUMBER_TOLERANCE = 0.005
 
 

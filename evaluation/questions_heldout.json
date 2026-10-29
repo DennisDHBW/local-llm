@@ -1,0 +1,194 @@
+[
+  {
+    "id": "c_lumina_ladekabel",
+    "category": "standard",
+    "question": "Was kostete ein Premium Ladekabel USB-C bei LuminaStyle netto pro Stück?",
+    "expected_substrings": [
+      "12,52|12.52"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung2OnlineshopLuminaStyle.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 2
+      }
+    ],
+    "evidence_substrings": [
+      "12,52"
+    ]
+  },
+  {
+    "id": "c_volt_grundpreis",
+    "category": "standard",
+    "question": "Wie hoch ist der monatliche Grundpreis für den Heizstrom bei Volt & Wärme?",
+    "expected_substrings": [
+      "14,00|14.00|14 €|14 EUR|14,000"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesHeizstromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "14,000"
+    ]
+  },
+  {
+    "id": "c_streampulse_zeitraum",
+    "category": "standard",
+    "question": "Welchen Abrechnungszeitraum hat die Rechnung von StreamPulse?",
+    "expected_substrings": [
+      "05.10.2026|5. Oktober 2026",
+      "04.11.2026|4. November 2026"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung5AboStreamPulse.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 5
+      }
+    ],
+    "evidence_substrings": [
+      "04.11.2026"
+    ]
+  },
+  {
+    "id": "c_waermepumpe_zaehler",
+    "category": "standard",
+    "question": "Welche Zählernummer hat der Heizstromzähler der Wärmepumpe von Max Mustermann?",
+    "expected_substrings": [
+      "2HTNT-7710293"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesHeizstromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "2HTNT-7710293"
+    ]
+  },
+  {
+    "id": "c_lumina_paypal",
+    "category": "standard",
+    "question": "Welche PayPal-Transaktions-ID steht auf der Rechnung von LuminaStyle?",
+    "expected_substrings": [
+      "9X82019481A39201L"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung2OnlineshopLuminaStyle.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 2
+      }
+    ],
+    "evidence_substrings": [
+      "9X82019481A39201L"
+    ]
+  },
+  {
+    "id": "c_rewe_aldi_summe",
+    "category": "rechnen",
+    "question": "Wie viel habe ich bei REWE und ALDI zusammen bezahlt?",
+    "expected_substrings": [
+      "22,79|22.79"
+    ]
+  },
+  {
+    "id": "c_bons_mit_pfand",
+    "category": "zusammenhang",
+    "question": "Auf welchen Kassenbons vom 27.10.2026 wurde Pfand berechnet?",
+    "expected_substrings": [
+      "REWE|Rewe",
+      "Kaufland",
+      "EDEKA|Edeka"
+    ]
+  },
+  {
+    "id": "c_volt_arbeitspreis",
+    "category": "grenzfall",
+    "question": "Wie hoch ist der Arbeitspreis bei Volt & Wärme?",
+    "expected_substrings": [
+      "28,0|28.0|28 ct",
+      "21,5|21.5"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesHeizstromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "21,500"
+    ]
+  },
+  {
+    "id": "c_strom_abschlaege",
+    "category": "grenzfall",
+    "question": "Wie viele Abschläge hat Max Mustermann 2024 an die Stadtwerke Neckar-Strom gezahlt?",
+    "expected_substrings": [
+      "11 Abschl|11 Mal|11-mal|elf|11 Zahlungen|11 monatliche|11 x|11x"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesStromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "11 Abschläge"
+    ]
+  },
+  {
+    "id": "c_strom_abbuchung",
+    "category": "grenzfall",
+    "question": "An welchem Tag wird die Nachzahlung für die Stromrechnung 2024 abgebucht?",
+    "expected_substrings": [
+      "02.02.2025|2. Februar 2025"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesStromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "02.02.2025"
+    ]
+  },
+  {
+    "id": "c_diagramm_tiefster_monat",
+    "category": "multimodal",
+    "question": "In welchem Monat 2025 war mein Stromverbrauch laut Verbrauchsdiagramm am niedrigsten?",
+    "expected_substrings": [
+      "Juli|Jul"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Verbrauchsuebersicht2025.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Juli|Jul"
+    ]
+  },
+  {
+    "id": "c_negativ_kfzsteuer",
+    "category": "negativ",
+    "question": "Wie hoch ist meine Kfz-Steuer laut Steuerbescheid?",
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
+  },
+  {
+    "id": "c_negativ_handwerker",
+    "category": "negativ",
+    "question": "Wie viel hat der Handwerker für die Badsanierung berechnet?",
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
+  }
+]

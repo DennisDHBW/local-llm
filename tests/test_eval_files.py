@@ -1,4 +1,4 @@
-"""Tests für das Prüfset: Konsistenz von questions.json/gold_facts.json, Fakten-Check und Retrieval-Auswertung."""
+"""Tests für das Prüfset: Konsistenz von questions_belege.json/gold_belege.json, Fakten-Check und Retrieval-Auswertung."""
 
 import json
 from pathlib import Path
@@ -8,33 +8,43 @@ import pytest
 
 from evaluation import run_eval
 from evaluation.check_facts import check, compare_field
-from src.enrichment.facts import DocumentFacts
+from src.enrichment.schema import spec_for
 
 EVAL_DIR = Path(__file__).resolve().parents[1] / "evaluation"
-QUESTIONS = json.loads((EVAL_DIR / "questions.json").read_text(encoding="utf-8"))
-GOLD = {k: v for k, v in json.loads((EVAL_DIR / "gold_facts.json").read_text(encoding="utf-8")).items() if not k.startswith("_")}
-CATEGORIES = {"wert", "preis", "vertrag", "wasser", "ueberblick", "rechnen", "ohne_antwort"}
+QUESTIONS = json.loads((EVAL_DIR / "questions_belege.json").read_text(encoding="utf-8"))
+HELDOUT = json.loads((EVAL_DIR / "questions_heldout.json").read_text(encoding="utf-8"))
+GOLD = {k: v for k, v in json.loads((EVAL_DIR / "gold_belege.json").read_text(encoding="utf-8")).items() if not k.startswith("_")}
+CATEGORIES = {"standard", "rechnen", "zusammenhang", "grenzfall", "negativ", "multimodal"}
+# Dateien ohne Gold-Fakten, auf die sich Fragen beziehen dürfen (Sammel-PDF wird nicht aufgeteilt).
+EXTRA_SOURCES = {"Alle6RechnungenSammeldokument.pdf", "Verbrauchsuebersicht2025.pdf"}
 
 
 # ------------------------------------------------------------------ Konsistenz der Dateien
 
-def test_questions_are_well_formed():
-    ids = [q["id"] for q in QUESTIONS]
+@pytest.mark.parametrize("catalog", [QUESTIONS, HELDOUT], ids=["katalog", "heldout"])
+def test_questions_are_well_formed(catalog):
+    ids = [q["id"] for q in catalog]
     assert len(ids) == len(set(ids)), "Frage-IDs müssen eindeutig sein"
-    assert len(QUESTIONS) >= 40
-    for q in QUESTIONS:
+    for q in catalog:
         assert q["category"] in CATEGORIES, q["id"]
         assert q["question"].strip().endswith("?"), q["id"]
         assert q["expected_substrings"] and all(s.strip() for s in q["expected_substrings"]), q["id"]
-        assert not q.get("_todo"), f"{q['id']} ist noch ein Platzhalter"
         for src in q.get("expected_sources", []):
-            assert src["filename"] in GOLD, f"{q['id']}: unbekannte Datei {src['filename']}"
-    assert {q["category"] for q in QUESTIONS} == CATEGORIES
+            assert src["filename"] in GOLD or src["filename"] in EXTRA_SOURCES, f"{q['id']}: unbekannte Datei"
+
+
+def test_heldout_set_is_disjoint_from_the_catalog():
+    """Set C wurde vor der Messung geschrieben und nie für Korrekturen genutzt: keine gleiche ID, keine gleiche Frage."""
+    assert not {q["id"] for q in QUESTIONS} & {q["id"] for q in HELDOUT}
+    assert not {q["question"] for q in QUESTIONS} & {q["question"] for q in HELDOUT}
+    assert len(HELDOUT) >= 8 and {q["category"] for q in HELDOUT} >= {"standard", "grenzfall", "negativ"}
 
 
 def test_gold_facts_only_use_known_schema_fields():
-    known = set(DocumentFacts.model_fields)
-    assert len(GOLD) == 6
+    known = set()
+    for schema_id in ("energy", "receipt", "generic_invoice"):
+        known |= set(spec_for(schema_id).fields)
+    assert len(GOLD) >= 17
     for filename, fields in GOLD.items():
         unknown = set(fields) - known
         assert not unknown, f"{filename}: unbekannte Felder {unknown}"
@@ -49,8 +59,9 @@ def _first_alternative(want):
 
 
 def test_gold_is_consistent_with_its_own_comparison_rules():
-    records = {name: {"filename": name, "facts": {f: _first_alternative(w) for f, w in fields.items() if w not in (None, "*")}}
-               for name, fields in GOLD.items()}
+    records = {name: {"filename": name, "facts": {
+        f: (w if f == "line_items" else _first_alternative(w)) for f, w in fields.items() if w not in (None, "*")}}
+        for name, fields in GOLD.items()}
     result = check(records, GOLD)
     assert result["totals"]["FALSCH"] == 0 and result["totals"]["fehlt"] == 0 and result["totals"]["ERFUNDEN"] == 0
     assert result["accuracy"] == 1.0
@@ -77,12 +88,14 @@ def test_check_reproduces_the_real_zeag_errors_from_the_first_extraction():
     records = {"ZEAG_25.pdf": {"filename": "ZEAG_25.pdf", "facts": {
         "provider": "Heilbronner Versorgungs GmbH", "customer_name": "Herr Dennis Gerhardt",
         "doc_type": "Verbrauchsabrechnung / Gebührenbescheid", "doc_date": "04.07.2025", "contract_end": "04.07.2025"}}}
-    result = check(records, {"ZEAG_25.pdf": GOLD["ZEAG_25.pdf"]})
+    gold = {"provider": "Heilbronner Versorgungs GmbH|ZEAG", "doc_date": "04.07.2025", "contract_end": None,
+            "consumption_m3": 76.0, "total_gross_eur": 409.35}     # Auszug aus dem früheren Energie-Prüfset
+    result = check(records, {"ZEAG_25.pdf": gold})
     fields = result["docs"]["ZEAG_25.pdf"]["fields"]
     assert fields["contract_end"]["status"] == "ERFUNDEN"
     assert fields["consumption_m3"]["status"] == "fehlt" and fields["total_gross_eur"]["status"] == "fehlt"
     assert fields["provider"]["status"] == "ok"
-    assert result["accuracy"] < 0.5   # leere Sollfelder zählen als ok, daher keine kleinere Grenze
+    assert result["accuracy"] < 0.5
 
 
 def test_check_reports_missing_records():
@@ -139,14 +152,16 @@ def test_answer_matching_supports_alternatives():
 # ------------------------------------------------------------------ Fragenkatalog für die aktuellen Testbelege
 
 def test_belege_questions_cover_required_test_types():
-    """01.pdf verlangt mindestens 5 Standardfragen, 2 Grenzfälle und 2 Fragen ohne Antwort im Bestand."""
+    """01.pdf verlangt mindestens 5 Standardfragen, 2 Grenzfälle und 2 Fragen ohne Antwort im Bestand; dazu eine
+    Frage, die nur über ein Diagramm (Bildbeschreibung) beantwortbar ist."""
     questions = json.loads((EVAL_DIR / "questions_belege.json").read_text(encoding="utf-8"))
     gold = json.loads((EVAL_DIR / "gold_belege.json").read_text(encoding="utf-8"))
     ids = [q["id"] for q in questions]
     assert len(ids) == len(set(ids))
     counts = {c: sum(1 for q in questions if q["category"] == c) for c in ("standard", "grenzfall", "negativ")}
     assert counts["standard"] >= 5 and counts["grenzfall"] >= 2 and counts["negativ"] >= 2
+    assert any(q["category"] == "multimodal" for q in questions)
     for q in questions:
         assert q["question"].strip().endswith("?") and q["expected_substrings"], q["id"]
         for src in q.get("expected_sources", []):
-            assert src["filename"] in gold or src["filename"] == "Alle6RechnungenSammeldokument.pdf", q["id"]
+            assert src["filename"] in gold or src["filename"] in EXTRA_SOURCES, q["id"]

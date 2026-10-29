@@ -3,96 +3,196 @@
     "id": "werkstatt_betrag",
     "category": "standard",
     "question": "Wie hoch ist der Rechnungsbetrag der Werkstattrechnung von Auto & Service Müller?",
-    "expected_substrings": ["784,21|784.21"],
-    "expected_sources": [{"filename": "Rechnung4WerkstattAutoService.pdf"}, {"filename": "Alle6RechnungenSammeldokument.pdf", "page": 4}],
-    "evidence_substrings": ["784,21"]
+    "expected_substrings": [
+      "784,21|784.21"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung4WerkstattAutoService.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 4
+      }
+    ],
+    "evidence_substrings": [
+      "784,21"
+    ]
   },
   {
     "id": "versicherung_faellig",
     "category": "standard",
     "question": "Bis wann muss der Beitrag der NordStern Kfz-Versicherung bezahlt werden?",
-    "expected_substrings": ["01.11.2026|1. November 2026"],
-    "expected_sources": [{"filename": "Rechnung3VersicherungNordStern.pdf"}, {"filename": "Alle6RechnungenSammeldokument.pdf", "page": 3}],
-    "evidence_substrings": ["01.11.2026"]
+    "expected_substrings": [
+      "01.11.2026|1. November 2026"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung3VersicherungNordStern.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 3
+      }
+    ],
+    "evidence_substrings": [
+      "01.11.2026"
+    ]
   },
   {
     "id": "telekom_kundennummer",
     "category": "standard",
     "question": "Welche Kundennummer hat Thomas Kramer bei ConnectNet?",
-    "expected_substrings": ["KD-849201"],
-    "expected_sources": [{"filename": "Rechnung1TelekomConnectNet.pdf"}, {"filename": "Alle6RechnungenSammeldokument.pdf", "page": 1}],
-    "evidence_substrings": ["KD-849201"]
+    "expected_substrings": [
+      "KD-849201"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung1TelekomConnectNet.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 1
+      }
+    ],
+    "evidence_substrings": [
+      "KD-849201"
+    ]
   },
   {
     "id": "strom_verbrauch",
     "category": "standard",
     "question": "Wie hoch war der Stromverbrauch 2024 laut der Rechnung der Stadtwerke Neckar-Strom?",
-    "expected_substrings": ["3.400|3400"],
-    "expected_sources": [{"filename": "generatedinvoicesStromrechnung2024.pdf"}],
-    "evidence_substrings": ["3.400"]
+    "expected_substrings": [
+      "3.400|3400"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesStromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "3.400"
+    ]
   },
   {
     "id": "edeka_gouda",
     "category": "standard",
     "question": "Was kostete der Gouda von der EDEKA-Bedientheke und wie viel wog er?",
-    "expected_substrings": ["2,18|2.18", "0,245|0.245|245 g"],
-    "expected_sources": [{"filename": "Kassenbon5Edeka.pdf"}],
-    "evidence_substrings": ["Gouda"]
+    "expected_substrings": [
+      "2,18|2.18",
+      "0,245|0.245|245 g"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Kassenbon5Edeka.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Gouda"
+    ]
   },
   {
     "id": "lebensmittel_oktober",
     "category": "standard",
     "question": "Wie viel habe ich im Oktober 2026 für Lebensmittel ausgegeben?",
-    "expected_substrings": ["41,71|41.71"]
+    "expected_substrings": [
+      "41,71|41.71"
+    ]
   },
   {
     "id": "summe_bons_oktober",
     "category": "rechnen",
     "question": "Wie hoch ist die Summe der Gesamtbeträge aller Kassenbons vom Oktober 2026?",
-    "expected_substrings": ["58,73|58.73"]
+    "expected_substrings": [
+      "58,73|58.73"
+    ]
   },
   {
     "id": "graph_mustermann",
     "category": "zusammenhang",
     "question": "Welche Dokumente gehören zur Kundennummer KD-7409218?",
-    "expected_substrings": ["Neckar|generatedinvoicesStromrechnung2024", "Heizstrom|Volt", "Wasser"]
+    "expected_substrings": [
+      "Neckar|generatedinvoicesStromrechnung2024",
+      "Heizstrom|Volt",
+      "Wasser"
+    ]
+  },
+  {
+    "id": "diagramm_hoechster_monat",
+    "category": "multimodal",
+    "question": "In welchem Monat 2025 war der Stromverbrauch laut dem Diagramm in der Verbrauchsübersicht der Stadtwerke Neckar-Strom am höchsten?",
+    "expected_substrings": [
+      "Januar|Jan"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Verbrauchsuebersicht2025.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Januar|Jan"
+    ]
   },
   {
     "id": "wasser_nachzahlung",
     "category": "grenzfall",
     "question": "Wie hoch ist die Nachzahlung laut der Wasserabrechnung 2024?",
-    "expected_substrings": ["42,95|42.95"],
-    "expected_sources": [{"filename": "generatedinvoicesWasserrechnung2024.pdf"}],
-    "evidence_substrings": ["42,95"]
+    "expected_substrings": [
+      "42,95|42.95"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesWasserrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "42,95"
+    ]
   },
   {
     "id": "sammel_rechnungen",
     "category": "grenzfall",
     "question": "Welche Firmen haben die Rechnungen im Sammeldokument Alle6RechnungenSammeldokument.pdf ausgestellt?",
-    "expected_substrings": ["ConnectNet", "LuminaStyle", "NordStern", "Müller", "StreamPulse", "Weber"]
+    "expected_substrings": [
+      "ConnectNet",
+      "LuminaStyle",
+      "NordStern",
+      "Müller",
+      "StreamPulse",
+      "Weber"
+    ]
   },
   {
     "id": "bon_ohne_datum",
     "category": "grenzfall",
     "question": "An welchem Tag wurde der Einkauf auf Bon1_Lidl.png gemacht?",
-    "expected_substrings": ["nicht|kein|unbekannt|ohne"]
+    "expected_substrings": [
+      "nicht|kein|unbekannt|ohne"
+    ]
   },
   {
     "id": "alkohol_oktober",
     "category": "grenzfall",
     "question": "Wie viel habe ich im Oktober 2026 für Alkohol ausgegeben?",
-    "expected_substrings": ["keine|nicht|0,00|0 EUR|kein"]
+    "expected_substrings": [
+      "keine|nicht|0,00|0 EUR|kein"
+    ]
   },
   {
     "id": "negativ_gas",
     "category": "negativ",
     "question": "Wie hoch ist mein Gaspreis pro kWh?",
-    "expected_substrings": ["nicht|keine|kein"]
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
   },
   {
     "id": "negativ_miete",
     "category": "negativ",
     "question": "Wie hoch ist die monatliche Kaltmiete laut meinem Mietvertrag?",
-    "expected_substrings": ["nicht|keine|kein"]
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
   }
 ]

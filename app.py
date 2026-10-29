@@ -20,7 +20,7 @@ from src.config import GRAPH_PATH, PROCESSED_DIR
 from src.enrichment.facts import load_facts
 from src.enrichment.schema import spec_for
 from src.graph.graph_store import DocumentGraph
-from src.ingestion.pipeline import STAGE_KEYS, IngestionContext, get_stage, run_stage
+from src.ingestion.pipeline import STAGE_KEYS, IngestionContext, get_stage, next_stage_models, run_stage
 from src.retrieval.query_rewriter import QueryRewriter
 from src.retrieval.search import search_collection
 from src.utils import SOURCE_SUFFIXES, source_files
@@ -328,7 +328,7 @@ def run_import_chain(rebuild_db: bool = False, target_log_placeholder=None, prog
                     progress_bar.progress(_CHAIN_PROGRESS[min(index, len(_CHAIN_PROGRESS) - 1)],
                                           text=f"{index + 1}/{total}: {stage.label}...")
                 print(f"\n--- SCHRITT {index + 1}/{total}: {stage.label} ---")
-                _record_step(run_stage(key, ctx))
+                _record_step(run_stage(key, ctx, keep_models=next_stage_models(key)))
 
             if progress_bar:
                 progress_bar.progress(100, text="Fertig!")

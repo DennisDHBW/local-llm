@@ -3,12 +3,13 @@
 Aufruf (aus dem Projektstamm):
     uv run python -m evaluation.run_eval --retrieval-only      # schnell, ohne LLM-Agent
     uv run python -m evaluation.run_eval                       # Retrieval + Agentenantworten (langsam auf CPU)
-    uv run python -m evaluation.run_eval --category preis      # nur eine Kategorie
-    uv run python -m evaluation.run_eval --ids berlin1_verbrauch,calc_summe_guthaben
+    uv run python -m evaluation.run_eval --category grenzfall  # nur eine Kategorie
+    uv run python -m evaluation.run_eval --ids werkstatt_betrag,negativ_gas
     uv run python -m evaluation.run_eval --limit 8             # nur die ersten 8 Fragen
-    Kategorien: wert, preis, vertrag, wasser, ueberblick, rechnen, ohne_antwort
+    Kategorien in questions_belege.json: standard, rechnen, zusammenhang, grenzfall, negativ
+    Der Qualitätsbericht mit allen Kennzahlen kommt aus evaluation/quality.py.
 
-Frageformat (evaluation/questions.json), Felder:
+Frageformat (evaluation/questions_belege.json), Felder:
     question             Pflicht
     expected_substrings  Antwort muss ALLE enthalten; Alternativen mit '|' (z. B. "28,45|28.45")
     expected_sources     [{"filename": "X.pdf", "page": 1}] - page optional
@@ -109,7 +110,7 @@ def evaluate_answer(agent: Any, question: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--questions", default=str(EVAL_DIR / "questions.json"))
+    parser.add_argument("--questions", default=str(EVAL_DIR / "questions_belege.json"))
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--retrieval-only", action="store_true")
     parser.add_argument("--category", help="nur Fragen dieser Kategorie (kommagetrennt möglich)")

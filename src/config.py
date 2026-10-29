@@ -67,8 +67,16 @@ USE_QUERY_REWRITER = os.getenv("ENERGY_USE_REWRITER", "0") == "1"
 # Cross-Encoder Reranker für finale Re-Relevanzbewertung nach RRF
 USE_RERANKER = os.getenv("ENERGY_USE_RERANKER", "1") == "1"
 RERANKER_MODEL = os.getenv("ENERGY_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+# Der Standard ist englisch und senkte in der Messung Dokument@1 (97 % ohne, 77 % mit). Mehrsprachige Kandidaten:
+#   cross-encoder/msmarco-MiniLM-L12-en-de-v1    (Englisch/Deutsch, ~0,5 GB)
+#   cross-encoder/mmarco-mMiniLMv2-L12-H384-v1   (mehrsprachig, ~0,5 GB)
+#   BAAI/bge-reranker-v2-m3                      (mehrsprachig, ~2,3 GB RAM, deutlich langsamer auf CPU)
+# Vergleich: evaluation/quality.py --retrieval-only mit ENERGY_RERANKER_MODEL=<Name> (README).
+# Nur lokal laden (kein Zugriff auf den Hugging-Face-Hub; Modell muss einmal heruntergeladen worden sein).
+# Standard 0, damit ein neues Modell beim ersten Mal geladen wird; danach ENERGY_RERANKER_LOCAL_ONLY=1 oder
+# HF_HUB_OFFLINE=1 setzen, dann bleibt die Suche vollständig lokal.
+RERANKER_LOCAL_ONLY = os.getenv("ENERGY_RERANKER_LOCAL_ONLY", os.getenv("HF_HUB_OFFLINE", "0")) == "1"
 # Nur so viele Kandidaten (nach RRF) bewertet der Reranker; spart CPU/RAM bei jeder Suche.
-# Für deutsche Dokumente empfohlen (mehrsprachig, ~0,5 GB): cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 RERANK_TOP_N = int(os.getenv("ENERGY_RERANK_TOP_N", "20"))
 
 # BM25-Index im Speicher: nach dieser Zeit (Sekunden) neu aufbauen, damit ein in einem anderen Prozess

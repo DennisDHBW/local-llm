@@ -27,12 +27,23 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.config import DATA_DIR, GRAPH_PATH, PARSER_MODEL, PROCESSED_DIR, graph_path_for
+from src.config import (
+    CAPTION_MODEL,
+    DATA_DIR,
+    EMBED_MODEL,
+    FACTS_MODEL,
+    GRAPH_PATH,
+    PARSER_MODEL,
+    PROCESSED_DIR,
+    SUMMARY_MODEL,
+    graph_path_for,
+)
 from src.enrichment.captioner import ImageCaptioner
 from src.enrichment.facts import FactExtractor
 from src.enrichment.summarizer import TableSummarizer
 from src.graph.graph_store import DocumentGraph
 from src.ingestion.parser import DocumentChunk, DocumentParser
+from src.model_memory import release_models
 from src.retrieval.vector_store import VectorStore
 from src.utils import atomic_write_json, source_files
 
@@ -304,6 +315,24 @@ STAGES: tuple[Stage, ...] = (
 )
 STAGE_KEYS = tuple(stage.key for stage in STAGES)
 
+# Ollama-Modelle je Schritt. Nach einem Schritt werden seine Modelle entladen, sofern der nächste Schritt sie nicht
+# braucht (summarize und facts nutzen standardmäßig beide qwen2.5:7b, das bleibt dazwischen geladen).
+STAGE_MODELS: dict[str, tuple[str, ...]] = {
+    "parse": (PARSER_MODEL,),
+    "caption": (CAPTION_MODEL,),
+    "summarize": (SUMMARY_MODEL,),
+    "facts": (FACTS_MODEL,),
+    "index": (EMBED_MODEL,),
+    "graph": (),
+}
+
+
+def next_stage_models(key: str, stages: Sequence[str] = STAGE_KEYS) -> tuple[str, ...]:
+    """Modelle des Schritts nach `key` in `stages` (leer für den letzten Schritt)."""
+    stages = list(stages)
+    position = stages.index(key) if key in stages else -1
+    return STAGE_MODELS.get(stages[position + 1], ()) if 0 <= position < len(stages) - 1 else ()
+
 
 def get_stage(key: str) -> Stage:
     for stage in STAGES:
@@ -312,11 +341,19 @@ def get_stage(key: str) -> Stage:
     raise KeyError(f"Unbekannter Importschritt '{key}'. Erlaubt: {', '.join(STAGE_KEYS)}")
 
 
-def run_stage(key: str, ctx: IngestionContext) -> StageResult:
-    """Führt einen Schritt aus. Ausnahmen werden nicht verschluckt: der Aufrufer entscheidet über den Abbruch."""
+def run_stage(key: str, ctx: IngestionContext, keep_models: Iterable[str] = (), release: bool = True) -> StageResult:
+    """Führt einen Schritt aus. Ausnahmen werden nicht verschluckt: der Aufrufer entscheidet über den Abbruch.
+
+    Danach (auch nach einem Fehler) werden die Ollama-Modelle des Schritts entladen, außer denen in `keep_models`
+    (z. B. das Modell des nächsten Schritts). `release=False` lässt alles geladen.
+    """
     stage = get_stage(key)
     print(f"=== {stage.label}: {stage.title} ===")
-    info = stage.run(ctx)
+    try:
+        info = stage.run(ctx)
+    finally:
+        if release:
+            release_models(STAGE_MODELS.get(key, ()), keep=keep_models)
     return StageResult(stage.key, stage.label, True, info)
 
 
@@ -335,7 +372,7 @@ def run_pipeline(
         stage = get_stage(key)
         if on_stage:
             on_stage(stage, index, len(stages))
-        results.append(run_stage(key, ctx))
+        results.append(run_stage(key, ctx, keep_models=next_stage_models(key, stages)))
     return results
 
 
