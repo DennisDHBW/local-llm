@@ -26,6 +26,14 @@ MIN_TEXT_CHUNK_CHARS = 20
 MAX_MERGED_CHUNK_CHARS = 2000
 # OCR liest "1,25" gern als "1, 25". Im Zeilenmodus (Beträge in Spalten) wird das zusammengezogen.
 _OCR_SPLIT_AMOUNT_RE = re.compile(r"(\d),\s+(\d{2})(?!\d)")
+# Tabellen, bei denen pymupdf nur die (hinterlegte) Kopfzeile erkennt: Die Datenzeilen darunter haben keine Linien
+# und landeten bisher als Textzeilen OHNE Spaltenbezug ("WAS-449201 842,0 m³ 967,0 m³ Selbstablesung 125,0 m³" -
+# welcher Wert ist der Verbrauch?). Sie werden aus den Wortpositionen unter der Kopfzeile rekonstruiert.
+TABLE_GAP_FACTOR = 3.2          # größerer Abstand (in Zeilenhöhen) beendet die Tabelle
+TABLE_ATTACH_FACTOR = 2.2       # Folgezeilen mit nur einer Zelle gehören zur nächstgelegenen Datenzeile
+MAX_RECONSTRUCTED_ROWS = 40
+_VALUE_CELL_RE = re.compile(r"\d+,\d+|\d{1,3}\.\d{3}\b")
+_SECTION_LINE_RE = re.compile(r"^(?:\d{1,2}\.|[IVX]{1,4}\.)\s+[A-ZÄÖÜ]|^\*")
 
 
 def group_rows(items: list[tuple[float, float, float, str]], tolerance: float = ROW_TOLERANCE) -> list[str]:
@@ -160,6 +168,81 @@ class DocumentParser:
         if current:
             chunks.append(current)
         return chunks
+
+    def _is_header_only_table(self, rows: list[list[Any]]) -> bool:
+        """Nur Kopf-/Titelzeilen erkannt (keine Datenzeile), die letzte mit mindestens zwei Spaltennamen."""
+        filled = [row for row in rows if any(cell for cell in row)]
+        if not filled or sum(1 for cell in filled[-1] if cell and str(cell).strip()) < 2:
+            return False
+        # Spaltennamen wie "Netto (€)" oder "Alt (01.01.2024)" sind keine Daten; Daten sind Beträge/Mengen.
+        return not any(_VALUE_CELL_RE.search(str(cell)) for row in filled for cell in row if cell)
+
+    @staticmethod
+    def reconstruct_rows(page: Any, table: Any, other_tables: list[Any]) -> list[str]:
+        """Datenzeilen unter einer Kopfzeile aus Wortpositionen: Wort -> Spalte über die x-Bereiche der Kopfzellen.
+
+        Mehrzeilige Beschreibungen (Zeilen mit nur einer Zelle) werden der nächstgelegenen Datenzeile zugeordnet.
+        Ende: großer Abstand, nächste Tabelle, Abschnittsüberschrift ("3. Abrechnungssaldo") oder Fußnote ("*").
+        Ergebnis: "Spalte: Wert | Spalte: Wert" je Datenzeile."""
+        rows = table.extract()
+        header_index = len(rows) - 1
+        try:
+            cells = table.rows[header_index].cells
+        except (AttributeError, IndexError):
+            return []
+        columns = [(cell[0], cell[2], str(text).replace("\n", " ").strip())
+                   for cell, text in zip(cells, rows[header_index], strict=False) if cell and text and str(text).strip()]
+        if len(columns) < 2:
+            return []
+        x0, top, x1 = table.bbox[0], table.bbox[3], table.bbox[2]
+        below = [other.bbox[1] for other in other_tables if other.bbox[1] > top]
+        bottom = min(below) if below else page.rect.y1
+        words = [w for w in page.get_text("words") or []
+                 if w[1] >= top - 1 and w[3] <= bottom and w[0] >= x0 - 3 and w[2] <= x1 + 3]
+        words.sort(key=lambda w: ((w[1] + w[3]) / 2, w[0]))
+        lines: list[dict[str, Any]] = []
+        for w in words:
+            center, height = (w[1] + w[3]) / 2, w[3] - w[1]
+            if lines and abs(lines[-1]["y"] - center) <= 0.5 * height:
+                lines[-1]["words"].append(w)
+            else:
+                lines.append({"y": center, "h": height, "words": [w]})
+        if not lines:
+            return []
+        line_height = median(line["h"] for line in lines) or 10.0
+
+        def column_of(x_center: float) -> int:
+            def distance(i: int) -> float:
+                left, right = columns[i][0], columns[i][1]
+                return 0.0 if left <= x_center <= right else min(abs(x_center - left), abs(x_center - right))
+            return min(range(len(columns)), key=distance)
+
+        parsed: list[dict[str, Any]] = []
+        previous = top
+        for line in lines[:MAX_RECONSTRUCTED_ROWS * 3]:
+            text = " ".join(w[4] for w in sorted(line["words"], key=lambda w: w[0]))
+            if line["y"] - previous > TABLE_GAP_FACTOR * line_height or _SECTION_LINE_RE.match(text):
+                break
+            previous = line["y"]
+            values: dict[int, list[str]] = {}
+            for w in sorted(line["words"], key=lambda w: w[0]):
+                values.setdefault(column_of((w[0] + w[2]) / 2), []).append(str(w[4]))
+            parsed.append({"y": line["y"], "values": {i: " ".join(v) for i, v in values.items()}})
+
+        anchors = [row for row in parsed if len(row["values"]) >= 2]
+        if not anchors:
+            return []
+        for row in parsed:
+            if len(row["values"]) >= 2:
+                continue
+            nearest = min(anchors, key=lambda a: abs(a["y"] - row["y"]))
+            if abs(nearest["y"] - row["y"]) > TABLE_ATTACH_FACTOR * line_height:
+                continue
+            for i, value in row["values"].items():
+                old = nearest["values"].get(i, "")
+                nearest["values"][i] = (f"{value} {old}" if row["y"] < nearest["y"] else f"{old} {value}").strip()
+        return [" | ".join(f"{columns[i][2]}: {a['values'][i]}" for i in sorted(a["values"]))
+                for a in anchors[:MAX_RECONSTRUCTED_ROWS]]
 
     @staticmethod
     def _is_header_row(first_row: list[Any]) -> bool:
@@ -548,6 +631,24 @@ Textauszug:
                             page_number=page_num,
                             metadata=chunk_meta
                         ))
+                    if self._is_header_only_table(rows):
+                        others = [other for other in tables.tables if other is not table]
+                        rebuilt = self.reconstruct_rows(page, table, others)
+                        columns = [str(c).replace("\n", " ").strip() for c in rows[-1] if c and str(c).strip()]
+                        for r_idx, row_content in enumerate(rebuilt):
+                            chunk_meta = dict(base_chunk_meta)
+                            # "reconstructed": nicht in den Fakten-Quelltext (dort stehen dieselben Werte schon als
+                            # Textzeilen; so bleibt die Fakten-Extraktion unverändert und muss nicht neu laufen).
+                            chunk_meta.update({"table_id": table_id, "columns": columns, "reconstructed": True,
+                                               "continued_from_page": None})
+                            chunks.append(DocumentChunk(
+                                chunk_id=f"{doc_stem}_p{page_num}_tbl{t_idx}_x{r_idx}",
+                                chunk_type="table_row",
+                                content=row_content,
+                                heading_stack=list(table_stack),
+                                page_number=page_num,
+                                metadata=chunk_meta,
+                            ))
                     previous_table = {
                         "page_number": page_num,
                         "headers": headers,

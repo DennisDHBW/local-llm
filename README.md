@@ -54,16 +54,22 @@ Wird stattdessen ein Python-Prozess beendet (Exit 137, `Out of memory` in `journ
 Reranker und Modell zusammen: Browser schließen, die Evaluation satzweise starten (`--sets A`) oder
 `ENERGY_USE_RERANKER=0` setzen.
 
-## Wie eine Frage beantwortet wird (Stand Paket 7)
+## Wie eine Frage beantwortet wird (Stand Paket 7b)
 
 1. **Vorab-Suche („retrieval first“)**: hybride Suche (Vektor + BM25, optional Reranker) holt die 5 besten Textstellen.
    Jede Stelle trägt einen Kontextkopf (Dokumentart, Absender, Kunde, Datum, Nummer aus den geprüften Fakten) und
    ihre Nachbarzeilen (`src/retrieval/context.py`), fast gleiche Fenster werden aussortiert.
-2. **Agent**: sieht Frage und Treffer. Reichen sie, antwortet er direkt; sonst ruft er Werkzeuge auf (Bonpositionen,
+2. **Adaptive Weiche**: Fragen ohne Hinweis auf Rechnen, Zählen, Listen über mehrere Dokumente, Kategorien oder
+   Ausgabedateien beantwortet zuerst der **Kurzweg** (Treffer -> Antwort, ein Modellaufruf). Meldet er „nicht
+   enthalten“, übernimmt der Agent (`ENERGY_AGENT_FAST_PATH=0` = immer Agent).
+3. **Agent**: sieht Frage und Treffer. Reichen sie, antwortet er direkt; sonst ruft er Werkzeuge auf (Bonpositionen,
    Rechnen, Kerndaten, Graph, gezielte Suche, Diagramme). Kündigt er nur einen Schritt an, wird er zum Ausführen
    aufgefordert.
-3. **Antwort**: Der Synthesizer formuliert aus Werkzeugergebnissen und Treffern eine Antwort mit [n]-Quellen; Zahlen,
+4. **Antwort**: Der Synthesizer formuliert aus Werkzeugergebnissen und Treffern eine Antwort mit [n]-Quellen; Zahlen,
    die in keiner Quelle stehen, lösen eine Korrektur bzw. einen Hinweis aus.
+
+Tabellen, bei denen nur die Kopfzeile als Tabelle erkannt wird (Datenzeilen ohne Linien), rekonstruiert der Parser
+aus den Wortpositionen („Verbrauch: 125,0 m³“ statt einer Zeile ohne Spaltenbezug).
 
 `ENERGY_AGENT_PRE_RETRIEVAL_K=0` schaltet Schritt 1 ab (Verhalten bis Paket 6), `ENERGY_WINDOW_MIN_CHARS=0` die
 Nachbarzeilen (danach neu indizieren: `uv run python -m src.ingestion.pipeline --stage index`).
@@ -75,8 +81,8 @@ Nachbarzeilen (danach neu indizieren: `uv run python -m src.ingestion.pipeline -
   gleichzeitig im RAM. Die Testläufe geben am Ende Reranker und Modelle ebenfalls frei.
 - Empfohlene Ollama-Einstellungen (`sudo systemctl edit ollama`):
   `OLLAMA_MAX_LOADED_MODELS=2` (Agent + Embedding, sonst lädt jede Suche das Sprachmodell neu),
-  `OLLAMA_NUM_PARALLEL=2` (zwei Zwischenspeicher für Prompts: Agent und Antwort verdrängen sich nicht gegenseitig,
-  der lange Systemprompt muss seltener neu verarbeitet werden; kostet ~0,5 GB), `OLLAMA_KEEP_ALIVE=30s`.
+  `OLLAMA_NUM_PARALLEL=1` (mit 2 stürzte Ollama in Paket 7 während der Messung ab, schneller wurde es nicht),
+  `OLLAMA_KEEP_ALIVE=30s`.
 - Reranker: wird einmal pro Prozess geladen; ein Ladefehler steht im Log und im Qualitätsbericht (früher lief die
   Suche dann unbemerkt ohne Reranker). Nach dem ersten Herunterladen `ENERGY_RERANKER_LOCAL_ONLY=1` (oder
   `HF_HUB_OFFLINE=1`) setzen: dann gibt es keinen Zugriff auf den Hugging-Face-Hub mehr, alles bleibt lokal.

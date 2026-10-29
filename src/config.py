@@ -66,8 +66,9 @@ USE_QUERY_REWRITER = os.getenv("ENERGY_USE_REWRITER", "0") == "1"
 
 # Cross-Encoder Reranker für finale Re-Relevanzbewertung nach RRF
 USE_RERANKER = os.getenv("ENERGY_USE_RERANKER", "1") == "1"
-RERANKER_MODEL = os.getenv("ENERGY_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-# Der Standard ist englisch und senkte in der Messung Dokument@1 (97 % ohne, 77 % mit). Mehrsprachige Kandidaten:
+RERANKER_MODEL = os.getenv("ENERGY_RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+# Standard seit Paket 7: mehrsprachiger Cross-Encoder, gewählt per evaluation/pick_reranker.py nur auf Testsatz A+B
+# (MRR 0,92 gegenüber 0,75 ohne Reranker und 0,88 mit dem früheren englischen Standard). Kandidaten:
 #   cross-encoder/msmarco-MiniLM-L12-en-de-v1    (Englisch/Deutsch, ~0,5 GB)
 #   cross-encoder/mmarco-mMiniLMv2-L12-H384-v1   (mehrsprachig, ~0,5 GB)
 #   BAAI/bge-reranker-v2-m3                      (mehrsprachig, ~2,3 GB RAM, deutlich langsamer auf CPU)
@@ -89,6 +90,9 @@ WINDOW_MAX_NEIGHBORS = int(os.getenv("ENERGY_WINDOW_MAX_NEIGHBORS", "2"))
 # Platz 1 der Suche stand; die einfache Pipeline (Suche + Antwort) war auf dem zurückgehaltenen Satz besser.
 # 0 = aus (früheres Verhalten).
 AGENT_PRE_RETRIEVAL_K = int(os.getenv("ENERGY_AGENT_PRE_RETRIEVAL_K", "5"))
+# Kurzweg: Fragen ohne Hinweis auf Rechnen/Listen/Kategorien/Ausgabedateien zuerst nur aus den Vorab-Treffern
+# beantworten (wie die einfache Pipeline); "nicht enthalten" -> der Agent übernimmt. 0 = immer der volle Agent.
+AGENT_FAST_PATH = os.getenv("ENERGY_AGENT_FAST_PATH", "1") == "1"
 # So viele Zeichen je Vorab-Treffer sieht das Agentenmodell (die Antwort bekommt den vollen Treffer).
 AGENT_PRE_SNIPPET_CHARS = int(os.getenv("ENERGY_AGENT_PRE_SNIPPET_CHARS", "400"))
 

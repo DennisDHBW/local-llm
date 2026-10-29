@@ -21,6 +21,7 @@ os.environ.setdefault("ENERGY_USE_RERANKER", "0")
 # Die älteren Agententests prüfen die Werkzeugschleife Schritt für Schritt; die Vorab-Suche ("retrieval first")
 # schalten die Tests in tests/test_paket7_qualitaet.py gezielt ein.
 os.environ.setdefault("ENERGY_AGENT_PRE_RETRIEVAL_K", "0")
+os.environ.setdefault("ENERGY_AGENT_FAST_PATH", "0")
 
 _OLLAMA_FUNCTIONS = ("chat", "generate", "embed", "embeddings", "ps")
 

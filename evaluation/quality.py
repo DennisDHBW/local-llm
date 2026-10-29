@@ -73,6 +73,10 @@ ABSTAIN_RE = re.compile(r"\b(nicht|kein|keine|keinen|keiner|unbekannt|ohne)\b", 
 NO_ANSWER_CATEGORIES = {"negativ"}
 # Verneinung in einem Satz: "Für EDEKA wurden keine Positionen gefunden" enthält "EDEKA", ist aber keine Antwort.
 NEGATION_RE = re.compile(r"\b(nicht|kein|keine|keinen|keiner|keines|fehlt|fehlen|unbekannt)\b", re.IGNORECASE)
+# Antwort ist eine Fehlermeldung (Ollama abgestürzt/nicht erreichbar, Ausnahme): zählt weder als richtig noch als
+# Enthaltung, sondern als Fehler; --resume misst solche Fragen erneut. (Paket 7: zwei Abstürze wurden als
+# "korrekt abgelehnt" gewertet, weil die Fehlermeldung "nicht erreichbar" enthielt.)
+ERROR_ANSWER_RE = re.compile(r"^\s*(?:⚠️|FEHLER:|Abbruch:)")
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
@@ -208,6 +212,9 @@ def answer_scores(question: Mapping[str, Any], answer: str, evidence_texts: Sequ
         result["abstained"] = bool(ABSTAIN_RE.search(body)) and not missing
         result["correct"] = result["abstained"]
         result["negated"] = False
+    if ERROR_ANSWER_RE.match(answer or ""):
+        result.update(correct=False, negated=False, error=True)
+        result.pop("abstained", None)
     return result
 
 
@@ -235,8 +242,11 @@ def reviewed_correct(answer: Mapping[str, Any]) -> bool:
 
 def summarize(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     retrieval = [r["retrieval"] for r in rows if r.get("retrieval")]
-    answers = [r["answer"] for r in rows if r.get("answer")]
+    answers = [r["answer"] for r in rows if r.get("answer") and not r["answer"].get("error")]
+    errors = sum(1 for r in rows if r.get("answer") and r["answer"].get("error"))
     out: dict[str, Any] = {"fragen": len(rows), "ci": {}, "n": {}}
+    if errors:
+        out["fehler_n"] = errors
 
     def binary(key: str, flags: Sequence[bool]) -> None:
         flags = list(flags)
@@ -367,6 +377,19 @@ def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extractio
         lines.append(f"| {level} | {label} | {definition} | {ragas} | {cells} |")
     lines.append("| Umfang | n Retrieval / n Antworten | bewertete Fragen | - | "
                  + " | ".join(f"{sums[n].get('retrieval_n', 0)} / {sums[n].get('antworten_n', 0)}" for n in names) + " |")
+    if any(sums[n].get("fehler_n") for n in names):
+        lines.append("| Umfang | Fehler (Modell nicht erreichbar) | nicht bewertet, mit --resume wiederholen | - | "
+                     + " | ".join(str(sums[n].get("fehler_n", 0)) for n in names) + " |")
+    routed = [r["answer"] for r in rows if r.get("answer") and r["answer"].get("route") and not r["answer"].get("error")]
+    if routed:
+        lines += ["", "## Weg je Frage (adaptive Weiche)", "",
+                  "Kurzweg = Vorab-Treffer -> Antwort; Agent = Werkzeugschleife; Kurzweg->Agent = Kurzweg fand nichts.", "",
+                  "| Weg | Fragen | korrekt (geprüft) | Dauer je Frage [s] |", "| --- | ---: | ---: | ---: |"]
+        for route in sorted({a["route"] for a in routed}):
+            items = [a for a in routed if a["route"] == route]
+            secs = _mean(a["seconds"] for a in items) or 0.0
+            lines.append(f"| {route} | {len(items)} | {sum(1 for a in items if reviewed_correct(a))}/{len(items)} | "
+                         f"{secs:.0f} |")
     for name in [n for n in AGENT_SETS if n in names]:
         lines += ["", f"## Testsatz {name} nach Kategorie", "",
                   "| Kategorie | Fragen | Korrekt | Korrekt (geprüft) | Kontext-Recall@5 |", "| --- | ---: | ---: | ---: | ---: |"]
@@ -396,7 +419,9 @@ def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extractio
         r, a = row.get("retrieval"), row.get("answer")
         rtext = "-" if not r else (f"Rang {r['rank']}" if r["rank"] else "nicht in Top 10")
         atext = "-"
-        if a:
+        if a and a.get("error"):
+            atext = "FEHLER (nicht bewertet)"
+        elif a:
             atext = "richtig" if reviewed_correct(a) else "falsch"
             if a.get("manual") is not None and bool(a["manual"]) != bool(a["correct"]):
                 atext += " (geprüft)"
@@ -412,9 +437,12 @@ def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extractio
 # ------------------------------------------------------------------------------------------------ Ablauf
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Zeilen eines Laufs; wurde eine Frage erneut gemessen (--resume nach Fehler), gilt die letzte Zeile."""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    latest = {row.get("id"): index for index, row in enumerate(rows)}
+    return [row for index, row in enumerate(rows) if latest.get(row.get("id")) == index]
 
 
 def review_path(log: Path) -> Path:
@@ -466,6 +494,20 @@ def _load_sets(ids: str | None) -> dict[str, list[dict[str, Any]]]:
         wanted = {i.strip() for i in ids.split(",")}
         sets = {name: [q for q in items if q["id"] in wanted] for name, items in sets.items()}
     return {"A": sets["A"], "B": synthetic_questions(gold), "C": sets["C"], "D": sets["D"]}
+
+
+def wait_for_ollama(timeout: float = 180.0, interval: float = 10.0) -> bool:
+    """Wartet, bis Ollama wieder antwortet (systemd startet es nach einem Absturz neu). True = erreichbar."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            import ollama
+            ollama.ps()
+            return True
+        except Exception:  # noqa: BLE001
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(interval)
 
 
 def _reranker_meta() -> dict[str, Any]:
@@ -544,7 +586,8 @@ def main() -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
     started = datetime.now()
     log = Path(args.resume) if args.resume else RESULTS_DIR / f"qualitaet_{started:%Y%m%d_%H%M%S}.jsonl"
-    rows = _load_jsonl(log)
+    # Fragen, deren Antwort ein Fehler war (z. B. Ollama abgestürzt), werden beim Fortsetzen neu gemessen.
+    rows = [r for r in _load_jsonl(log) if not (r.get("answer") or {}).get("error")]
     done = {r["id"] for r in rows}
     repeat = max(1, args.repeat)
     meta = {"started": f"{started:%d.%m.%Y %H:%M}", "k": args.k, **_reranker_meta(),
@@ -559,37 +602,60 @@ def main() -> None:
         agent = ReActAgent()
 
     where = {"chunk_type": {"$in": ["text", "table_row", "image"]}}
+
+    def ask(q: Mapping[str, Any]) -> dict[str, Any]:
+        steps = {"n": 0}
+
+        def callback(event: dict, _steps: dict = steps) -> None:
+            if event.get("type") == "action_execution":
+                _steps["n"] += 1
+
+        start = time.perf_counter()
+        try:
+            answer = agent.run(q["question"], callback=callback)
+        except Exception as exc:  # noqa: BLE001 - die Messung soll nie abbrechen
+            answer = f"FEHLER: {exc}"
+        evidence = [str(e.get("content", "")) for e in getattr(agent, "last_evidence", [])]
+        return {"text": answer, "seconds": round(time.perf_counter() - start, 1), "tool_calls": steps["n"],
+                "route": getattr(agent, "last_route", ""), **answer_scores(q, answer, evidence)}
+
+    stopped = False
     try:
         for set_name, questions in sets.items():
             for q in questions:
-                if q["id"] in done:
+                if q["id"] in done or stopped:
                     continue
                 row: dict[str, Any] = {"id": q["id"], "set": set_name, "category": q.get("category", ""),
                                        "question": q["question"]}
-                if q.get("expected_sources"):
+                try:
+                    if q.get("expected_sources"):
+                        hits = search_collection(collection, embed_query(q["question"], EMBED_MODEL), q["question"],
+                                                 top_k=max(args.k, 10), where=where)
+                        row["retrieval"] = retrieval_scores(hits, q, args.k)
+                except Exception as exc:  # noqa: BLE001 - z. B. Ollama (Embedding) abgestürzt
+                    print(f"- [{set_name}] {q['id']}: Suche fehlgeschlagen ({type(exc).__name__}); warte auf Ollama ...",
+                          flush=True)
+                    if not wait_for_ollama():
+                        stopped = True
+                        continue
                     hits = search_collection(collection, embed_query(q["question"], EMBED_MODEL), q["question"],
                                              top_k=max(args.k, 10), where=where)
                     row["retrieval"] = retrieval_scores(hits, q, args.k)
                 if agent is not None and q["id"] in agent_ids:
                     runs = []
                     for _ in range(repeat):
-                        steps = {"n": 0}
-
-                        def callback(event: dict, _steps: dict = steps) -> None:
-                            if event.get("type") == "action_execution":
-                                _steps["n"] += 1
-
-                        start = time.perf_counter()
-                        try:
-                            answer = agent.run(q["question"], callback=callback)
-                        except Exception as exc:  # noqa: BLE001 - die Messung soll nie abbrechen
-                            answer = f"FEHLER: {exc}"
-                        evidence = [str(e.get("content", "")) for e in getattr(agent, "last_evidence", [])]
-                        runs.append({"text": answer, "seconds": round(time.perf_counter() - start, 1),
-                                     "tool_calls": steps["n"], **answer_scores(q, answer, evidence)})
+                        run = ask(q)
+                        if run.get("error"):
+                            # Einmal warten und wiederholen: ein Ollama-Absturz soll keine Frage kosten.
+                            print(f"  Fehlerantwort ({run['text'][:80]}); warte auf Ollama und wiederhole ...", flush=True)
+                            if wait_for_ollama():
+                                run = ask(q)
+                        runs.append(run)
                     row["answer"] = combine_runs(q, runs)
                     if repeat > 1:
                         row["runs"] = runs
+                    if row["answer"].get("error") and not wait_for_ollama(timeout=5):
+                        stopped = True
                 rows.append(row)
                 with log.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -603,6 +669,9 @@ def main() -> None:
         release_reranker()
         release_models([AGENT_MODEL, EMBED_MODEL])
 
+    if stopped:
+        print(f"\nOllama nicht erreichbar - Messung angehalten. Fortsetzen mit:\n"
+              f"  uv run python -m evaluation.quality --sets {args.sets} --resume {log}", flush=True)
     _finish(log, rows, meta, sets)
 
 

@@ -50,7 +50,8 @@ from src.utils import atomic_write_json, source_files
 # Manifest der bereits geparsten Quelldateien (Datei-Hash). Unveränderte Dateien werden nicht erneut geparst:
 # das spart je Dokument den Metadaten-LLM-Aufruf und erhält Bildbeschreibungen und Tabellen-Summaries.
 # Erhöhen, wenn sich parser.py so ändert, dass alle Dokumente neu zerlegt werden sollen.
-PARSE_CACHE_VERSION = 1
+# 2: Tabellen mit nur erkannter Kopfzeile -> Datenzeilen rekonstruiert (Paket 7b).
+PARSE_CACHE_VERSION = 2
 MANIFEST_NAME = ".ingest_manifest.json"
 RAW_DIR = DATA_DIR / "raw"
 

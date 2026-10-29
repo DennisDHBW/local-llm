@@ -631,6 +631,8 @@ class FactExtractor:
             c for c in chunks
             if c.get("chunk_type") in ("text", "heading", "table_row")
             and not c.get("metadata", {}).get("is_table_summary")
+            # Rekonstruierte Tabellenzeilen (Parser) wiederholen Werte, die als Textzeilen schon im Quelltext stehen.
+            and not c.get("metadata", {}).get("reconstructed")
         ]
         items.sort(key=lambda c: c.get("page_number", 0))
         lines: list[str] = []

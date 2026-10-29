@@ -24,7 +24,7 @@ import ollama
 from src.agent.synthesizer import SourceSynthesizer, number_check_note, unsupported_numbers
 from src.agent.tools import TOOL_SCHEMAS, AgentTools, select_tool_schemas
 from src.config import (
-    AGENT_MODEL, AGENT_PRE_RETRIEVAL_K, AGENT_PRE_SNIPPET_CHARS, CHECK_NUMBERS, CONTEXT_WARN_RATIO,
+    AGENT_FAST_PATH, AGENT_MODEL, AGENT_PRE_RETRIEVAL_K, AGENT_PRE_SNIPPET_CHARS, CHECK_NUMBERS, CONTEXT_WARN_RATIO,
     MAX_OBSERVATION_CHARS, NUM_CTX, SYNTH_MODEL, USE_SYNTHESIZER, ollama_options,
 )
 from src.enrichment.facts import load_facts
@@ -102,6 +102,32 @@ _ANNOUNCE_RE = re.compile(
     re.IGNORECASE,
 )
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+# Adaptive Weiche (vgl. Adaptive-RAG, Jeong et al. 2024): Fragen ohne Hinweis auf Rechnen, Zählen, Listen über
+# mehrere Dokumente, Kategorien oder Ausgabedateien beantwortet zuerst der Kurzweg (Vorab-Treffer -> Antwort, wie die
+# einfache Pipeline, ~1/3 der Zeit). Meldet der Kurzweg "nicht enthalten", übernimmt der Agent (Korrekturschritt).
+TOOL_INTENT_RE = re.compile(
+    r"\b(?:summe\w*|summier\w*|insgesamt|zusammen|ausgegeben|ausgaben|kategorie\w*|"
+    r"(?:torten|balken|linien|kreis|säulen)diagramm\w*|markdown|csv|vergleich\w*|unterschied\w*|differenz\w*|"
+    r"durchschnitt\w*|mittelwert|wie\s+viele|anzahl|"
+    r"welche[nrsm]?\s+(?:dokumente?|rechnungen?|belege?|bons?|kassenbons?|firmen|händler|verträge?|positionen)|"
+    r"auf\s+welchen|alle[nrs]?|gehör\w*|zusammenhang\w*|entwicklung|verlauf|trend|pro\s+monat|je\s+monat|"
+    r"berechne|rechne|ausrechn\w*|prozent\w*|erstell\w*|zeichne\w*|zeige?\s+mir)\b|%",
+    re.IGNORECASE,
+)
+# Antwort des Kurzwegs, die nichts gefunden hat -> an den Agenten übergeben (lieber einmal zu oft: kostet nur Zeit).
+_FOUND_WORDS = r"(?:enthalten|angegeben|vorhanden|gefunden|aufgeführt|genannt|bestimmt|ersichtlich|erwähnt|" \
+               r"beantwortet|ermittelt|ausgewiesen|verfügbar)"
+NOT_FOUND_RE = re.compile(
+    rf"\b(?:nicht\s+(?:\w+\s+){{0,5}}{_FOUND_WORDS}|kein\w*\s+(?:\w+\s+){{0,5}}{_FOUND_WORDS}|"
+    r"enth(?:ält|alten)\s+(?:\w+\s+){0,2}kein\w*|kein\w*\s+(?:\w+\s+){0,2}(?:informationen|angaben|daten|"
+    r"hinweise|dokumente?|rechnung\w*|quellen?)|liegt\s+kein\w*|fehl(?:t|en)\s+in\s+den\s+quellen)\b",
+    re.IGNORECASE,
+)
+
+
+def needs_tools(query: str) -> bool:
+    """Deutet die Frage auf Rechnen, Zählen, Listen, Kategorien, Zusammenhänge oder eine Ausgabedatei hin?"""
+    return bool(TOOL_INTENT_RE.search(str(query or "")))
 _OLLAMA_ERRORS = (*OLLAMA_DOWN_ERRORS, ollama.ResponseError)
 
 
@@ -228,6 +254,8 @@ class ReActAgent:
         self.last_evidence: list[dict] = []
         self.last_files: list[str] = []   # in der letzten Frage erzeugte Dateien (Diagramme, Berichte, CSV)
         self.pre_retrieval_k = AGENT_PRE_RETRIEVAL_K
+        self.fast_path = AGENT_FAST_PATH
+        self.last_route = ""     # "kurzweg", "agent" oder "kurzweg->agent" (für Auswertung und Anzeige)
         self._pre_evidence: list[dict] = []
         self._schema_ids: set[str] | None = None   # Schemata im Bestand (für typbezogene Werkzeuge)
 
@@ -277,6 +305,18 @@ class ReActAgent:
             callback({"type": "observation_result", "iteration": 0, "observation": result.text})
         return list(result.evidence)
 
+    def _fast_answer(self, query: str) -> str:
+        """Kurzweg: Antwort nur aus den Vorab-Treffern (ein Modellaufruf). Leer, wenn er nichts Brauchbares liefert."""
+        selected = self._select_evidence(list(self._pre_evidence))
+        try:
+            answer = self.synthesizer.generate_answer(query, selected)
+            if CHECK_NUMBERS:
+                answer = self._repair_unsupported_numbers(query, selected, answer)
+        except Exception as exc:  # noqa: BLE001 - dann eben der Agent
+            logger.warning("Kurzweg fehlgeschlagen: %s", exc)
+            return ""
+        return "" if not answer or NOT_FOUND_RE.search(answer) else answer
+
     def _finish(
         self,
         query: str,
@@ -284,6 +324,7 @@ class ReActAgent:
         evidence: list[dict],
         callback: Callable[[dict], None] | None,
         iteration: int,
+        synthesized: str | None = None,
     ) -> str:
         # Werkzeugergebnisse zuerst (berechnete Summen, Bonpositionen, Kerndaten), danach die Vorab-Treffer.
         pre_ids = {item.get("id") for item in self._pre_evidence}
@@ -291,7 +332,16 @@ class ReActAgent:
         selected = self._select_evidence(evidence)
         self.last_evidence = selected
         answer = draft
-        if selected and (self.use_synthesizer or not draft):
+        if selected and synthesized:
+            answer = synthesized
+            sources = self.synthesizer.format_sources(selected, answer)
+            if sources:
+                answer = f"{answer}\n\n{sources}"
+            if CHECK_NUMBERS:
+                note = number_check_note(query, selected, answer)
+                if note:
+                    answer = f"{answer}\n\n{note}"
+        elif selected and (self.use_synthesizer or not draft):
             try:
                 answer = self.synthesizer.generate_answer(query, selected)
                 if CHECK_NUMBERS:
@@ -368,6 +418,16 @@ class ReActAgent:
         if self._pre_evidence:
             # Nach dem (gleichbleibenden) Systemprompt: Ollama kann dessen Verarbeitung zwischenspeichern.
             user_content += f"\n\n{PRE_RETRIEVAL_INTRO}\n{format_pre_hits(self._pre_evidence)}"
+        self.last_route = "agent"
+        if self.fast_path and self._pre_evidence and not needs_tools(user_query):
+            fast = self._fast_answer(user_query.strip())
+            if fast:
+                self.last_route = "kurzweg"
+                return self._finish(user_query, "", [], callback, 0, synthesized=fast)
+            self.last_route = "kurzweg->agent"
+            if callback:
+                callback({"type": "observation_result", "iteration": 0,
+                          "observation": "Kurzweg ohne belastbare Antwort - der Agent sucht mit Werkzeugen weiter."})
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},

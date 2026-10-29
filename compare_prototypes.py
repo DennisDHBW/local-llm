@@ -108,7 +108,7 @@ def main() -> None:
     for source in args.p2_from or []:
         for line in Path(source).read_text(encoding="utf-8").splitlines():
             row = json.loads(line) if line.strip() else {}
-            if row.get("answer"):
+            if row.get("answer") and not row["answer"].get("error"):    # Fehlerantworten nicht übernehmen
                 reused[row["id"]] = row["answer"]
 
     RESULTS_DIR.mkdir(exist_ok=True)

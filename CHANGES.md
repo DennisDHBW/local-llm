@@ -292,3 +292,18 @@ fragte meist nur die Kerndaten ab und antwortete "nicht enthalten", obwohl die T
 - `scripts/fetch_rerankers.py` (neu): lädt die Reranker vollständig in den Cache und prüft das lokale Laden.
 - Offline-Prüfung nur des BM25-Teils (ohne Embeddings) auf den Testbelegen: Recall@5 A 0,71 -> 0,86, B 0,42 -> 0,84,
   C 0,78 -> 1,00, D 0,67 -> 0,89. Die eigentliche Messung (hybrid, mit Agent) folgt auf dem Laptop.
+
+## Paket 7b - Tabellen, adaptive Weiche, robuste Messung (29.10.2026)
+Messung Paket 7: Retrieval A+B Recall@5 95-100 % (vorher 66 %), MRR mit mehrsprachigem Reranker 0,92; einfache
+Pipeline 34/41 richtig. Der Agentenlauf brach nach 13 Fragen ab (Ollama-Absturz), zwei Abstürze wurden als
+"korrekt abgelehnt" gezählt. Verbleibende Fehler: Tabellenzeilen ohne Spaltenbezug (Trinkwasser 967 statt 125 m³,
+Stundensatz), Dauer des Agenten (~6 min je Frage).
+- `parser.py`: Tabellen mit nur erkannter Kopfzeile -> Datenzeilen aus Wortpositionen rekonstruiert (Spalten über die
+  Kopfzellen, mehrzeilige Beschreibungen zur nächsten Datenzeile, Ende bei Abstand/Abschnitt/Fußnote/nächster
+  Tabelle). Markiert als `reconstructed`, nicht im Fakten-Quelltext -> Fakten bleiben unverändert.
+  `PARSE_CACHE_VERSION` 2 (einmal neu parsen).
+- `react_agent.py`: adaptive Weiche (`needs_tools`, `ENERGY_AGENT_FAST_PATH`): Kurzweg Treffer -> Antwort, bei
+  "nicht enthalten" übernimmt der Agent; `last_route` für die Auswertung.
+- `quality.py`: Fehlerantworten (⚠️/FEHLER) zählen nicht als Enthaltung, sondern als Fehler; einmal auf Ollama warten
+  und wiederholen; `--resume` misst Fehlerfragen neu; Bericht zeigt den Weg je Frage (Kurzweg/Agent).
+- `config.py`: Standard-Reranker `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (Auswahl auf A+B).
