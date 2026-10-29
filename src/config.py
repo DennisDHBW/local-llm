@@ -79,6 +79,19 @@ RERANKER_LOCAL_ONLY = os.getenv("ENERGY_RERANKER_LOCAL_ONLY", os.getenv("HF_HUB_
 # Nur so viele Kandidaten (nach RRF) bewertet der Reranker; spart CPU/RAM bei jeder Suche.
 RERANK_TOP_N = int(os.getenv("ENERGY_RERANK_TOP_N", "20"))
 
+# Kontext im Suchindex (src/retrieval/context.py): Nachbarzeilen derselben Seite, bis der indizierte Text mindestens
+# so viele Zeichen hat (0 = aus), höchstens WINDOW_MAX_NEIGHBORS Zeilen je Richtung. Änderung -> neu indizieren.
+WINDOW_MIN_CHARS = int(os.getenv("ENERGY_WINDOW_MIN_CHARS", "300"))
+WINDOW_MAX_NEIGHBORS = int(os.getenv("ENERGY_WINDOW_MAX_NEIGHBORS", "2"))
+
+# Agent: vor dem ersten Schritt die besten Treffer der hybriden Suche als Belege holen ("retrieval first").
+# Messung Paket 6: Der Agent fragte oft nur die Kerndaten ab und meldete "nicht enthalten", obwohl die Stelle auf
+# Platz 1 der Suche stand; die einfache Pipeline (Suche + Antwort) war auf dem zurückgehaltenen Satz besser.
+# 0 = aus (früheres Verhalten).
+AGENT_PRE_RETRIEVAL_K = int(os.getenv("ENERGY_AGENT_PRE_RETRIEVAL_K", "5"))
+# So viele Zeichen je Vorab-Treffer sieht das Agentenmodell (die Antwort bekommt den vollen Treffer).
+AGENT_PRE_SNIPPET_CHARS = int(os.getenv("ENERGY_AGENT_PRE_SNIPPET_CHARS", "400"))
+
 # BM25-Index im Speicher: nach dieser Zeit (Sekunden) neu aufbauen, damit ein in einem anderen Prozess
 # neu indizierter Bestand mit gleicher Chunk-Anzahl nicht dauerhaft veraltet bleibt. 0 = kein Ablauf.
 BM25_CACHE_TTL = float(os.getenv("ENERGY_BM25_TTL", "300"))

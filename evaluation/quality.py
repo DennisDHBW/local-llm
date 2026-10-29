@@ -9,15 +9,18 @@ unzuverlässig. Dieses Modul misst deshalb dieselben Fragen der Kennzahlen DETER
                                     Multimodal, Grenzfall, ohne Antwort im Bestand); während der Entwicklung genutzt
     Testsatz B  synthetisch         aus den geprüften Sollwerten evaluation/gold_belege.json per Vorlage erzeugt
                                     (wie die Testset-Generierung von RAGAS, aber ohne LLM und reproduzierbar)
-    Testsatz C  zurückgehalten      evaluation/questions_heldout.json: nach Abschluss der Korrekturen geschrieben und
-                                    nie zum Nachbessern verwendet. Zeigt, ob A durch Anpassungen "auswendig gelernt" ist.
+    Testsatz C  zurückgehalten      evaluation/questions_heldout.json: nach Paket 5 geschrieben; nach Paket 6 einmal
+                                    zur Fehleranalyse genutzt (Ursachen allgemein behoben, Fragen unverändert).
+    Testsatz D  zurückgehalten      evaluation/questions_heldout_d.json: vor Paket 7 geschrieben, nie zum Nachbessern
+                                    genutzt. Zeigt, ob Verbesserungen verallgemeinern oder nur A/C "auswendig lernen".
 
 Kennzahlen (Definitionen auch im Bericht):
     Extraktion   Feldgenauigkeit             Anteil richtiger Felder gegen gold_belege.json (check_facts)
     Retrieval    Kontext-Recall@k            Belegstelle (Datei + erwarteter Text) unter den ersten k Chunks
                  Kontext-Präzision@k         Anteil der ersten k Chunks aus einer erwarteten Datei
                  MRR                         1 / Rang der ersten Belegstelle
-    Antwort      Korrektheit                 alle erwarteten Werte stehen in der Antwort
+    Antwort      Korrektheit                 alle erwarteten Werte stehen in der Antwort, in Sätzen OHNE Verneinung
+                                             ("für EDEKA keine Positionen" zählt nicht als Nennung von EDEKA)
                  Korrektheit (geprüft)       wie oben, aber mit dem Urteil der manuellen Prüfung, wo eines vorliegt
                  Treue (Faithfulness)        Anteil der Zahlen der Antwort, die in den Belegen des Agenten stehen
                  Halluzinationsrate          Anteil der Antworten mit mindestens einer unbelegten Zahl
@@ -61,10 +64,16 @@ EVAL_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EVAL_DIR / "results"
 CATALOG = EVAL_DIR / "questions_belege.json"
 HELDOUT = EVAL_DIR / "questions_heldout.json"
+HELDOUT_D = EVAL_DIR / "questions_heldout_d.json"
+QUESTION_FILES = {"A": CATALOG, "C": HELDOUT, "D": HELDOUT_D}     # B wird aus GOLD erzeugt
+AGENT_SETS = ("A", "C", "D")
 GOLD = EVAL_DIR / "gold_belege.json"
 SAMMEL = "Alle6RechnungenSammeldokument.pdf"     # enthält die sechs Einzelrechnungen noch einmal
 ABSTAIN_RE = re.compile(r"\b(nicht|kein|keine|keinen|keiner|unbekannt|ohne)\b", re.IGNORECASE)
 NO_ANSWER_CATEGORIES = {"negativ"}
+# Verneinung in einem Satz: "Für EDEKA wurden keine Positionen gefunden" enthält "EDEKA", ist aber keine Antwort.
+NEGATION_RE = re.compile(r"\b(nicht|kein|keine|keinen|keiner|keines|fehlt|fehlen|unbekannt)\b", re.IGNORECASE)
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 # ------------------------------------------------------------------------------------------------ Testsatz B
@@ -133,6 +142,20 @@ def contains_all(text: str, expected: Sequence[str]) -> bool:
     return all(any(_norm(alt) in haystack for alt in item.split("|") if alt.strip()) for item in expected)
 
 
+def affirmed_all(text: str, expected: Sequence[str]) -> bool:
+    """Wie contains_all, aber jeder erwartete Wert muss in einem Satz OHNE Verneinung stehen."""
+    sentences = [_norm(s) for s in _SENTENCE_RE.split(str(text)) if s.strip()]
+    affirmed = [s for s in sentences if not NEGATION_RE.search(s)]
+
+    def ok(item: str) -> bool:
+        alternatives = [alt for alt in item.split("|") if alt.strip()]
+        # Ist die erwartete Antwort selbst eine Verneinung ("nicht|kein|unbekannt"), zählt jeder Satz.
+        pool = sentences if any(ABSTAIN_RE.search(alt) for alt in alternatives) else affirmed
+        return any(_norm(alt) in s for s in pool for alt in alternatives)
+
+    return all(ok(item) for item in expected)
+
+
 def _source_ok(meta: Mapping[str, Any], sources: Sequence[Mapping[str, Any]]) -> bool:
     for src in sources:
         if src.get("filename") and meta.get("filename") != src["filename"]:
@@ -169,8 +192,12 @@ def answer_scores(question: Mapping[str, Any], answer: str, evidence_texts: Sequ
     missing = unsupported_numbers(body, [*evidence_texts, question.get("question", "")])
     expected = question.get("expected_substrings") or []
     files = [s["filename"] for s in question.get("expected_sources") or [] if s.get("filename")]
+    found = bool(expected) and contains_all(body, expected)
+    affirmed = found and affirmed_all(body, expected)
     result: dict[str, Any] = {
-        "correct": bool(expected) and contains_all(answer, expected),
+        # Erwarteter Wert nur in einem verneinten Satz -> nicht richtig, zur manuellen Prüfung markiert.
+        "correct": affirmed,
+        "negated": found and not affirmed,
         "numbers": len(numbers),
         "unsupported": missing,
         "faithfulness": round(1 - len(missing) / len(numbers), 3) if numbers else None,
@@ -180,6 +207,7 @@ def answer_scores(question: Mapping[str, Any], answer: str, evidence_texts: Sequ
     if question.get("category") in NO_ANSWER_CATEGORIES:
         result["abstained"] = bool(ABSTAIN_RE.search(body)) and not missing
         result["correct"] = result["abstained"]
+        result["negated"] = False
     return result
 
 
@@ -283,8 +311,10 @@ KPI_ROWS = [
     ("Aufwand", "dauer_s", "Dauer je Frage [s]", "Mittelwert, CPU", "-"),
     ("Aufwand", "werkzeugaufrufe", "Werkzeugaufrufe je Frage", "Mittelwert", "-"),
 ]
-SET_LABELS = {"A": "kontextspezifisch, von Hand", "B": "synthetisch aus Sollwerten",
-              "C": "zurückgehalten, nie zum Nachbessern genutzt"}
+SET_LABELS = {"A": "kontextspezifisch, von Hand; während der Entwicklung genutzt",
+              "B": "synthetisch aus Sollwerten",
+              "C": "zurückgehalten; nach Paket 6 einmal zur Fehleranalyse genutzt, Fragen unverändert",
+              "D": "zurückgehalten; vor Paket 7 geschrieben, nie zum Nachbessern genutzt"}
 
 
 def _pct(value: float) -> str:
@@ -304,7 +334,7 @@ def _fmt(value: Any, key: str, summary: Mapping[str, Any] | None = None) -> str:
 
 
 def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extraction: Mapping[str, Any] | None) -> str:
-    names = [s for s in ("A", "B", "C") if any(r["set"] == s for r in rows)]
+    names = [s for s in ("A", "B", "C", "D") if any(r["set"] == s for r in rows)]
     sets = {name: [r for r in rows if r["set"] == name] for name in names}
     sums = {name: summarize(items) for name, items in sets.items()}
     lines = [f"# Qualitätsbericht LocalLLM ({meta['started']})", ""]
@@ -337,7 +367,7 @@ def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extractio
         lines.append(f"| {level} | {label} | {definition} | {ragas} | {cells} |")
     lines.append("| Umfang | n Retrieval / n Antworten | bewertete Fragen | - | "
                  + " | ".join(f"{sums[n].get('retrieval_n', 0)} / {sums[n].get('antworten_n', 0)}" for n in names) + " |")
-    for name in [n for n in ("A", "C") if n in names]:
+    for name in [n for n in AGENT_SETS if n in names]:
         lines += ["", f"## Testsatz {name} nach Kategorie", "",
                   "| Kategorie | Fragen | Korrekt | Korrekt (geprüft) | Kontext-Recall@5 |", "| --- | ---: | ---: | ---: | ---: |"]
         by_cat: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
@@ -370,6 +400,8 @@ def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extractio
             atext = "richtig" if reviewed_correct(a) else "falsch"
             if a.get("manual") is not None and bool(a["manual"]) != bool(a["correct"]):
                 atext += " (geprüft)"
+            if a.get("negated") and a.get("manual") is None:
+                atext += " (Wert nur verneint - prüfen)"
             if a.get("runs_correct"):
                 atext += f" [{sum(a['runs_correct'])}/{len(a['runs_correct'])}]"
         lines.append(f"| {row['set']} | {row['question']} | {rtext} | {atext} | "
@@ -404,7 +436,9 @@ def write_review_template(log: Path, rows: Sequence[Mapping[str, Any]],
         entries.append({
             "id": row["id"], "set": row["set"], "frage": row["question"],
             "erwartet": q.get("expected_substrings", []), "antwort": a.get("text", ""),
-            "automatisch": bool(a["correct"]), "manuell": old.get("manuell"), "notiz": old.get("notiz", ""),
+            "automatisch": bool(a["correct"]),
+            "hinweis": "erwarteter Wert nur in verneintem Satz - bitte prüfen" if a.get("negated") else "",
+            "manuell": old.get("manuell"), "notiz": old.get("notiz", ""),
         })
     path.write_text(json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
@@ -426,13 +460,12 @@ def apply_review(rows: Sequence[dict[str, Any]], review_file: Path) -> int:
 
 def _load_sets(ids: str | None) -> dict[str, list[dict[str, Any]]]:
     gold = json.loads(GOLD.read_text(encoding="utf-8"))
-    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
-    heldout = json.loads(HELDOUT.read_text(encoding="utf-8")) if HELDOUT.exists() else []
+    sets = {name: json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+            for name, path in QUESTION_FILES.items()}
     if ids:
         wanted = {i.strip() for i in ids.split(",")}
-        catalog = [q for q in catalog if q["id"] in wanted]
-        heldout = [q for q in heldout if q["id"] in wanted]
-    return {"A": catalog, "B": synthetic_questions(gold), "C": heldout}
+        sets = {name: [q for q in items if q["id"] in wanted] for name, items in sets.items()}
+    return {"A": sets["A"], "B": synthetic_questions(gold), "C": sets["C"], "D": sets["D"]}
 
 
 def _reranker_meta() -> dict[str, Any]:
@@ -465,19 +498,19 @@ def _finish(log: Path, rows: list[dict[str, Any]], meta: Mapping[str, Any], sets
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\nBericht: {out}\nRohdaten: {log}\nManuelle Prüfung: {review} ({reviewed} Urteile übernommen)")
     compact = {name: {k: v for k, v in summarize([r for r in rows if r["set"] == name]).items() if k not in ("ci", "n")}
-               for name in ("A", "B", "C") if any(r["set"] == name for r in rows)}
+               for name in ("A", "B", "C", "D") if any(r["set"] == name for r in rows)}
     print(json.dumps(compact, ensure_ascii=False, indent=1))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--k", type=int, default=5)
-    parser.add_argument("--sets", default="A,B,C", help="Testsätze für das Retrieval (Standard: A,B,C)")
+    parser.add_argument("--sets", default="A,B,C,D", help="Testsätze (Standard: A,B,C,D); der Agent beantwortet A, C, D")
     parser.add_argument("--retrieval-only", action="store_true", help="ohne Agent (schnell)")
     parser.add_argument("--synthetic-agent", type=int, default=0,
                         help="so viele Fragen aus Testsatz B zusätzlich vom Agenten beantworten lassen")
     parser.add_argument("--repeat", type=int, default=1, help="jede Agentenfrage so oft stellen (Mehrheitsurteil)")
-    parser.add_argument("--ids", help="nur diese Frage-IDs aus Testsatz A und C (kommagetrennt)")
+    parser.add_argument("--ids", help="nur diese Frage-IDs aus Testsatz A, C und D (kommagetrennt)")
     parser.add_argument("--resume", help="Pfad eines .jsonl-Laufs: bereits gemessene Fragen überspringen")
     parser.add_argument("--report", help="nur den Bericht aus einem .jsonl-Lauf neu erzeugen (mit manueller Prüfung)")
     args = parser.parse_args()
@@ -502,7 +535,7 @@ def main() -> None:
     sets = {name: items for name, items in sets.items() if name in chosen}
     agent_ids: set[str] = set()
     if not args.retrieval_only:
-        agent_ids = {q["id"] for name in ("A", "C") for q in sets.get(name, [])}
+        agent_ids = {q["id"] for name in AGENT_SETS for q in sets.get(name, [])}
         if args.synthetic_agent and sets.get("B"):
             synthetic = sets["B"]
             step = max(len(synthetic) // args.synthetic_agent, 1)       # gleichmäßig über Rechnungen, Energie, Bons

@@ -272,3 +272,23 @@ Nicht behoben (bekannte Grenzen): Nachzahlung der Wasserabrechnung (Energie-Dom�
   Testsatz A und B; Modelle über 1 GB RAM (bge-reranker-v2-m3) werden gemessen, aber nicht gewählt.
 - `compare_prototypes.py`: Vergleich P1 (Suche + Synthese) gegen P2 (ReAct-Agent) auf Testsatz A/C mit denselben
   Bewertungsregeln; P2-Antworten können aus einem Qualitätslauf übernommen werden (`--p2-from`).
+
+## Paket 7 - Qualität: Retrieval first, Kontext im Index, ehrlichere Bewertung (29.10.2026)
+Anlass: Messung Paket 6 auf dem zurückgehaltenen Satz C: Agent 3/13, einfache Pipeline (Suche + Antwort) 9/13. Der Agent
+fragte meist nur die Kerndaten ab und antwortete "nicht enthalten", obwohl die Textstelle auf Platz 1 der Suche stand.
+- `src/agent/react_agent.py`: Vorab-Suche vor dem ersten Modellschritt (`ENERGY_AGENT_PRE_RETRIEVAL_K`, Standard 5);
+  die Treffer stehen kompakt unter der Frage und gehen vollständig in die Antwort ein (Werkzeugergebnisse zuerst).
+  Systemprompt: Kerndaten sind unvollständig, fehlender Wert -> im Text suchen. Reine Ankündigungen ("Ich werde ...
+  durchsuchen") gelten nicht als Antwort.
+- `src/retrieval/context.py` (neu), `vector_store.py`: indizierter Text = Kontextkopf aus geprüften Fakten/Metadaten +
+  Chunk mit Nachbarzeilen derselben Seite (deterministische Variante von "Contextual Retrieval" und Satzfenster).
+  `EMBED_SCHEMA_VERSION` v4: einmal neu einbetten (Schritt "index"), Parser und Fakten bleiben.
+- `src/retrieval/search.py`: `drop_near_duplicates` entfernt fast gleiche Fenster derselben Datei aus der Trefferliste.
+- `src/agent/synthesizer.py`: Regeln 8-10 (Kerndaten unvollständig, berechnete Werte haben Vorrang, Kontextkopf nutzen).
+- `src/analysis/aggregate.py`: `contains` akzeptiert mehrere Händler ("REWE und ALDI", "REWE, ALDI").
+- `evaluation/quality.py`: Korrektheit nur, wenn der erwartete Wert in einem Satz ohne Verneinung steht (vorher
+  3 falsch-positive Urteile); Markierung im Review. Testsatz D (`questions_heldout_d.json`, 13 Fragen) vor den
+  Änderungen geschrieben. `compare_prototypes.py` und `pick_reranker.py` kennen D.
+- `scripts/fetch_rerankers.py` (neu): lädt die Reranker vollständig in den Cache und prüft das lokale Laden.
+- Offline-Prüfung nur des BM25-Teils (ohne Embeddings) auf den Testbelegen: Recall@5 A 0,71 -> 0,86, B 0,42 -> 0,84,
+  C 0,78 -> 1,00, D 0,67 -> 0,89. Die eigentliche Messung (hybrid, mit Agent) folgt auf dem Laptop.

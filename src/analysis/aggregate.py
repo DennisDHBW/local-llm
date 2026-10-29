@@ -11,6 +11,8 @@ Typische Fragen:
 
 from __future__ import annotations
 
+import re
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -146,6 +148,14 @@ def preferred_key(keys: Sequence[str], wanted: str) -> str:
     return keys[0]
 
 
+_CONTAINS_SPLIT_RE = re.compile(r"\s*(?:,|;|/|\|)\s*|\s+(?:und|oder|sowie)\s+", re.IGNORECASE)
+
+
+def contains_terms(contains: str) -> list[str]:
+    """'REWE und ALDI', 'REWE, ALDI' -> ['rewe', 'aldi'] (oder-Verknüpfung). '&' trennt nicht ('Volt & Wärme')."""
+    return [part.casefold() for part in _CONTAINS_SPLIT_RE.split(str(contains or "").strip()) if part and part.strip()]
+
+
 def filter_rows(
     rows: Sequence[DocRow],
     filenames: Sequence[str] = (),
@@ -177,11 +187,11 @@ def filter_rows(
         if undated:
             notes.append(f"Ohne Datum, daher nicht im Zeitraum: {', '.join(undated)}")
     if contains:
-        needle = contains.casefold()
+        needles = contains_terms(contains)
         selected = [
             r for r in selected
-            if needle in r.party.casefold() or needle in r.filename.casefold() or needle in r.group.casefold()
-            or needle in r.doc_type.casefold()
+            if any(needle in r.party.casefold() or needle in r.filename.casefold() or needle in r.group.casefold()
+                   or needle in r.doc_type.casefold() for needle in needles)
         ]
     if schema_id:
         selected = [r for r in selected if r.schema_id == schema_id]

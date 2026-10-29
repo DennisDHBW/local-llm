@@ -1,6 +1,6 @@
 """Wählt aus mehreren Retrieval-Läufen (evaluation/quality.py --retrieval-only) die beste Reranker-Einstellung.
 
-Bewertet werden NUR die Testsätze A und B: Testsatz C bleibt zurückgehalten und darf keine Entscheidung beeinflussen.
+Bewertet werden NUR die Testsätze A und B: C und D bleiben zurückgehalten und dürfen keine Entscheidung beeinflussen.
 Kriterium: Mittel aus Kontext-Recall@5, Dokument@1 und MRR. Modelle über `--max-gb` (RAM-Bedarf grob geschätzt)
 werden gemessen und berichtet, aber nicht gewählt: neben qwen2.5:7b passen sie nicht sicher in 16 GB.
 
@@ -29,7 +29,7 @@ def score_run(log: Path) -> dict[str, Any]:
     rows = [r for r in _load_jsonl(log) if r["set"] in ("A", "B")]
     s = summarize(rows)
     parts = [s.get("kontext_recall_at_k"), s.get("dokument_at_1"), s.get("mrr")]
-    held = summarize([r for r in _load_jsonl(log) if r["set"] == "C"])
+    held = summarize([r for r in _load_jsonl(log) if r["set"] in ("C", "D")])
     return {"log": log, "active": bool(meta.get("reranker_active")), "model": meta.get("reranker_model"),
             "label": meta.get("reranker", "?"), "recall": parts[0], "doc1": parts[1], "mrr": parts[2],
             "score": round(sum(p for p in parts if p is not None) / 3, 4), "n": s.get("retrieval_n", 0),
@@ -49,15 +49,16 @@ def main() -> None:
 
     pct = lambda v: "-" if v is None else f"{v * 100:.0f} %"  # noqa: E731
     lines = ["# Reranker-Vergleich (Auswahl nur auf Testsatz A + B)", "",
-             "| Reranker | Recall@5 | Dokument@1 | MRR | Mittel | C: Recall@5 | C: Dokument@1 | gewählt |",
+             "| Reranker | Recall@5 | Dokument@1 | MRR | Mittel | C+D: Recall@5 | C+D: Dokument@1 | gewählt |",
              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
     for r in runs:
-        name = r["model"] if r["active"] else ("ohne Reranker" if r["label"] == "aus" else r["label"])
+        name = r["model"] if r["active"] else ("ohne Reranker" if r["label"] == "aus"
+                                               else "Ladefehler, lief ohne Reranker: " + r["label"].split(" - ")[0][22:])
         flag = "ja" if r is best else ("zu groß" if r not in allowed else "")
         lines.append(f"| {name} | {pct(r['recall'])} | {pct(r['doc1'])} | {r['mrr'] if r['mrr'] is not None else '-'} | "
                      f"{r['score']} | {pct(r['c_recall'])} | {pct(r['c_doc1'])} | {flag} |")
     table = "\n".join(lines) + "\n"
-    print(table, file=sys.stderr)
+    print(table.replace("\n\n", "\n"), file=sys.stderr)
     if args.markdown:
         Path(args.markdown).write_text(table, encoding="utf-8")
     if best is None:

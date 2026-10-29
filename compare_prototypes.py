@@ -1,7 +1,8 @@
-"""Vergleich zweier Prototypen auf dem aktuellen Fragenkatalog (Testsatz A, optional C):
+"""Vergleich zweier Prototypen auf dem aktuellen Fragenkatalog (Testsatz A, optional C und D):
 
     P1  modulare Pipeline (klassisches RAG): Frage -> hybride Suche (Top 5) -> Synthese mit [n]-Zitaten
-    P2  Agentic RAG: ReAct-Agent mit Werkzeugen (Inventar, Fakten, Bonpositionen, Rechnen, Graph, Suche)
+    P2  Agentic RAG: ReAct-Agent mit Vorab-Suche (retrieval first) und Werkzeugen (Inventar, Fakten, Bonpositionen,
+        Rechnen, Graph, Suche)
 
 Bewertet wird mit denselben Regeln wie in evaluation/quality.py (Korrektheit, Treue, Halluzination, Enthaltung),
 ohne Sprachmodell als Richter. Ergebnis: evaluation/results/vergleich_<zeit>.jsonl und .md.
@@ -25,13 +26,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from evaluation.quality import CATALOG, HELDOUT, RESULTS_DIR, answer_scores, wilson
+from evaluation.quality import QUESTION_FILES, RESULTS_DIR, answer_scores, wilson
 
 TOP_K = 5
 
 
 def load_questions(sets: str, ids: str | None) -> list[dict[str, Any]]:
-    files = {"A": CATALOG, "C": HELDOUT}
+    files = QUESTION_FILES
     questions = []
     for name in [s.strip().upper() for s in sets.split(",") if s.strip()]:
         if name in files and files[name].exists():
@@ -87,7 +88,7 @@ def report(rows: Sequence[Mapping[str, Any]], meta: Mapping[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--sets", default="A", help="Testsätze (A = Katalog, C = zurückgehalten), z. B. A,C")
+    parser.add_argument("--sets", default="A", help="Testsätze (A = Katalog, C/D = zurückgehalten), z. B. A,C,D")
     parser.add_argument("--ids", help="nur diese Frage-IDs (kommagetrennt)")
     parser.add_argument("--p2-from", nargs="+", help="P2-Antworten aus Qualitätsläufen (.jsonl) übernehmen statt neu "
                         "rechnen; bei mehreren Dateien gilt die spätere")

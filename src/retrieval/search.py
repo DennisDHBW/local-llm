@@ -412,4 +412,36 @@ def search_collection(
             for hit in hits
         ]
 
-    return sorted(hits, key=lambda hit: hit.score, reverse=True)[:top_k]
+    return drop_near_duplicates(sorted(hits, key=lambda hit: hit.score, reverse=True))[:top_k]
+
+
+DUPLICATE_OVERLAP = 0.7
+
+
+def _body_lines(document: str) -> set[str]:
+    """Zeilen ohne Kontextkopf ('[Dokument: ... | Datei: ...]' in der ersten Zeile)."""
+    lines = [line.strip() for line in str(document or "").splitlines() if line.strip()]
+    if lines and lines[0].startswith("[") and lines[0].endswith("]"):
+        lines = lines[1:]
+    return set(lines)
+
+
+def drop_near_duplicates(hits: list[SearchHit], overlap: float = DUPLICATE_OVERLAP) -> list[SearchHit]:
+    """Entfernt Treffer, deren Zeilen zu >= `overlap` schon in einem besser bewerteten Treffer derselben Datei stehen.
+
+    Nötig, seit jeder Chunk seine Nachbarzeilen mitträgt (src/retrieval/context.py): benachbarte Fenster sind fast
+    gleich und würden sonst die ersten Plätze belegen (Redundanz statt Abdeckung, vgl. MMR)."""
+    kept: list[SearchHit] = []
+    seen: list[tuple[str, set[str]]] = []
+    for hit in hits:
+        filename = str((hit.metadata or {}).get("filename", ""))
+        lines = _body_lines(hit.document)
+        duplicate = any(
+            name == filename and lines and other
+            and len(lines & other) / min(len(lines), len(other)) >= overlap
+            for name, other in seen
+        )
+        if not duplicate:
+            kept.append(hit)
+            seen.append((filename, lines))
+    return kept

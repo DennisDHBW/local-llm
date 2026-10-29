@@ -5,11 +5,13 @@ from pathlib import Path
 from src.config import COLLECTION_NAME, EMBED_MODEL, PROCESSED_DIR, VECTOR_DIR
 from src.embeddings import EMBED_API, document_prefix, embed_document, embed_documents
 from src.retrieval.collection import open_collection
+from src.retrieval.context import indexed_texts
 from src.retrieval.search import invalidate_bm25_cache
 
 # Erhöhen, wenn sich die Art der Embeddings ändert -> alle Chunks werden neu eingebettet.
 # v3: Ollama /api/embed (Batches) statt /api/embeddings; der Einbettungsweg steht zusätzlich im Hash.
-EMBED_SCHEMA_VERSION = "v3-embed-api"
+# v4: Kontextkopf aus Fakten/Metadaten + Nachbarzeilen (src/retrieval/context.py).
+EMBED_SCHEMA_VERSION = "v4-context-window"
 
 
 class VectorStore:
@@ -48,6 +50,14 @@ class VectorStore:
         payload = f"{EMBED_SCHEMA_VERSION}\0{EMBED_API}\0{self.embed_model}\0{prefix}\0{text}".encode()
         return hashlib.sha256(payload).hexdigest()
 
+    def _load_records(self) -> dict:
+        """Geprüfte Fakten je Datei für den Kontextkopf (fehlen sie, gelten die Parser-Metadaten)."""
+        try:
+            from src.enrichment.facts import load_facts
+            return load_facts(self.processed_dir)
+        except Exception:  # noqa: BLE001 - ohne Fakten indizieren ist besser als gar nicht
+            return {}
+
     def index_documents(self, rebuild: bool = False) -> int:
         """Liest Chunks und speichert sie samt ALLEN Metadaten in ChromaDB."""
         json_files = sorted(self.processed_dir.glob("*_chunks.json"))
@@ -65,6 +75,7 @@ class VectorStore:
 
         indexed_count = 0
         skipped_count = 0
+        records = self._load_records()
         for json_file in json_files:
             print(f"\nStarte Vektorisierung für: {json_file.name}...")
             with open(json_file, encoding="utf-8") as f:
@@ -91,18 +102,16 @@ class VectorStore:
             batch_metadatas = []
             batch_documents = []
 
-            for chunk in chunks:
+            # Gespeicherter Text (für BM25, Anzeige und Antwort) = Kontextkopf + Chunk mit Nachbarzeilen, ohne
+            # nomic-Task-Prefix; der Task-Prefix wird nur beim Einbetten vorangestellt.
+            texts = indexed_texts(chunks, records)
+            for chunk, embed_text in zip(chunks, texts, strict=True):
                 chunk_id = chunk["chunk_id"]
-                content = chunk["content"]
                 heading_stack = chunk.get("heading_stack", [])
                 meta = chunk.get("metadata", {})
                 filename = meta.get("filename", "Unbekannt")
 
                 path_str = " > ".join(heading_stack)
-                prefix = f"[{filename} | {path_str}]" if path_str else f"[{filename}]"
-                # Gespeicherter Text (für BM25/Anzeige) ohne nomic-Task-Prefix;
-                # der Task-Prefix wird nur beim Einbetten vorangestellt.
-                embed_text = f"{prefix} {content}"
                 embedding_hash = self._embedding_hash(embed_text)
 
                 if existing.get(chunk_id, {}).get("embedding_hash") == embedding_hash:

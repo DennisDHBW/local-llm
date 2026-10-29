@@ -24,8 +24,8 @@ import ollama
 from src.agent.synthesizer import SourceSynthesizer, number_check_note, unsupported_numbers
 from src.agent.tools import TOOL_SCHEMAS, AgentTools, select_tool_schemas
 from src.config import (
-    AGENT_MODEL, CHECK_NUMBERS, CONTEXT_WARN_RATIO, MAX_OBSERVATION_CHARS, NUM_CTX, SYNTH_MODEL,
-    USE_SYNTHESIZER, ollama_options,
+    AGENT_MODEL, AGENT_PRE_RETRIEVAL_K, AGENT_PRE_SNIPPET_CHARS, CHECK_NUMBERS, CONTEXT_WARN_RATIO,
+    MAX_OBSERVATION_CHARS, NUM_CTX, SYNTH_MODEL, USE_SYNTHESIZER, ollama_options,
 )
 from src.enrichment.facts import load_facts
 from src.enrichment.schema import agent_hints
@@ -40,7 +40,10 @@ Abrechnungen, Bescheide, Schreiben). Stütze dich ausschließlich auf die Ergebn
 
 Vorgehen:
 - Fragen zu Anzahl, Typ, Datum, Absender oder Nummern der Dokumente: zuerst get_document_inventory.
-- Fragen zu Preisen, Beträgen, Mengen, Laufzeit oder Fristen: zuerst get_document_facts, danach mit search im Text oder in Tabellen gegenprüfen.
+- Unter der Frage stehen bereits die besten Treffer der Dokumentsuche. Reichen sie für die Antwort, antworte direkt \
+ohne Werkzeug. Jeder Treffer beginnt mit einem Kopf (Dokument, Absender, Kunde, Datum, Datei).
+- get_document_facts liefert nur ausgewählte Kerndaten. Fehlt dort ein Wert, steht er oft trotzdem im Text: \
+suche dann mit search (mit filename) oder lies die Seite mit read_page, statt "nicht enthalten" zu antworten.
 - Ist ein bestimmtes Dokument gemeint, übergib den Dateinamen als filename.
 - Fragen über mehrere Dokumente, Verträge oder Kennungen hinweg: graph_lookup.
 - Fragen zur zeitlichen Entwicklung über mehrere Dokumente/Zeiträume hinweg: graph_timeline.
@@ -82,6 +85,21 @@ NO_TOOL_HINT = (
 EMPTY_MODEL_ANSWER = (
     "⚠️ Das Sprachmodell '{model}' lieferte eine leere Antwort, bevor ein Werkzeug genutzt wurde. "
     "Bitte die Frage erneut stellen oder ein anderes Modell wählen (ENERGY_AGENT_MODEL)."
+)
+ANNOUNCE_HINT = (
+    "Du hast nur angekündigt, was du tun willst. Führe den Schritt jetzt mit einem Werkzeugaufruf aus "
+    "oder antworte mit dem Ergebnis aus den vorhandenen Treffern."
+)
+PRE_RETRIEVAL_INTRO = (
+    "Vorab gefundene Textstellen (hybride Suche, Rang 1 = am besten passend). Reichen sie, antworte direkt; "
+    "sonst nutze die Werkzeuge:"
+)
+# Text ohne Werkzeugaufruf, der nur einen nächsten Schritt ankündigt ("Ich werde die Dokumente durchsuchen ..."),
+# ist keine Antwort. Paket 6: so endete die Diagrammfrage ohne Ergebnis.
+_ANNOUNCE_RE = re.compile(
+    r"\b(?:ich\s+werde|lass(?:en\s+sie)?\s+mich|ich\s+(?:suche|schaue|prüfe|rufe|versuche)|"
+    r"als\s+nächstes|im\s+nächsten\s+schritt|einen\s+moment)\b",
+    re.IGNORECASE,
 )
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _OLLAMA_ERRORS = (*OLLAMA_DOWN_ERRORS, ollama.ResponseError)
@@ -141,6 +159,24 @@ def _parse_text_tool_call(content: str, known: set[str]) -> list[tuple[str, dict
     return [(name, arguments)] if isinstance(arguments, dict) else []
 
 
+def is_announcement(content: str) -> bool:
+    """Kündigt der Text nur einen Schritt an (statt zu antworten)? Prüft den letzten Absatz."""
+    tail = [part for part in re.split(r"\n\s*\n", str(content or "").strip()) if part.strip()]
+    return bool(tail) and bool(_ANNOUNCE_RE.search(tail[-1]))
+
+
+def format_pre_hits(evidence: list[dict], limit: int = AGENT_PRE_SNIPPET_CHARS) -> str:
+    """Kompakte Liste der Vorab-Treffer für das Agentenmodell (die Antwort bekommt die vollen Treffer)."""
+    lines = []
+    for rank, item in enumerate(evidence, start=1):
+        meta = item.get("metadata") or {}
+        text = re.sub(r"\s+", " ", str(item.get("content", ""))).strip()
+        if len(text) > limit:
+            text = text[:limit].rstrip() + " ..."
+        lines.append(f"[{rank}] {meta.get('filename', '?')} S. {item.get('page_number', '?')}: {text}")
+    return "\n".join(lines)
+
+
 def _clean_content(content: Any) -> str:
     return _THINK_RE.sub("", str(content or "")).strip()
 
@@ -191,6 +227,8 @@ class ReActAgent:
         self.system_prompt = SYSTEM_PROMPT
         self.last_evidence: list[dict] = []
         self.last_files: list[str] = []   # in der letzten Frage erzeugte Dateien (Diagramme, Berichte, CSV)
+        self.pre_retrieval_k = AGENT_PRE_RETRIEVAL_K
+        self._pre_evidence: list[dict] = []
         self._schema_ids: set[str] | None = None   # Schemata im Bestand (für typbezogene Werkzeuge)
 
     def _system_prompt(self) -> str:
@@ -221,6 +259,24 @@ class ReActAgent:
         )
         return [items[i] for i in sorted(ranked[:MAX_EVIDENCE])]
 
+    def _pre_retrieve(self, query: str, callback: Callable[[dict], None] | None) -> list[dict]:
+        """Retrieval first: die besten Suchtreffer vor dem ersten Modellschritt (wie die einfache RAG-Pipeline).
+
+        Der Agent entscheidet danach, ob sie reichen oder ob er Werkzeuge braucht (Rechnen, Bons, Graph, ...).
+        Fehler der Suche brechen die Frage nicht ab: dann arbeitet der Agent wie bisher nur mit Werkzeugen."""
+        if self.pre_retrieval_k <= 0:
+            return []
+        try:
+            result = self.tools.search(query, kind="all", top_k=self.pre_retrieval_k)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Vorab-Suche fehlgeschlagen: %s", exc)
+            return []
+        if callback and result.evidence:
+            callback({"type": "action_execution", "iteration": 0, "thought": "Vorab-Suche (retrieval first)",
+                      "action": "search", "action_input": query})
+            callback({"type": "observation_result", "iteration": 0, "observation": result.text})
+        return list(result.evidence)
+
     def _finish(
         self,
         query: str,
@@ -229,6 +285,9 @@ class ReActAgent:
         callback: Callable[[dict], None] | None,
         iteration: int,
     ) -> str:
+        # Werkzeugergebnisse zuerst (berechnete Summen, Bonpositionen, Kerndaten), danach die Vorab-Treffer.
+        pre_ids = {item.get("id") for item in self._pre_evidence}
+        evidence = [e for e in evidence if e.get("id") not in pre_ids] + list(self._pre_evidence)
         selected = self._select_evidence(evidence)
         self.last_evidence = selected
         answer = draft
@@ -301,19 +360,26 @@ class ReActAgent:
         if not isinstance(user_query, str) or not user_query.strip():
             raise ValueError("Die Nutzerfrage darf nicht leer sein.")
 
+        self.last_evidence = []
+        self.last_files = []
+        system_prompt = self._system_prompt()
+        self._pre_evidence = self._pre_retrieve(user_query.strip(), callback)
+        user_content = user_query.strip()
+        if self._pre_evidence:
+            # Nach dem (gleichbleibenden) Systemprompt: Ollama kann dessen Verarbeitung zwischenspeichern.
+            user_content += f"\n\n{PRE_RETRIEVAL_INTRO}\n{format_pre_hits(self._pre_evidence)}"
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._system_prompt()},
-            {"role": "user", "content": user_query.strip()},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
         ]
         evidence: list[dict] = []
         seen_calls: set[str] = set()
-        tools_used = False
+        tools_used = bool(self._pre_evidence)
         nudged = False
+        announced = 0
         repeated_steps = 0
         draft = ""
         iteration = 0
-        self.last_evidence = []
-        self.last_files = []
         tool_schemas = select_tool_schemas(user_query.strip(), TOOL_SCHEMAS, self._schema_ids)
 
         for i in range(max_iterations):
@@ -350,7 +416,7 @@ class ReActAgent:
 
             if not calls:
                 if not content:
-                    if evidence:
+                    if evidence or self._pre_evidence:
                         break
                     # Wie bei Ollama-Ausfällen: Hinweis statt Exception, damit Chat und UI weiterlaufen
                     logger.error("Das Agentenmodell '%s' lieferte eine leere Antwort (Iteration %d).",
@@ -360,6 +426,11 @@ class ReActAgent:
                     nudged = True
                     messages.append({"role": "assistant", "content": content})
                     messages.append({"role": "user", "content": NO_TOOL_HINT})
+                    continue
+                if is_announcement(content) and announced < 2 and iteration < max_iterations:
+                    announced += 1
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": ANNOUNCE_HINT})
                     continue
                 draft = content
                 return self._finish(user_query, draft, evidence, callback, iteration)
@@ -405,6 +476,6 @@ class ReActAgent:
             if repeated_steps >= 2:
                 break
 
-        if evidence or draft:
+        if evidence or draft or self._pre_evidence:
             return self._finish(user_query, draft, evidence, callback, iteration)
         return "Abbruch: Die maximale Anzahl an Iterationen wurde überschritten."

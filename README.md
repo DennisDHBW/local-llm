@@ -54,6 +54,20 @@ Wird stattdessen ein Python-Prozess beendet (Exit 137, `Out of memory` in `journ
 Reranker und Modell zusammen: Browser schließen, die Evaluation satzweise starten (`--sets A`) oder
 `ENERGY_USE_RERANKER=0` setzen.
 
+## Wie eine Frage beantwortet wird (Stand Paket 7)
+
+1. **Vorab-Suche („retrieval first“)**: hybride Suche (Vektor + BM25, optional Reranker) holt die 5 besten Textstellen.
+   Jede Stelle trägt einen Kontextkopf (Dokumentart, Absender, Kunde, Datum, Nummer aus den geprüften Fakten) und
+   ihre Nachbarzeilen (`src/retrieval/context.py`), fast gleiche Fenster werden aussortiert.
+2. **Agent**: sieht Frage und Treffer. Reichen sie, antwortet er direkt; sonst ruft er Werkzeuge auf (Bonpositionen,
+   Rechnen, Kerndaten, Graph, gezielte Suche, Diagramme). Kündigt er nur einen Schritt an, wird er zum Ausführen
+   aufgefordert.
+3. **Antwort**: Der Synthesizer formuliert aus Werkzeugergebnissen und Treffern eine Antwort mit [n]-Quellen; Zahlen,
+   die in keiner Quelle stehen, lösen eine Korrektur bzw. einen Hinweis aus.
+
+`ENERGY_AGENT_PRE_RETRIEVAL_K=0` schaltet Schritt 1 ab (Verhalten bis Paket 6), `ENERGY_WINDOW_MIN_CHARS=0` die
+Nachbarzeilen (danach neu indizieren: `uv run python -m src.ingestion.pipeline --stage index`).
+
 ## Arbeitsspeicher (16 GB, ohne GPU)
 
 - Der Import entlädt nach jedem Schritt die Ollama-Modelle, die der nächste Schritt nicht braucht
@@ -61,7 +75,8 @@ Reranker und Modell zusammen: Browser schließen, die Evaluation satzweise start
   gleichzeitig im RAM. Die Testläufe geben am Ende Reranker und Modelle ebenfalls frei.
 - Empfohlene Ollama-Einstellungen (`sudo systemctl edit ollama`):
   `OLLAMA_MAX_LOADED_MODELS=2` (Agent + Embedding, sonst lädt jede Suche das Sprachmodell neu),
-  `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_KEEP_ALIVE=30s`.
+  `OLLAMA_NUM_PARALLEL=2` (zwei Zwischenspeicher für Prompts: Agent und Antwort verdrängen sich nicht gegenseitig,
+  der lange Systemprompt muss seltener neu verarbeitet werden; kostet ~0,5 GB), `OLLAMA_KEEP_ALIVE=30s`.
 - Reranker: wird einmal pro Prozess geladen; ein Ladefehler steht im Log und im Qualitätsbericht (früher lief die
   Suche dann unbemerkt ohne Reranker). Nach dem ersten Herunterladen `ENERGY_RERANKER_LOCAL_ONLY=1` (oder
   `HF_HUB_OFFLINE=1`) setzen: dann gibt es keinen Zugriff auf den Hugging-Face-Hub mehr, alles bleibt lokal.
@@ -75,13 +90,17 @@ Halluzination, Enthaltung) deterministisch gegen Sollwerte, mit 95-%-Konfidenzin
 | --- | --- | --- |
 | A | `evaluation/questions_belege.json` | kontextspezifisch, von Hand (Standard, Rechnen, Zusammenhang, Multimodal, Grenzfall, negativ) |
 | B | aus `evaluation/gold_belege.json` erzeugt | synthetisch (wie RAGAS-Testset-Generierung, ohne LLM) |
-| C | `evaluation/questions_heldout.json` | zurückgehalten: nie zum Nachbessern verwendet |
+| C | `evaluation/questions_heldout.json` | zurückgehalten; nach Paket 6 einmal zur Fehleranalyse genutzt |
+| D | `evaluation/questions_heldout_d.json` | zurückgehalten: vor Paket 7 geschrieben, nie zum Nachbessern verwendet |
 
 Nach jedem Lauf entsteht `<lauf>_review.json`: dort `"manuell": true/false` mit Notiz eintragen (z. B. richtige
 Antwort in anderer Schreibweise), dann `uv run python -m evaluation.quality --report <lauf>.jsonl`. Der Bericht
 zeigt automatische und geprüfte Korrektheit getrennt und listet jede Abweichung.
 
-Reranker vergleichen (nur Retrieval, wenige Minuten je Modell):
+Eine Antwort gilt nur als richtig, wenn der erwartete Wert in einem Satz ohne Verneinung steht („für EDEKA wurden
+keine Positionen gefunden“ nennt EDEKA, beantwortet die Frage aber nicht); solche Fälle sind im Review markiert.
+
+Reranker vergleichen (nur Retrieval, wenige Minuten je Modell; vorher einmal `uv run python -m scripts.fetch_rerankers`):
 
 ```bash
 ENERGY_USE_RERANKER=0 uv run python -m evaluation.quality --retrieval-only

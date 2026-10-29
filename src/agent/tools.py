@@ -160,7 +160,7 @@ TOOL_SCHEMAS: list[dict] = [
             "group_by": {"type": "string", "enum": ["none", "category", "group", "item", "merchant", "month", "document"], "description": "none = Positionen auflisten (Standard); category = je Kategorie; group = je Obergruppe."},
             "date_from": {"type": "string", "description": "Ab Datum, z. B. '01.01.2026' oder '2026' (optional)."},
             "date_to": {"type": "string", "description": "Bis Datum (optional)."},
-            "contains": {"type": "string", "description": "Nur Bons, deren Händler/Dateiname diesen Begriff enthält, z. B. 'Lidl' (optional)."},
+            "contains": {"type": "string", "description": "Nur Bons, deren Händler/Dateiname diesen Begriff enthält, z. B. 'Lidl'; mehrere Händler mit Komma oder 'und', z. B. 'REWE, ALDI' (optional)."},
             "filenames": {"type": "string", "description": "Dateinamen, durch Komma getrennt (optional, leer = alle Bons)."},
             "output": {"type": "string", "enum": ["text", "pie", "bar", "line", "markdown"], "description": "text (Standard); pie = Tortendiagramm, bar = Balken, line = Verlauf je Monat, markdown = Ausgabenübersicht als Datei mit Tortendiagramm."},
             "title": {"type": "string", "description": "Titel für Diagramm oder Bericht (optional)."},

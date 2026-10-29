@@ -18,6 +18,9 @@ import pytest
 
 # Muss VOR dem ersten Import von src.config passieren (die Konfiguration liest die Variable beim Import).
 os.environ.setdefault("ENERGY_USE_RERANKER", "0")
+# Die älteren Agententests prüfen die Werkzeugschleife Schritt für Schritt; die Vorab-Suche ("retrieval first")
+# schalten die Tests in tests/test_paket7_qualitaet.py gezielt ein.
+os.environ.setdefault("ENERGY_AGENT_PRE_RETRIEVAL_K", "0")
 
 _OLLAMA_FUNCTIONS = ("chat", "generate", "embed", "embeddings", "ps")
 
