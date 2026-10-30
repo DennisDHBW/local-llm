@@ -51,7 +51,8 @@ from src.utils import atomic_write_json, source_files
 # das spart je Dokument den Metadaten-LLM-Aufruf und erhält Bildbeschreibungen und Tabellen-Summaries.
 # Erhöhen, wenn sich parser.py so ändert, dass alle Dokumente neu zerlegt werden sollen.
 # 2: Tabellen mit nur erkannter Kopfzeile -> Datenzeilen rekonstruiert (Paket 7b).
-PARSE_CACHE_VERSION = 2
+# 3: Textzeilen im Bereich rekonstruierter Tabellenzeilen als superseded_by_table markiert (Paket 7c).
+PARSE_CACHE_VERSION = 3
 MANIFEST_NAME = ".ingest_manifest.json"
 RAW_DIR = DATA_DIR / "raw"
 

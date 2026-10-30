@@ -307,3 +307,17 @@ Stundensatz), Dauer des Agenten (~6 min je Frage).
 - `quality.py`: Fehlerantworten (⚠️/FEHLER) zählen nicht als Enthaltung, sondern als Fehler; einmal auf Ollama warten
   und wiederholen; `--resume` misst Fehlerfragen neu; Bericht zeigt den Weg je Frage (Kurzweg/Agent).
 - `config.py`: Standard-Reranker `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (Auswahl auf A+B).
+
+## Paket 7c - Agentenweg, Kategorie Alkohol, saubere Tabellen im Index (30.10.2026)
+Messung Paket 7b (41 Fragen A/C/D, Agent): 35/41 richtig (A 13/15, C 12/13, D 10/13), Retrieval Recall@5 97-100 %,
+Feldgenauigkeit unverändert 97 %. Kurzweg 23/24 richtig (105 s), Agentenweg nur 5/10 (430 s). Ollama-Absturz in
+Paket 7: Kernel-OOM in der Ollama-Gruppe (9 GB) bei `NUM_PARALLEL=2` - in 7b zurückgestellt, seither stabil.
+- `categories.py`: **Fehler behoben** - "Alkohol" traf als Teilstring auch "Getränke (alkoholfrei)"; die Frage nach
+  Alkohol lieferte alle alkoholfreien Getränke. Jetzt wortweise Zuordnung, Wörter auf "-frei" nur als ganzes Wort.
+- `react_agent.py`: Auf dem Agentenweg (Werkzeugbedarf) zählt die Vorab-Suche nicht als Werkzeugnutzung; antwortet das
+  Modell ohne Werkzeug, wird einmal nachgefragt (`TOOL_REQUIRED_HINT`). Mit Werkzeugergebnissen gehen nur noch die
+  2 besten Vorab-Treffer in die Antwort (kürzerer Prompt). Behauptet die Antwort eine erstellte Datei, obwohl keine
+  erzeugt wurde ("Das Diagramm wurde erstellt"), wird der Satz entfernt.
+- `parser.py`, `vector_store.py`: Textzeilen, die als rekonstruierte Tabellenzeile mit Spaltennamen vorliegen, werden
+  nicht mehr indiziert (`superseded_by_table`); sie bleiben für die Fakten. `PARSE_CACHE_VERSION` 3.
+- `quality.py`: Trajektorie je Antwort (Werkzeugaufrufe mit Parametern) in Rohdaten und Review-Datei.

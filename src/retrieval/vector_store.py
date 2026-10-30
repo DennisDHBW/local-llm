@@ -80,6 +80,9 @@ class VectorStore:
             print(f"\nStarte Vektorisierung für: {json_file.name}...")
             with open(json_file, encoding="utf-8") as f:
                 chunks = json.load(f)
+            # Textzeilen, die als rekonstruierte Tabellenzeile (mit Spaltennamen) im Index stehen, nicht doppelt
+            # indizieren; sie bleiben in den Chunks für die Fakten-Extraktion (src/ingestion/parser.py).
+            chunks = [c for c in chunks if not (c.get("metadata") or {}).get("superseded_by_table")]
 
             chunk_ids = [chunk["chunk_id"] for chunk in chunks]
             seen_ids.update(chunk_ids)

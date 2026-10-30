@@ -82,6 +82,19 @@ NO_TOOL_HINT = (
     "Du hast noch kein Werkzeug benutzt. Beantworte die Frage nur auf Basis der Dokumente und rufe dafür "
     "zuerst ein passendes Werkzeug auf."
 )
+# Fragen, die die Weiche dem Agenten gibt (Summen, Listen über Bons/Dokumente, Kategorien, Zusammenhänge), sollen nicht
+# nur aus den Vorab-Treffern beantwortet werden: Paket 7b, "Welche Dokumente sind an X adressiert?" und "Auf welchen
+# Bons wurde Pfand berechnet?" endeten ohne Werkzeug mit unvollständigen Listen.
+TOOL_REQUIRED_HINT = (
+    "Diese Frage betrifft mehrere Dokumente oder verlangt eine Berechnung. Die Vorab-Treffer sind nur ein Ausschnitt. "
+    "Rufe jetzt das passende Werkzeug auf (z. B. receipt_items für Kassenbons, graph_lookup/graph_context für "
+    "Zusammenhänge, aggregate_facts oder calculate für Summen)."
+)
+# Höchstens so viele Vorab-Treffer gehen in die Antwort, wenn Werkzeuge Ergebnisse geliefert haben (kürzerer Prompt,
+# berechnete Werte stehen im Vordergrund).
+PRE_HITS_WITH_TOOLS = 2
+_FILE_CLAIM_RE = re.compile(r"[^.\n]*\b(?:Diagramm|Grafik|Bericht|Datei)\w*\b[^.\n]*\bwurde\w*\s+erstellt[^.\n]*[.:]?[^\n]*",
+                            re.IGNORECASE)
 EMPTY_MODEL_ANSWER = (
     "⚠️ Das Sprachmodell '{model}' lieferte eine leere Antwort, bevor ein Werkzeug genutzt wurde. "
     "Bitte die Frage erneut stellen oder ein anderes Modell wählen (ENERGY_AGENT_MODEL)."
@@ -328,7 +341,9 @@ class ReActAgent:
     ) -> str:
         # Werkzeugergebnisse zuerst (berechnete Summen, Bonpositionen, Kerndaten), danach die Vorab-Treffer.
         pre_ids = {item.get("id") for item in self._pre_evidence}
-        evidence = [e for e in evidence if e.get("id") not in pre_ids] + list(self._pre_evidence)
+        tool_evidence = [e for e in evidence if e.get("id") not in pre_ids]
+        pre = list(self._pre_evidence)[:PRE_HITS_WITH_TOOLS] if tool_evidence else list(self._pre_evidence)
+        evidence = tool_evidence + pre
         selected = self._select_evidence(evidence)
         self.last_evidence = selected
         answer = draft
@@ -371,6 +386,9 @@ class ReActAgent:
             answer = "Zu der Frage konnten keine belastbaren Informationen in den Dokumenten gefunden werden."
         if self.last_files:
             answer = f"{answer}\n\nErzeugte Dateien:\n" + "\n".join(f"- {path}" for path in self.last_files)
+        else:
+            # Keine Datei erzeugt, die Antwort behauptet es aber ("Das Diagramm wurde erstellt: ...") -> Satz entfernen.
+            answer = re.sub(r"\n{3,}", "\n\n", _FILE_CLAIM_RE.sub("", answer)).strip() or answer
         if callback:
             callback({"type": "final_answer", "iteration": iteration, "thought": draft, "final_answer": answer})
         return answer
@@ -434,7 +452,8 @@ class ReActAgent:
         ]
         evidence: list[dict] = []
         seen_calls: set[str] = set()
-        tools_used = bool(self._pre_evidence)
+        # Agentenweg wegen Werkzeugbedarf: die Vorab-Suche zählt nicht als Werkzeugnutzung (einmal nachfragen).
+        tools_used = bool(self._pre_evidence) and not needs_tools(user_query)
         nudged = False
         announced = 0
         repeated_steps = 0
@@ -485,7 +504,7 @@ class ReActAgent:
                 if not tools_used and not nudged:
                     nudged = True
                     messages.append({"role": "assistant", "content": content})
-                    messages.append({"role": "user", "content": NO_TOOL_HINT})
+                    messages.append({"role": "user", "content": TOOL_REQUIRED_HINT if self._pre_evidence else NO_TOOL_HINT})
                     continue
                 if is_announcement(content) and announced < 2 and iteration < max_iterations:
                     announced += 1

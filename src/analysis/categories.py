@@ -82,14 +82,28 @@ class Catalog:
                 if needle in {normalize(group), *map(normalize, synonyms)}:
                     groups.add(group)
             for category in self.categories:
-                if needle in (normalize(category.label), normalize(category.id)) or (
-                    len(needle) >= 4 and needle in normalize(category.label)
-                ):
+                if needle in (normalize(category.label), normalize(category.id)) or _label_hit(needle, category.label):
                     cats.add(category.label)
             for label in (FOOD_OTHER_LABEL, DEPOSIT_LABEL, DISCOUNT_LABEL, OTHER):
-                if len(needle) >= 4 and needle in normalize(label):
+                if _label_hit(needle, label):
                     cats.add(label)
         return cats, groups
+
+
+def _label_hit(needle: str, label: str) -> bool:
+    """Suchbegriff passt zu einem Wort der Kategorie ('Getränke', 'Milch' -> 'Milchprodukte & Eier').
+
+    Wortweise statt Teilstring: 'Alkohol' traf vorher 'Getränke (alkoholfrei)', die Frage nach Alkohol lieferte damit
+    alle alkoholfreien Getränke (gefunden mit Testsatz A, Paket 7b). Wörter auf '-frei' zählen nur bei vollem Wort."""
+    if len(needle) < 4:
+        return False
+    label_norm = normalize(label)
+    if " " in needle:
+        return needle in label_norm
+    for token in re.findall(r"[^\W\d_]+", label_norm):
+        if token == needle or (token.startswith(needle) and not token.endswith("frei")):
+            return True
+    return False
 
 
 def _hit(keyword: str, name: str, tokens: list[str]) -> bool:

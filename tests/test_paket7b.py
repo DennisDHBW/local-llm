@@ -122,7 +122,7 @@ def _agent(monkeypatch, synth_answers, chat_replies=()):
     chats = []
 
     def fake_chat(model, messages, tools=None, options=None):
-        chats.append(messages)
+        chats.append([dict(m) for m in messages])
         return next(script)
 
     monkeypatch.setattr(react_agent.ollama, "chat", fake_chat)
@@ -148,11 +148,28 @@ def test_fast_path_escalates_to_the_agent_when_nothing_is_found(monkeypatch):
     assert agent.last_route == "kurzweg->agent" and len(chats) == 1 and "04.11.2026" in answer
 
 
-def test_tool_questions_skip_the_fast_path(monkeypatch):
+def test_tool_questions_skip_the_fast_path_and_must_use_a_tool(monkeypatch):
     reply = SimpleNamespace(message=SimpleNamespace(content="fertig", tool_calls=None))
-    agent, synth, chats = _agent(monkeypatch, ["Summe 22,79 EUR [1]."], [reply])
+    call = SimpleNamespace(message=SimpleNamespace(content="", tool_calls=[
+        {"function": {"name": "receipt_items", "arguments": {"contains": "REWE, ALDI"}}}]))
+    agent, synth, chats = _agent(monkeypatch, ["Summe 22,79 EUR [1]."], [reply, call, reply])
     agent.run("Wie viel habe ich bei REWE und ALDI zusammen bezahlt?")
-    assert agent.last_route == "agent" and len(chats) == 1
+    assert agent.last_route == "agent" and len(chats) == 3
+    assert "mehrere Dokumente" in chats[1][-1]["content"]          # Nachfrage: erst Werkzeug, nicht nur Vorab-Treffer
+
+
+def test_false_file_claims_are_removed(monkeypatch):
+    agent, _, _ = _agent(monkeypatch, ["Im Oktober 41,71 EUR [1].\n\nDas Diagramm wurde erstellt: [1] Bonpositionen."])
+    answer = agent.run("Welchen Abrechnungszeitraum hat die Rechnung?")
+    assert "Diagramm" not in answer and "41,71 EUR" in answer
+
+
+def test_alcohol_is_not_matched_by_alcohol_free_drinks():
+    from src.analysis.categories import load_catalog
+
+    cats, groups = load_catalog().resolve("Alkohol")
+    assert "Getränke (alkoholfrei)" not in cats and groups == {"Alkohol"}
+    assert load_catalog().resolve("Getränke")[0] == {"Getränke (alkoholfrei)"}
 
 
 def test_error_answers_are_not_scored_as_abstention():
@@ -201,3 +218,20 @@ def test_resume_repeats_error_rows(tmp_path, monkeypatch):
     rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert len(asked) == 1 and rows[-1]["answer"]["correct"] and rows[-1]["answer"]["route"] == "kurzweg"
     assert "Weg je Frage" in log.with_suffix(".md").read_text(encoding="utf-8")
+
+
+def test_superseded_text_lines_are_not_indexed(tmp_path, monkeypatch):
+    from src.ingestion.parser import DocumentParser
+    from src.retrieval.context import indexed_texts  # noqa: F401 - Import prüft nur die Verfügbarkeit
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    _header_only_table_pdf(raw / "Wasser.pdf")
+    parser = DocumentParser(raw_dir=raw, processed_dir=tmp_path / "out")
+    monkeypatch.setattr(parser, "_extract_document_metadata", lambda text, name: {
+        "doc_type": "Abrechnung", "schema_id": "energy", "provider": "Z", "customer_name": "M",
+        "doc_date": "22.01.2025", "contract_number": None, "invoice_number": None, "metadata_source": "llm"})
+    chunks = [c.model_dump() for c in parser.parse_file("Wasser.pdf")]
+    hidden = [c["content"] for c in chunks if c["metadata"].get("superseded_by_table")]
+    assert any("125,0 m³" in h and "842,0" in h for h in hidden)            # unbeschriftete Zeile ausgeblendet
+    assert not any("Gebührenberechnung" in h or "Trinkwasser" in h for h in hidden)   # Text danach bleibt

@@ -32,6 +32,7 @@ _OCR_SPLIT_AMOUNT_RE = re.compile(r"(\d),\s+(\d{2})(?!\d)")
 TABLE_GAP_FACTOR = 3.2          # größerer Abstand (in Zeilenhöhen) beendet die Tabelle
 TABLE_ATTACH_FACTOR = 2.2       # Folgezeilen mit nur einer Zelle gehören zur nächstgelegenen Datenzeile
 MAX_RECONSTRUCTED_ROWS = 40
+SUPERSEDED_OVERLAP = 0.6        # Anteil eines Textblocks im Bereich rekonstruierter Zeilen -> nicht indizieren
 _VALUE_CELL_RE = re.compile(r"\d+,\d+|\d{1,3}\.\d{3}\b")
 _SECTION_LINE_RE = re.compile(r"^(?:\d{1,2}\.|[IVX]{1,4}\.)\s+[A-ZÄÖÜ]|^\*")
 
@@ -179,21 +180,25 @@ class DocumentParser:
 
     @staticmethod
     def reconstruct_rows(page: Any, table: Any, other_tables: list[Any]) -> list[str]:
+        return DocumentParser.reconstruct_table(page, table, other_tables)[0]
+
+    @staticmethod
+    def reconstruct_table(page: Any, table: Any, other_tables: list[Any]) -> tuple[list[str], Any]:
         """Datenzeilen unter einer Kopfzeile aus Wortpositionen: Wort -> Spalte über die x-Bereiche der Kopfzellen.
 
         Mehrzeilige Beschreibungen (Zeilen mit nur einer Zelle) werden der nächstgelegenen Datenzeile zugeordnet.
         Ende: großer Abstand, nächste Tabelle, Abschnittsüberschrift ("3. Abrechnungssaldo") oder Fußnote ("*").
-        Ergebnis: "Spalte: Wert | Spalte: Wert" je Datenzeile."""
+        Ergebnis: ("Spalte: Wert | Spalte: Wert" je Datenzeile, Bereich der verwendeten Zeilen als Rect oder None)."""
         rows = table.extract()
         header_index = len(rows) - 1
         try:
             cells = table.rows[header_index].cells
         except (AttributeError, IndexError):
-            return []
+            return [], None
         columns = [(cell[0], cell[2], str(text).replace("\n", " ").strip())
                    for cell, text in zip(cells, rows[header_index], strict=False) if cell and text and str(text).strip()]
         if len(columns) < 2:
-            return []
+            return [], None, None
         x0, top, x1 = table.bbox[0], table.bbox[3], table.bbox[2]
         below = [other.bbox[1] for other in other_tables if other.bbox[1] > top]
         bottom = min(below) if below else page.rect.y1
@@ -208,7 +213,7 @@ class DocumentParser:
             else:
                 lines.append({"y": center, "h": height, "words": [w]})
         if not lines:
-            return []
+            return [], None, None
         line_height = median(line["h"] for line in lines) or 10.0
 
         def column_of(x_center: float) -> int:
@@ -231,18 +236,22 @@ class DocumentParser:
 
         anchors = [row for row in parsed if len(row["values"]) >= 2]
         if not anchors:
-            return []
+            return [], None, None
+        used_y = [a["y"] for a in anchors]
         for row in parsed:
             if len(row["values"]) >= 2:
                 continue
             nearest = min(anchors, key=lambda a: abs(a["y"] - row["y"]))
             if abs(nearest["y"] - row["y"]) > TABLE_ATTACH_FACTOR * line_height:
                 continue
+            used_y.append(row["y"])
             for i, value in row["values"].items():
                 old = nearest["values"].get(i, "")
                 nearest["values"][i] = (f"{value} {old}" if row["y"] < nearest["y"] else f"{old} {value}").strip()
-        return [" | ".join(f"{columns[i][2]}: {a['values'][i]}" for i in sorted(a["values"]))
-                for a in anchors[:MAX_RECONSTRUCTED_ROWS]]
+        texts = [" | ".join(f"{columns[i][2]}: {a['values'][i]}" for i in sorted(a["values"]))
+                 for a in anchors[:MAX_RECONSTRUCTED_ROWS]]
+        covered = pymupdf.Rect(x0, top, x1, max(used_y) + line_height)
+        return texts, covered
 
     @staticmethod
     def _is_header_row(first_row: list[Any]) -> bool:
@@ -486,6 +495,9 @@ Textauszug:
                 and len(previous.content) + len(text_chunk) < MAX_MERGED_CHUNK_CHARS
             ):
                 previous.content = f"{previous.content} {text_chunk}"
+                if not base_chunk_meta.get("superseded_by_table"):
+                    # Ein normal zu indizierendes Stück darf nicht in einem ausgeblendeten Chunk verschwinden.
+                    previous.metadata.pop("superseded_by_table", None)
                 continue
             chunks.append(DocumentChunk(
                 chunk_id=f"{doc_stem}_p{page_num}_txt_{len(chunks)}",
@@ -563,6 +575,7 @@ Textauszug:
                         ))
                 continue
             table_bboxes = []
+            covered_rects: list[Any] = []     # Bereiche rekonstruierter Tabellenzeilen (Text dort nicht indizieren)
             heading_events = (
                 self._heading_events(page_dict, [pymupdf.Rect(t.bbox) for t in tables.tables], base_font_size)
                 if tables and len(tables.tables) > 0 else []
@@ -633,7 +646,9 @@ Textauszug:
                         ))
                     if self._is_header_only_table(rows):
                         others = [other for other in tables.tables if other is not table]
-                        rebuilt = self.reconstruct_rows(page, table, others)
+                        rebuilt, covered = self.reconstruct_table(page, table, others)
+                        if rebuilt and covered is not None:
+                            covered_rects.append(covered)
                         columns = [str(c).replace("\n", " ").strip() for c in rows[-1] if c and str(c).strip()]
                         for r_idx, row_content in enumerate(rebuilt):
                             chunk_meta = dict(base_chunk_meta)
@@ -661,6 +676,12 @@ Textauszug:
                 block_rect = pymupdf.Rect(block.get("bbox", (0, 0, 0, 0)))
                 if any(block_rect.intersects(t_box) for t_box in table_bboxes):
                     continue
+                # Textzeilen, die als rekonstruierte Tabellenzeile mit Spaltennamen vorliegen: bleiben für die Fakten,
+                # werden aber nicht indiziert (sonst konkurriert "842,0 967,0 125,0 m³" mit "Verbrauch: 125,0 m³").
+                block_meta = base_chunk_meta
+                area = abs(block_rect) or 1.0
+                if any(abs(block_rect & rect) / area >= SUPERSEDED_OVERLAP for rect in covered_rects):
+                    block_meta = {**base_chunk_meta, "superseded_by_table": True}
 
                 if "lines" in block:
                     for line in block["lines"]:
@@ -675,7 +696,7 @@ Textauszug:
 
                             if is_heading and self._is_valid_heading(text):
                                 self._emit_paragraph(chunks, current_paragraph, doc_stem, page_num, heading_stack,
-                                                     base_chunk_meta)
+                                                     block_meta)
                                 current_paragraph = ""
 
                                 heading_stack = self._push_heading(heading_stack, text, size, base_font_size)
@@ -686,7 +707,7 @@ Textauszug:
                                     content=text,
                                     heading_stack=list(heading_stack),
                                     page_number=page_num,
-                                    metadata=dict(base_chunk_meta)
+                                    metadata=dict(block_meta)
                                 ))
                             else:
                                 if current_paragraph:
@@ -696,7 +717,7 @@ Textauszug:
 
                     if current_paragraph:
                         self._emit_paragraph(chunks, current_paragraph, doc_stem, page_num, heading_stack,
-                                             base_chunk_meta)
+                                             block_meta)
                         current_paragraph = ""
 
             if current_paragraph:

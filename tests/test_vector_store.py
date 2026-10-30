@@ -102,3 +102,27 @@ class VectorStoreStaleChunkTests(unittest.TestCase):
             }
             store.index_documents()
             self.assertEqual(sorted(store.collection.records), ["anderes_p1_txt_0", "document_p1_txt_0"])
+
+
+class VectorStoreContextTests(unittest.TestCase):
+    def test_superseded_lines_are_skipped_and_header_comes_from_facts(self):
+        with TemporaryDirectory() as directory:
+            processed_dir = Path(directory)
+            chunks = [
+                {"chunk_id": "w_tbl0_x0", "chunk_type": "table_row", "page_number": 1, "heading_stack": ["Verbrauch"],
+                 "content": "Zähler-ID: WAS-1 | Verbrauch: 125,0 m³",
+                 "metadata": {"filename": "Wasser.pdf", "reconstructed": True}},
+                {"chunk_id": "w_txt_1", "chunk_type": "text", "page_number": 1, "heading_stack": ["Verbrauch"],
+                 "content": "WAS-1 842,0 m³ 967,0 m³ 125,0 m³",
+                 "metadata": {"filename": "Wasser.pdf", "superseded_by_table": True}},
+            ]
+            (processed_dir / "Wasser_chunks.json").write_text(json.dumps(chunks), encoding="utf-8")
+            (processed_dir / "Wasser_facts.json").write_text(json.dumps({
+                "filename": "Wasser.pdf", "schema_id": "energy", "facts": {"provider": "Zweckverband"}}),
+                encoding="utf-8")
+            store = make_store(processed_dir)
+            store._get_embedding = lambda text: [1.0]
+            store.index_documents()
+            self.assertEqual(list(store.collection.records), ["w_tbl0_x0"])
+            document = store.collection.records["w_tbl0_x0"]["document"]
+            self.assertTrue(document.startswith("[Absender: Zweckverband | Datei: Wasser.pdf"))

@@ -288,6 +288,8 @@ def combine_runs(question: Mapping[str, Any], runs: Sequence[Mapping[str, Any]])
 
     combined: dict[str, Any] = {
         "text": runs[0]["text"],
+        "route": runs[0].get("route", ""),
+        "trace": runs[0].get("trace", []),
         "seconds": _mean(r["seconds"] for r in runs),
         "tool_calls": _mean(r["tool_calls"] for r in runs),
         "correct": majority("correct"),
@@ -466,6 +468,7 @@ def write_review_template(log: Path, rows: Sequence[Mapping[str, Any]],
             "erwartet": q.get("expected_substrings", []), "antwort": a.get("text", ""),
             "automatisch": bool(a["correct"]),
             "hinweis": "erwarteter Wert nur in verneintem Satz - bitte prüfen" if a.get("negated") else "",
+            "weg": a.get("route", ""), "werkzeuge": a.get("trace", []),
             "manuell": old.get("manuell"), "notiz": old.get("notiz", ""),
         })
     path.write_text(json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -605,10 +608,12 @@ def main() -> None:
 
     def ask(q: Mapping[str, Any]) -> dict[str, Any]:
         steps = {"n": 0}
+        trace: list[str] = []      # Werkzeugaufrufe (Trajektorie) für die Fehleranalyse
 
         def callback(event: dict, _steps: dict = steps) -> None:
             if event.get("type") == "action_execution":
                 _steps["n"] += 1
+                trace.append(f"{event.get('action')}({str(event.get('action_input', ''))[:120]})")
 
         start = time.perf_counter()
         try:
@@ -617,7 +622,7 @@ def main() -> None:
             answer = f"FEHLER: {exc}"
         evidence = [str(e.get("content", "")) for e in getattr(agent, "last_evidence", [])]
         return {"text": answer, "seconds": round(time.perf_counter() - start, 1), "tool_calls": steps["n"],
-                "route": getattr(agent, "last_route", ""), **answer_scores(q, answer, evidence)}
+                "route": getattr(agent, "last_route", ""), "trace": trace, **answer_scores(q, answer, evidence)}
 
     stopped = False
     try:
