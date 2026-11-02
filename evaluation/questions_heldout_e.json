@@ -1,0 +1,240 @@
+[
+  {
+    "id": "e_connectnet_rufnummer",
+    "category": "standard",
+    "question": "Welche Rufnummer steht auf der Rechnung von ConnectNet?",
+    "expected_substrings": [
+      "8920145"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung1TelekomConnectNet.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 1
+      }
+    ],
+    "evidence_substrings": [
+      "8920145"
+    ]
+  },
+  {
+    "id": "e_connectnet_router",
+    "category": "standard",
+    "question": "Wie viel kostet das Mietgerät (Router) bei ConnectNet netto?",
+    "expected_substrings": [
+      "4,19|4.19"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung1TelekomConnectNet.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 1
+      }
+    ],
+    "evidence_substrings": [
+      "4,19"
+    ]
+  },
+  {
+    "id": "e_nordstern_selbstbeteiligung",
+    "category": "standard",
+    "question": "Welche Selbstbeteiligung gilt für die Vollkasko bei NordStern?",
+    "expected_substrings": [
+      "300"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung3VersicherungNordStern.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 3
+      }
+    ],
+    "evidence_substrings": [
+      "Selbstbeteiligung"
+    ]
+  },
+  {
+    "id": "e_nordstern_fahrzeug",
+    "category": "standard",
+    "question": "Welches Fahrzeug ist bei der NordStern Versicherung versichert?",
+    "expected_substrings": [
+      "BMW 320i|BMW"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung3VersicherungNordStern.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 3
+      }
+    ],
+    "evidence_substrings": [
+      "BMW 320i"
+    ]
+  },
+  {
+    "id": "e_werkstatt_motoroel",
+    "category": "standard",
+    "question": "Was hat das Motoröl bei Auto & Service Müller netto insgesamt gekostet?",
+    "expected_substrings": [
+      "73,10|73.10|73,1 "
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung4WerkstattAutoService.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 4
+      }
+    ],
+    "evidence_substrings": [
+      "73,10"
+    ]
+  },
+  {
+    "id": "e_arzt_ekg_faktor",
+    "category": "standard",
+    "question": "Mit welchem Steigerungsfaktor wurde das Ruhe-EKG auf der Arztrechnung abgerechnet?",
+    "expected_substrings": [
+      "1,8|1.8"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung6ArztPrivatabrechnung.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 6
+      }
+    ],
+    "evidence_substrings": [
+      "Ruhe-EKG"
+    ]
+  },
+  {
+    "id": "e_edeka_zahlart",
+    "category": "standard",
+    "question": "Mit welcher Karte wurde bei EDEKA bezahlt?",
+    "expected_substrings": [
+      "Mastercard"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Kassenbon5Edeka.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "Mastercard"
+    ]
+  },
+  {
+    "id": "e_aldi_butter",
+    "category": "standard",
+    "question": "Wie viel kostete die Markenbutter bei ALDI?",
+    "expected_substrings": [
+      "1,69|1.69"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Kassenbon4Aldi.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "1,69"
+    ]
+  },
+  {
+    "id": "e_getraenke_oktober",
+    "category": "rechnen",
+    "question": "Wie viel habe ich im Oktober 2026 für alkoholfreie Getränke ausgegeben?",
+    "expected_substrings": [
+      "9,15|9.15"
+    ]
+  },
+  {
+    "id": "e_faellig_november",
+    "category": "zusammenhang",
+    "question": "Welche Rechnungen sind im November 2026 fällig?",
+    "expected_substrings": [
+      "NordStern",
+      "Weber|Arzt"
+    ]
+  },
+  {
+    "id": "e_lumina_gutschein",
+    "category": "grenzfall",
+    "question": "Wie viel Rabatt brachte der Aktionsgutschein HERBST10 bei LuminaStyle?",
+    "expected_substrings": [
+      "8,40|8.40|10 EUR|10,00|10 €"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Rechnung2OnlineshopLuminaStyle.pdf"
+      },
+      {
+        "filename": "Alle6RechnungenSammeldokument.pdf",
+        "page": 2
+      }
+    ],
+    "evidence_substrings": [
+      "HERBST10"
+    ]
+  },
+  {
+    "id": "e_heizstrom_guthaben_datum",
+    "category": "grenzfall",
+    "question": "Bis wann wird das Guthaben aus der Heizstromabrechnung überwiesen?",
+    "expected_substrings": [
+      "05.02.2025|5. Februar 2025"
+    ],
+    "expected_sources": [
+      {
+        "filename": "generatedinvoicesHeizstromrechnung2024.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "05.02.2025"
+    ]
+  },
+  {
+    "id": "e_diagramm_ueber_350",
+    "category": "multimodal",
+    "question": "In welchen Monaten 2025 lag der Stromverbrauch laut Verbrauchsdiagramm über 350 kWh?",
+    "expected_substrings": [
+      "Januar|Jan",
+      "Dezember|Dez"
+    ],
+    "expected_sources": [
+      {
+        "filename": "Verbrauchsuebersicht2025.pdf"
+      }
+    ],
+    "evidence_substrings": [
+      "380"
+    ]
+  },
+  {
+    "id": "e_negativ_strom2023",
+    "category": "negativ",
+    "question": "Wie hoch war meine Stromrechnung für das Jahr 2023?",
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
+  },
+  {
+    "id": "e_negativ_fitness",
+    "category": "negativ",
+    "question": "Was kostet mein Fitnessstudio-Abo im Monat?",
+    "expected_substrings": [
+      "nicht|keine|kein"
+    ]
+  }
+]
