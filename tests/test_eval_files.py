@@ -14,6 +14,7 @@ EVAL_DIR = Path(__file__).resolve().parents[1] / "evaluation"
 QUESTIONS = json.loads((EVAL_DIR / "questions_belege.json").read_text(encoding="utf-8"))
 HELDOUT = json.loads((EVAL_DIR / "questions_heldout.json").read_text(encoding="utf-8"))
 HELDOUT_D = json.loads((EVAL_DIR / "questions_heldout_d.json").read_text(encoding="utf-8"))
+HELDOUT_E = json.loads((EVAL_DIR / "questions_heldout_e.json").read_text(encoding="utf-8"))
 GOLD = {k: v for k, v in json.loads((EVAL_DIR / "gold_belege.json").read_text(encoding="utf-8")).items() if not k.startswith("_")}
 CATEGORIES = {"standard", "rechnen", "zusammenhang", "grenzfall", "negativ", "multimodal"}
 # Dateien ohne Gold-Fakten, auf die sich Fragen beziehen dürfen (Sammel-PDF wird nicht aufgeteilt).
@@ -22,7 +23,8 @@ EXTRA_SOURCES = {"Alle6RechnungenSammeldokument.pdf", "Verbrauchsuebersicht2025.
 
 # ------------------------------------------------------------------ Konsistenz der Dateien
 
-@pytest.mark.parametrize("catalog", [QUESTIONS, HELDOUT, HELDOUT_D], ids=["katalog", "heldout_c", "heldout_d"])
+@pytest.mark.parametrize("catalog", [QUESTIONS, HELDOUT, HELDOUT_D, HELDOUT_E],
+                         ids=["katalog", "heldout_c", "heldout_d", "heldout_e"])
 def test_questions_are_well_formed(catalog):
     ids = [q["id"] for q in catalog]
     assert len(ids) == len(set(ids)), "Frage-IDs müssen eindeutig sein"
@@ -39,11 +41,12 @@ def test_heldout_set_is_disjoint_from_the_catalog():
     assert not {q["id"] for q in QUESTIONS} & {q["id"] for q in HELDOUT}
     assert not {q["question"] for q in QUESTIONS} & {q["question"] for q in HELDOUT}
     assert len(HELDOUT) >= 8 and {q["category"] for q in HELDOUT} >= {"standard", "grenzfall", "negativ"}
-    sets = [QUESTIONS, HELDOUT, HELDOUT_D]
+    sets = [QUESTIONS, HELDOUT, HELDOUT_D, HELDOUT_E]
     all_ids = [q["id"] for s in sets for q in s]
     all_questions = [q["question"] for s in sets for q in s]
     assert len(all_ids) == len(set(all_ids)) and len(all_questions) == len(set(all_questions))
     assert len(HELDOUT_D) >= 10 and {q["category"] for q in HELDOUT_D} >= {"standard", "grenzfall", "negativ", "multimodal"}
+    assert len(HELDOUT_E) >= 10 and {q["category"] for q in HELDOUT_E} >= {"standard", "grenzfall", "negativ", "multimodal"}
 
 
 def test_gold_facts_only_use_known_schema_fields():

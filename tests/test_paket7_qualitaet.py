@@ -197,4 +197,4 @@ def test_set_d_is_loaded_and_answered_by_the_agent_sets():
     from evaluation.quality import AGENT_SETS, _load_sets
 
     sets = _load_sets(None)
-    assert set(sets) == {"A", "B", "C", "D"} and len(sets["D"]) >= 10 and "D" in AGENT_SETS
+    assert set(sets) == {"A", "B", "C", "D", "E"} and len(sets["D"]) >= 10 and "D" in AGENT_SETS and "E" in AGENT_SETS

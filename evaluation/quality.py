@@ -11,8 +11,11 @@ unzuverlässig. Dieses Modul misst deshalb dieselben Fragen der Kennzahlen DETER
                                     (wie die Testset-Generierung von RAGAS, aber ohne LLM und reproduzierbar)
     Testsatz C  zurückgehalten      evaluation/questions_heldout.json: nach Paket 5 geschrieben; nach Paket 6 einmal
                                     zur Fehleranalyse genutzt (Ursachen allgemein behoben, Fragen unverändert).
-    Testsatz D  zurückgehalten      evaluation/questions_heldout_d.json: vor Paket 7 geschrieben, nie zum Nachbessern
-                                    genutzt. Zeigt, ob Verbesserungen verallgemeinern oder nur A/C "auswendig lernen".
+    Testsatz D  zurückgehalten      evaluation/questions_heldout_d.json: vor Paket 7 geschrieben; nach Paket 7c zur
+                                    Fehleranalyse genutzt.
+    Testsatz E  zurückgehalten      evaluation/questions_heldout_e.json: vor Paket 8 geschrieben, nur in der
+                                    Abschlussmessung verwendet. Jeder zurückgehaltene Satz "verbraucht" sich, sobald
+                                    seine Fehler analysiert werden; deshalb kam je Entwicklungsrunde ein neuer hinzu.
 
 Kennzahlen (Definitionen auch im Bericht):
     Extraktion   Feldgenauigkeit             Anteil richtiger Felder gegen gold_belege.json (check_facts)
@@ -65,8 +68,10 @@ RESULTS_DIR = EVAL_DIR / "results"
 CATALOG = EVAL_DIR / "questions_belege.json"
 HELDOUT = EVAL_DIR / "questions_heldout.json"
 HELDOUT_D = EVAL_DIR / "questions_heldout_d.json"
-QUESTION_FILES = {"A": CATALOG, "C": HELDOUT, "D": HELDOUT_D}     # B wird aus GOLD erzeugt
-AGENT_SETS = ("A", "C", "D")
+HELDOUT_E = EVAL_DIR / "questions_heldout_e.json"
+QUESTION_FILES = {"A": CATALOG, "C": HELDOUT, "D": HELDOUT_D, "E": HELDOUT_E}     # B wird aus GOLD erzeugt
+AGENT_SETS = ("A", "C", "D", "E")
+ALL_SETS = ("A", "B", "C", "D", "E")
 GOLD = EVAL_DIR / "gold_belege.json"
 SAMMEL = "Alle6RechnungenSammeldokument.pdf"     # enthält die sechs Einzelrechnungen noch einmal
 ABSTAIN_RE = re.compile(r"\b(nicht|kein|keine|keinen|keiner|unbekannt|ohne)\b", re.IGNORECASE)
@@ -326,7 +331,8 @@ KPI_ROWS = [
 SET_LABELS = {"A": "kontextspezifisch, von Hand; während der Entwicklung genutzt",
               "B": "synthetisch aus Sollwerten",
               "C": "zurückgehalten; nach Paket 6 einmal zur Fehleranalyse genutzt, Fragen unverändert",
-              "D": "zurückgehalten; vor Paket 7 geschrieben, nie zum Nachbessern genutzt"}
+              "D": "zurückgehalten; vor Paket 7 geschrieben, nach Paket 7c zur Fehleranalyse genutzt",
+              "E": "zurückgehalten; vor Paket 8 geschrieben, nur in der Abschlussmessung verwendet"}
 
 
 def _pct(value: float) -> str:
@@ -346,7 +352,7 @@ def _fmt(value: Any, key: str, summary: Mapping[str, Any] | None = None) -> str:
 
 
 def report(meta: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], extraction: Mapping[str, Any] | None) -> str:
-    names = [s for s in ("A", "B", "C", "D") if any(r["set"] == s for r in rows)]
+    names = [s for s in ALL_SETS if any(r["set"] == s for r in rows)]
     sets = {name: [r for r in rows if r["set"] == name] for name in names}
     sums = {name: summarize(items) for name, items in sets.items()}
     lines = [f"# Qualitätsbericht LocalLLM ({meta['started']})", ""]
@@ -496,7 +502,7 @@ def _load_sets(ids: str | None) -> dict[str, list[dict[str, Any]]]:
     if ids:
         wanted = {i.strip() for i in ids.split(",")}
         sets = {name: [q for q in items if q["id"] in wanted] for name, items in sets.items()}
-    return {"A": sets["A"], "B": synthetic_questions(gold), "C": sets["C"], "D": sets["D"]}
+    return {"A": sets["A"], "B": synthetic_questions(gold), "C": sets["C"], "D": sets["D"], "E": sets["E"]}
 
 
 def wait_for_ollama(timeout: float = 180.0, interval: float = 10.0) -> bool:
@@ -543,14 +549,14 @@ def _finish(log: Path, rows: list[dict[str, Any]], meta: Mapping[str, Any], sets
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\nBericht: {out}\nRohdaten: {log}\nManuelle Prüfung: {review} ({reviewed} Urteile übernommen)")
     compact = {name: {k: v for k, v in summarize([r for r in rows if r["set"] == name]).items() if k not in ("ci", "n")}
-               for name in ("A", "B", "C", "D") if any(r["set"] == name for r in rows)}
+               for name in ALL_SETS if any(r["set"] == name for r in rows)}
     print(json.dumps(compact, ensure_ascii=False, indent=1))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--k", type=int, default=5)
-    parser.add_argument("--sets", default="A,B,C,D", help="Testsätze (Standard: A,B,C,D); der Agent beantwortet A, C, D")
+    parser.add_argument("--sets", default="A,B,C,D,E", help="Testsätze (Standard: alle); der Agent beantwortet A, C, D, E")
     parser.add_argument("--retrieval-only", action="store_true", help="ohne Agent (schnell)")
     parser.add_argument("--synthetic-agent", type=int, default=0,
                         help="so viele Fragen aus Testsatz B zusätzlich vom Agenten beantworten lassen")

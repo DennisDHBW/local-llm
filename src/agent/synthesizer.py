@@ -143,7 +143,10 @@ class SourceSynthesizer:
             "9. Berechnete Werkzeugergebnisse (z. B. Bonpositionen, Summen, Rechenergebnisse) haben Vorrang vor "
             "Einzelwerten aus Textstellen.\n"
             "10. Textstellen beginnen mit einem Kopf in eckigen Klammern (Dokument, Absender, Kunde, Datum, Datei): "
-            "ordne Werte damit dem richtigen Dokument zu.\n\n"
+            "ordne Werte damit dem richtigen Dokument zu.\n"
+            "11. Fehlt das Gefragte in allen Quellen (z. B. ein Gaspreis, belegt sind nur Strompreise), sage nur, "
+            "dass dazu kein Beleg vorliegt, und nenne höchstens, welche Dokumente stattdessen vorhanden sind. Nenne "
+            "dann keine Beträge oder Preise aus anderen Dokumenten und rechne nichts um oder zusammen.\n\n"
             f"Quellen:\n{context_str}"
             f"Nutzerfrage: {query}\n"
             + (f"Korrekturhinweis: {feedback}\n" if feedback else "")

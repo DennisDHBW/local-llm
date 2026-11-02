@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from evaluation.quality import QUESTION_FILES, RESULTS_DIR, answer_scores, wilson
+from evaluation.quality import QUESTION_FILES, RESULTS_DIR, _load_jsonl, answer_scores, wait_for_ollama, wilson
 
 TOP_K = 5
 
@@ -57,15 +57,29 @@ def report(rows: Sequence[Mapping[str, Any]], meta: Mapping[str, Any]) -> str:
              "Korrekt: alle erwarteten Werte in der Antwort (Fragen ohne Antwort im Bestand: korrekt abgelehnt). "
              "In Klammern 95-%-Konfidenzintervall nach Wilson.", "",
              "| Kennzahl | P1 modulare Pipeline | P2 ReAct-Agent |", "| --- | --- | --- |"]
+    def valid(result: Mapping[str, Any] | None) -> bool:
+        return bool(result) and not result.get("error")
+
     for label, key in (("Korrektheit", "correct"), ("Halluzination (unbelegte Zahl)", "hallucinated")):
-        p1 = [bool(r["p1"][key]) for r in rows if r.get("p1")]
-        p2 = [bool(r["p2"][key]) for r in rows if r.get("p2")]
+        p1 = [bool(r["p1"][key]) for r in rows if valid(r.get("p1"))]
+        p2 = [bool(r["p2"][key]) for r in rows if valid(r.get("p2"))]
         lines.append(f"| {label} | {_pct(p1)} | {_pct(p2)} |")
+    errors = (sum(1 for r in rows if r.get("p1") and not valid(r["p1"])),
+              sum(1 for r in rows if r.get("p2") and not valid(r["p2"])))
+    if any(errors):
+        lines.append(f"| Fehlerantworten (nicht bewertet) | {errors[0]} | {errors[1]} |")
     for label, key in (("Dauer je Frage [s]", "seconds"),):
         p1 = [r["p1"][key] for r in rows if r.get("p1") and r["p1"].get(key) is not None]
         p2 = [r["p2"][key] for r in rows if r.get("p2") and r["p2"].get(key) is not None]
         mean = lambda v: f"{sum(v) / len(v):.0f}" if v else "-"  # noqa: E731
         lines.append(f"| {label} | {mean(p1)} | {mean(p2)} |")
+    lines += ["", "## Nach Testsatz", "", "| Satz | Fragen | P1 korrekt | P2 korrekt |", "| --- | ---: | ---: | ---: |"]
+    for name in sorted({r["set"] for r in rows}):
+        items = [r for r in rows if r["set"] == name]
+        p1 = [r["p1"] for r in items if valid(r.get("p1"))]
+        p2 = [r["p2"] for r in items if valid(r.get("p2"))]
+        lines.append(f"| {name} | {len(items)} | {sum(1 for a in p1 if a['correct'])}/{len(p1)} | "
+                     f"{sum(1 for a in p2 if a['correct'])}/{len(p2)} |")
     lines += ["", "## Nach Kategorie", "", "| Kategorie | Fragen | P1 korrekt | P2 korrekt |", "| --- | ---: | ---: | ---: |"]
     by_cat: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -114,7 +128,8 @@ def main() -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
     started = datetime.now()
     log = Path(args.resume) if args.resume else RESULTS_DIR / f"vergleich_{started:%Y%m%d_%H%M%S}.jsonl"
-    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()] if log.exists() else []
+    # Fehlerantworten (Ollama-Ausfall) werden beim Fortsetzen neu gemessen
+    rows = [r for r in _load_jsonl(log) if not (r.get("p1") or {}).get("error")]
     done = {r["id"] for r in rows}
     status = reranker_status(load=True)
     meta = {"started": f"{started:%d.%m.%Y %H:%M}", "sets": args.sets, "model": AGENT_MODEL,
@@ -134,16 +149,26 @@ def main() -> None:
             row: dict[str, Any] = {"id": q["id"], "set": q["set"], "category": q.get("category", ""),
                                    "question": q["question"]}
 
-            start = time.perf_counter()
-            try:
-                hits = search_collection(collection, embed_query(q["question"], EMBED_MODEL), q["question"],
-                                         top_k=TOP_K, where=where)
-                chunks = [{"content": h.document, "page_number": h.metadata.get("page_number", "?"),
-                           "metadata": h.metadata} for h in hits]
-                answer = synthesizer.generate_answer(q["question"], chunks)
-            except Exception as exc:  # noqa: BLE001 - der Vergleich soll nie abbrechen
-                chunks, answer = [], f"FEHLER: {exc}"
-            row["p1"] = {"text": answer, "seconds": round(time.perf_counter() - start, 1),
+            def pipeline(question: str) -> tuple[str, list[dict[str, Any]], float]:
+                begin = time.perf_counter()
+                try:
+                    hits = search_collection(collection, embed_query(question, EMBED_MODEL), question,
+                                             top_k=TOP_K, where=where)
+                    found = [{"content": h.document, "page_number": h.metadata.get("page_number", "?"),
+                              "metadata": h.metadata} for h in hits]
+                    return synthesizer.generate_answer(question, found), found, time.perf_counter() - begin
+                except Exception as exc:  # noqa: BLE001 - der Vergleich soll nie abbrechen
+                    return f"FEHLER: {exc}", [], time.perf_counter() - begin
+
+            answer, chunks, seconds = pipeline(q["question"])
+            if answer.startswith("FEHLER") and wait_for_ollama():
+                # Paket 7c: Ollama fiel während des Vergleichs aus, 9 Antworten waren Fehlermeldungen
+                print("  Ollama-Fehler, warte und wiederhole ...", flush=True)
+                answer, chunks, seconds = pipeline(q["question"])
+            if answer.startswith("FEHLER") and not wait_for_ollama(timeout=5):
+                print(f"\nOllama nicht erreichbar - Vergleich angehalten. Fortsetzen mit --resume {log}", flush=True)
+                break
+            row["p1"] = {"text": answer, "seconds": round(seconds, 1),
                          **answer_scores(q, answer, [c["content"] for c in chunks])}
 
             if q["id"] in reused:

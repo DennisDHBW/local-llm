@@ -311,7 +311,8 @@ def _advance_candidates(source: str) -> set[float]:
                     values.add(round(number, 2))
     return values
 
-_DUE_LABELS = ("nachzahlung", "nachforderung", "zu zahlender betrag", "zu zahlen", "restbetrag", "offener betrag")
+_DUE_LABELS = ("nachzahlung", "nachforderung", "zu zahlender betrag", "zu zahlen", "restbetrag", "offener betrag",
+               "restforderung", "offene forderung")
 
 _CREDIT_LABELS = ("guthaben", "erstattungsbetrag", "rückerstattung", "gutschrift", "zu ihren gunsten")
 
@@ -647,6 +648,21 @@ def normalize_facts(facts: dict[str, Any], source_text: str) -> tuple[dict[str, 
     def number(key: str) -> float | None:
         value = out.get(key)
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    # 0) Ein Saldo von 0 neben einem echten Betrag ist kein Wert, sondern "nichts gefunden" (Paket 8: Wasser-
+    #    abrechnung mit Nachzahlung 0,00 und "Guthaben" 42,95 - die Zuordnung per Bezeichnung griff dadurch nicht).
+    for zero_key, other_key in (("amount_due_eur", "credit_eur"), ("credit_eur", "amount_due_eur")):
+        if number(zero_key) == 0 and (number(other_key) or 0) != 0:
+            out.pop(zero_key)
+            notes.append(f"{zero_key} = 0 neben {other_key} -> verworfen")
+    # Datumsangaben wie "01.01.-2024" (aus "2024 (01.01.-31.12.)") -> "01.01.2024"
+    for key in ("billing_period_start", "billing_period_end"):
+        value = out.get(key)
+        if isinstance(value, str):
+            fixed = re.sub(r"^(\d{1,2})\.(\d{1,2})\.\s*-\s*(\d{4})$", r"\1.\2.\3", value.strip())
+            if fixed != value.strip():
+                out[key] = fixed
+                notes.append(f"{key}: '{value}' -> '{fixed}'")
 
     # 1) Vorzeichen
     credit, due, total = number("credit_eur"), number("amount_due_eur"), number("total_gross_eur")

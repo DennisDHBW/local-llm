@@ -21,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from src.config import WINDOW_MAX_NEIGHBORS, WINDOW_MIN_CHARS
+from src.enrichment.segments import part_for_page
 
 WINDOW_TYPES = {"text", "table_row"}       # Bildbeschreibungen und Summaries sind bereits ganze Absätze
 _EMPTY = {"", "unbekannt", "none", "null", "n/a", "-"}
@@ -34,8 +35,15 @@ def _value(*candidates: Any) -> str:
     return ""
 
 
-def document_context(meta: Mapping[str, Any], record: Mapping[str, Any] | None = None) -> str:
-    """Kurzer Dokumentkopf aus geprüften Fakten (Vorrang) und Parser-Metadaten."""
+def document_context(meta: Mapping[str, Any], record: Mapping[str, Any] | None = None, page: Any = None) -> str:
+    """Kurzer Dokumentkopf aus geprüften Fakten (Vorrang) und Parser-Metadaten.
+
+    Sammeldokument (`record["parts"]`): Absender und Nummer stammen vom Teilbeleg der Seite, sonst trüge jede Seite
+    den Kopf des ersten Belegs (oder gar keinen) und die Suche nach "Rechnung von NordStern" fände Seite 3 schlechter."""
+    part = part_for_page((record or {}).get("parts"), page)
+    if part:
+        number = f" | Nr.: {part['number']}" if part.get("number") else ""
+        return f"Dokument: Teilbeleg im Sammeldokument | Absender: {part.get('sender')}{number}"
     facts = (record or {}).get("facts") or {}
     schema = str((record or {}).get("schema_id") or meta.get("schema_id") or "")
     doc_type = _value("Kassenbon" if schema == "receipt" else "", facts.get("doc_type"), meta.get("doc_type"))
@@ -53,9 +61,10 @@ def document_context(meta: Mapping[str, Any], record: Mapping[str, Any] | None =
     return " | ".join(p for p in parts if p)
 
 
-def chunk_header(meta: Mapping[str, Any], heading_stack: Sequence[str], record: Mapping[str, Any] | None = None) -> str:
+def chunk_header(meta: Mapping[str, Any], heading_stack: Sequence[str], record: Mapping[str, Any] | None = None,
+                 page: Any = None) -> str:
     filename = str(meta.get("filename") or "Unbekannt")
-    context = document_context(meta, record)
+    context = document_context(meta, record, page)
     path = " > ".join(str(h) for h in heading_stack if str(h).strip())
     parts = [p for p in (context, f"Datei: {filename}", f"Abschnitt: {path}" if path else "") if p]
     return "[" + " | ".join(parts) + "]"
@@ -108,5 +117,6 @@ def indexed_texts(chunks: Sequence[Mapping[str, Any]], records: Mapping[str, Map
     for chunk, window in zip(chunks, windows, strict=True):
         meta = chunk.get("metadata") or {}
         record = records.get(str(meta.get("filename") or ""))
-        texts.append(f"{chunk_header(meta, chunk.get('heading_stack') or [], record)}\n{window}")
+        header = chunk_header(meta, chunk.get("heading_stack") or [], record, chunk.get("page_number"))
+        texts.append(f"{header}\n{window}")
     return texts

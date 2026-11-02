@@ -68,6 +68,10 @@ Reranker und Modell zusammen: Browser schließen, die Evaluation satzweise start
 4. **Antwort**: Der Synthesizer formuliert aus Werkzeugergebnissen und Treffern eine Antwort mit [n]-Quellen; Zahlen,
    die in keiner Quelle stehen, lösen eine Korrektur bzw. einen Hinweis aus.
 
+Mehrere Belege in einer Datei (Sammel-PDF) erkennt der Import an der Rücksendeangabe nach DIN 5008
+(„Firma · Straße · PLZ Ort“) je Seite: Inventar und Kerndaten nennen die Teilbelege, und jede Seite trägt im Suchindex
+den Kopf ihres eigenen Absenders (`src/enrichment/segments.py`).
+
 Tabellen, bei denen nur die Kopfzeile als Tabelle erkannt wird (Datenzeilen ohne Linien), rekonstruiert der Parser
 aus den Wortpositionen („Verbrauch: 125,0 m³“ statt einer Zeile ohne Spaltenbezug).
 
@@ -97,7 +101,8 @@ Halluzination, Enthaltung) deterministisch gegen Sollwerte, mit 95-%-Konfidenzin
 | A | `evaluation/questions_belege.json` | kontextspezifisch, von Hand (Standard, Rechnen, Zusammenhang, Multimodal, Grenzfall, negativ) |
 | B | aus `evaluation/gold_belege.json` erzeugt | synthetisch (wie RAGAS-Testset-Generierung, ohne LLM) |
 | C | `evaluation/questions_heldout.json` | zurückgehalten; nach Paket 6 einmal zur Fehleranalyse genutzt |
-| D | `evaluation/questions_heldout_d.json` | zurückgehalten: vor Paket 7 geschrieben, nie zum Nachbessern verwendet |
+| D | `evaluation/questions_heldout_d.json` | zurückgehalten: vor Paket 7 geschrieben, nach 7c zur Fehleranalyse genutzt |
+| E | `evaluation/questions_heldout_e.json` | zurückgehalten: vor Paket 8 geschrieben, nur in der Abschlussmessung |
 
 Nach jedem Lauf entsteht `<lauf>_review.json`: dort `"manuell": true/false` mit Notiz eintragen (z. B. richtige
 Antwort in anderer Schreibweise), dann `uv run python -m evaluation.quality --report <lauf>.jsonl`. Der Bericht

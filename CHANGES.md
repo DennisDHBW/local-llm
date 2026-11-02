@@ -321,3 +321,19 @@ Paket 7: Kernel-OOM in der Ollama-Gruppe (9 GB) bei `NUM_PARALLEL=2` - in 7b zur
 - `parser.py`, `vector_store.py`: Textzeilen, die als rekonstruierte Tabellenzeile mit Spaltennamen vorliegen, werden
   nicht mehr indiziert (`superseded_by_table`); sie bleiben für die Fakten. `PARSE_CACHE_VERSION` 3.
 - `quality.py`: Trajektorie je Antwort (Werkzeugaufrufe mit Parametern) in Rohdaten und Review-Datei.
+
+## Paket 8 - Abschluss: Teilbelege, Filterprüfung, Saldo, robuste Messung, Testsatz E (02.11.2026)
+Messung Paket 7c (41 Fragen A/C/D): Agent 35/41; Kurzweg 24/25, Agentenweg 7/10. Verbleibende Fehler: Sammel-PDF,
+Ablehnungen mit umgerechneten Werten anderer Dokumente, falscher Bon-Filter des Modells, Inventar ohne Kunden.
+- `evaluation/questions_heldout_e.json` (neu, 15 Fragen): VOR allen Änderungen dieses Pakets geschrieben und nur für die
+  Abschlussmessung gedacht (D wurde nach 7c zur Fehleranalyse genutzt und ist damit nicht mehr unberührt).
+- `src/enrichment/segments.py` (neu): Teilbelege je Seite über die Rücksendeangabe (DIN 5008) und die Belegnummer;
+  `facts.py` speichert sie als `parts`, `format_facts` und das Inventar nennen sie, `context.py` gibt jeder Seite den
+  Kopf ihres Absenders. Ohne Sprachmodell, die Fakten-Extraktion muss nicht neu laufen.
+- `tools.py`: Inventar mit Kunde/Empfänger; `receipt_items` prüft Händler- und Dateifilter gegen die Händler in der
+  Nutzerfrage und lässt einen Dateifilter ohne Treffer weg (mit Hinweis im Ergebnis).
+- `synthesizer.py`: Regel 11 - fehlt das Gefragte, keine Beträge anderer Dokumente nennen oder umrechnen.
+- `domains/energy.py`: Saldo 0 neben einem echten Betrag wird verworfen (die Zuordnung Guthaben/Nachzahlung per
+  Bezeichnung greift dann); "Restforderung" zählt als Nachzahlung; Datumsangaben "01.01.-2024" -> "01.01.2024".
+- `compare_prototypes.py`: wartet bei Ollama-Ausfall und wiederholt; Fehlerantworten werden nicht bewertet und nicht aus
+  dem Qualitätslauf übernommen; Bericht nach Testsatz.

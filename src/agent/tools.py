@@ -11,6 +11,7 @@ from src.analysis.compare import build_comparison
 from src.config import EMBED_MODEL, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR, graph_path_for
 from src.embeddings import embed_query
 from src.enrichment.facts import format_facts, load_facts
+from src.enrichment.segments import format_parts
 from src.graph.graph_store import DocumentGraph
 from src.retrieval.collection import open_collection
 from src.retrieval.search import search_collection
@@ -322,6 +323,8 @@ class AgentTools:
         self.embed_model = embed_model
         self.processed_dir = Path(processed_dir)
         self.graph_path = Path(graph_path) if graph_path else graph_path_for(self.processed_dir)
+        # Aktuelle Nutzerfrage (setzt der Agent): Werkzeuge prüfen damit Filterargumente des Modells (s. receipt_items)
+        self.question = ""
         self.rewriter = None
         if use_rewriter:
             from src.retrieval.query_rewriter import QueryRewriter
@@ -534,7 +537,7 @@ class AgentTools:
                 filename = meta.get("filename", "Unbekannte Datei")
                 info = docs_summary.setdefault(filename, {
                     "provider": "Unbekannt", "doc_type": "Unbekannt", "doc_date": "Unbekannt",
-                    "contract_number": "", "invoice_number": "", "chunks": 0,
+                    "contract_number": "", "invoice_number": "", "customer_name": "", "chunks": 0,
                 })
                 for key in ("provider", "doc_type", "doc_date", "contract_number", "invoice_number"):
                     value = meta.get(key)
@@ -547,11 +550,15 @@ class AgentTools:
             except Exception:
                 verified = {}
             for fname, info in docs_summary.items():
-                facts = (verified.get(fname) or {}).get("facts", {})
-                for key in ("provider", "doc_type", "doc_date", "contract_number", "invoice_number"):
+                record = verified.get(fname) or {}
+                facts = record.get("facts", {})
+                # Kunde/Empfänger: Fragen wie "Welche Dokumente sind an Max Mustermann adressiert?" (Paket 7c: fehlte,
+                # der Agent nannte nur eines von drei Dokumenten). Bei Kassenbons ist das Feld leer.
+                for key in ("provider", "doc_type", "doc_date", "contract_number", "invoice_number", "customer_name"):
                     value = facts.get(key)
                     if not is_empty(value):
                         info[key] = str(value).strip()
+                info["parts"] = record.get("parts") or []
 
             output = [f"Gesamtzahl indizierter Dokumente: {len(docs_summary)}\n"]
             for fname, info in sorted(docs_summary.items()):
@@ -563,6 +570,10 @@ class AgentTools:
                     details += f" | Vertragsnr: {info['contract_number']}"
                 if info["invoice_number"]:
                     details += f" | Rechnungsnr: {info['invoice_number']}"
+                if info.get("customer_name"):
+                    details += f" | Kunde: {info['customer_name']}"
+                if info.get("parts"):
+                    details += f" | Sammeldokument mit {len(info['parts'])} Belegen: {format_parts(info['parts'])}"
                 output.append(details)
             return "\n".join(output)
         except Exception as exc:
@@ -715,6 +726,46 @@ class AgentTools:
         key = "|".join(str(x) for x in (field_name, agg, group_by, ",".join(selected), date_from, date_to, contains))
         return ToolResult(result.text, [_tool_evidence("aggregate_facts", "Auswertung (berechnet)", result.text, key)])
 
+    def _repair_receipt_filters(self, records: dict[str, dict[str, Any]], selected: list[str],
+                                contains: str) -> tuple[list[str], str, list[str]]:
+        """Prüft die Händler- und Dateifilter des Modells gegen die Händler, die in der Nutzerfrage stehen.
+
+        Paket 7c: Bei "Wie viel habe ich bei EDEKA und Kaufland zusammen bezahlt?" rief das 7B-Modell receipt_items
+        mit contains="Kaufland" und filenames="Bon3_Kaufland.png" (ein Bon ohne Datum) auf; EDEKA fehlte. Nennt die
+        Frage Händler aus dem Bestand, gelten genau diese; Dateien anderer Händler fallen aus dem Filter.
+        """
+        from src.analysis.aggregate import contains_terms
+
+        notes: list[str] = []
+        merchants: dict[str, str] = {}
+        for record in records.values():
+            if record.get("schema_id") != "receipt":
+                continue
+            facts = record.get("facts") or {}
+            name = str(facts.get("merchant") or facts.get("provider") or "").strip()
+            if name:
+                merchants[name.casefold()] = name
+        question = str(getattr(self, "question", "") or "").casefold()
+        named = [name for key, name in merchants.items() if re.search(rf"(?<!\w){re.escape(key)}(?!\w)", question)]
+        if not named:
+            return selected, contains, notes
+        wanted = {name.casefold() for name in named}
+        if set(contains_terms(contains)) != wanted:
+            if contains.strip():
+                notes.append(f"Händlerfilter '{contains}' an die Frage angepasst: {', '.join(named)}.")
+            contains = ", ".join(named)
+        if selected:
+            def merchant_of(filename: str) -> str:
+                facts = (records.get(filename) or {}).get("facts") or {}
+                return str(facts.get("merchant") or facts.get("provider") or "").casefold()
+
+            kept = [name for name in selected if merchant_of(name) in wanted]
+            if kept != selected:
+                notes.append(f"Dateifilter passte nicht zu den Händlern der Frage: {', '.join(selected)} -> "
+                             f"{', '.join(kept) if kept else 'alle Bons dieser Händler'}.")
+                selected = kept
+        return selected, contains, notes
+
     def receipt_items(
         self, query: str = "", group_by: str = "none", filenames: Any = "", date_from: str = "", date_to: str = "",
         contains: str = "", category: str = "", month: str = "", output: str = "text", title: str = "",
@@ -728,6 +779,7 @@ class AgentTools:
         selected, error = self._resolve_many(sorted(records), filenames)
         if error:
             return ToolResult(error)
+        selected, contains, repair = self._repair_receipt_filters(records, selected, str(contains or ""))
         output = str(output or "text").strip().casefold()
         if output in ("markdown", "md", "bericht", "report", "übersicht"):
             # Bericht über alle Kategorien des Zeitraums (eine Kategorie-Auswahl ergibt keinen Gesamtüberblick)
@@ -746,7 +798,16 @@ class AgentTools:
         result = receipt_items(records, str(query or ""), grouping, selected, date_from or None,
                                date_to or None, str(contains or ""), category=str(category or ""),
                                month=str(month or ""))
+        if not result.rows and selected:
+            # Dateifilter ohne Treffer (z. B. ein Bon ohne Datum bei Datumsfilter): ohne Dateifilter erneut versuchen
+            retry = receipt_items(records, str(query or ""), grouping, [], date_from or None, date_to or None,
+                                  str(contains or ""), category=str(category or ""), month=str(month or ""))
+            if retry.rows:
+                result = retry
+                repair.append(f"Dateifilter {', '.join(selected)} ergab keine Positionen und wurde weggelassen.")
         text, files = result.text, []
+        if repair:
+            text = "Hinweis: " + " ".join(repair) + "\n" + text
         if chart_kind and result.rows:
             from src.analysis.receipts import period_label
             from src.output.spending import GROUP_TITLES

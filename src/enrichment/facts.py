@@ -47,6 +47,7 @@ from typing import Any
 import ollama
 
 from src.config import FACTS_MODEL, PROCESSED_DIR, ollama_options
+from src.enrichment.segments import find_parts, format_parts
 from src.enrichment.schema import (  # noqa: F401 - schema_fields bleibt hier importierbar
     SchemaSpec, domain_of, extracted_fields, extraction_schema, get_schema, resolve_spec, schema_fields,
     spec_for,
@@ -554,6 +555,11 @@ def format_facts(record: dict[str, Any]) -> str:
     labels = {**LABELS, **(spec.labels if spec else {})}
     units = {**UNITS, **(spec.units if spec else {})}
     lines = [f"Datei: {record.get('filename', 'Unbekannt')}"]
+    parts = record.get("parts") or []
+    if parts:
+        lines.append(f"- Sammeldokument mit {len(parts)} Belegen: {format_parts(parts)}")
+        lines.append("- Die folgenden Kerndaten beschreiben nur den ersten Beleg; Details der übrigen mit search "
+                     "(filename) oder read_page (Seite) nachlesen.")
 
     def shown(value: Any) -> bool:
         # Listen/Objekte (z. B. Positionen eines Bons) stellt die Fachdomäne lesbar dar (`render`), nicht als Rohdaten
@@ -848,8 +854,10 @@ class FactExtractor:
                 # Prüfregeln (Saldo, netto + MwSt. = brutto, ...); needs_review bei Fehlern
                 "checks": checks,
                 "needs_review": needs_review(checks),
+                # Mehrere Belege in einer Datei (Sammel-PDF): Absender und Nummer je Teilbeleg, ohne LLM
+                "parts": find_parts(chunks),
             }
-            unchanged_keys = ("facts", "unverified", "normalized", "provenance", "uncertain", "checks")
+            unchanged_keys = ("facts", "unverified", "normalized", "provenance", "uncertain", "checks", "parts")
             if reused and all(old.get(k) == record[k] for k in unchanged_keys):
                 continue
             atomic_write_json(out_file, record)

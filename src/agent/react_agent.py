@@ -430,6 +430,10 @@ class ReActAgent:
 
         self.last_evidence = []
         self.last_files = []
+        try:
+            self.tools.question = user_query.strip()      # für die Prüfung von Werkzeugargumenten
+        except AttributeError:
+            pass
         system_prompt = self._system_prompt()
         self._pre_evidence = self._pre_retrieve(user_query.strip(), callback)
         user_content = user_query.strip()

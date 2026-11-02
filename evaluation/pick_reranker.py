@@ -29,7 +29,7 @@ def score_run(log: Path) -> dict[str, Any]:
     rows = [r for r in _load_jsonl(log) if r["set"] in ("A", "B")]
     s = summarize(rows)
     parts = [s.get("kontext_recall_at_k"), s.get("dokument_at_1"), s.get("mrr")]
-    held = summarize([r for r in _load_jsonl(log) if r["set"] in ("C", "D")])
+    held = summarize([r for r in _load_jsonl(log) if r["set"] in ("C", "D", "E")])
     return {"log": log, "active": bool(meta.get("reranker_active")), "model": meta.get("reranker_model"),
             "label": meta.get("reranker", "?"), "recall": parts[0], "doc1": parts[1], "mrr": parts[2],
             "score": round(sum(p for p in parts if p is not None) / 3, 4), "n": s.get("retrieval_n", 0),
@@ -49,7 +49,7 @@ def main() -> None:
 
     pct = lambda v: "-" if v is None else f"{v * 100:.0f} %"  # noqa: E731
     lines = ["# Reranker-Vergleich (Auswahl nur auf Testsatz A + B)", "",
-             "| Reranker | Recall@5 | Dokument@1 | MRR | Mittel | C+D: Recall@5 | C+D: Dokument@1 | gewählt |",
+             "| Reranker | Recall@5 | Dokument@1 | MRR | Mittel | C-E: Recall@5 | C-E: Dokument@1 | gewählt |",
              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
     for r in runs:
         name = r["model"] if r["active"] else ("ohne Reranker" if r["label"] == "aus"
