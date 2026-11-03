@@ -142,7 +142,7 @@ def test_compare_retries_after_ollama_error_and_skips_errors(tmp_path, monkeypat
     monkeypatch.setattr(compare_prototypes, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(compare_prototypes, "wait_for_ollama", lambda timeout=180: True)
     monkeypatch.setattr(embeddings, "embed_query", lambda q, m: [0.0])
-    monkeypatch.setattr(collection, "open_collection", lambda d: (None, None))
+    monkeypatch.setattr(collection, "open_collection", lambda d, **_: (None, None))
     monkeypatch.setattr(search, "search_collection", lambda *a, **k: [
         SimpleNamespace(document="Rechnungsbetrag: 784,21 €", metadata={"filename": "Rechnung4WerkstattAutoService.pdf"})])
     monkeypatch.setattr(synthesizer, "SourceSynthesizer", FlakySynth)

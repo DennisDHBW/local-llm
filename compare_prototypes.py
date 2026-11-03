@@ -137,7 +137,7 @@ def main() -> None:
             "p2_source": ("übernommen aus " + ", ".join(Path(s).name for s in args.p2_from)) if args.p2_from
             else "neu berechnet"}
 
-    _, collection = open_collection(VECTOR_DIR)
+    _, collection = open_collection(VECTOR_DIR, embed_model=EMBED_MODEL)
     synthesizer = SourceSynthesizer()
     agent = None
     where = {"chunk_type": {"$in": ["text", "table_row", "image"]}}

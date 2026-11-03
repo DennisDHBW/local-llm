@@ -604,7 +604,7 @@ def main() -> None:
             "caption_model": CAPTION_MODEL, "repeat": repeat if agent_ids else 1}
     print(f"Reranker: {meta['reranker']}", flush=True)
 
-    _, collection = open_collection(VECTOR_DIR)
+    _, collection = open_collection(VECTOR_DIR, embed_model=EMBED_MODEL)
     agent = None
     if agent_ids:
         from src.agent.react_agent import ReActAgent

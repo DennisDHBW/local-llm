@@ -95,7 +95,7 @@ def test_main_runs_end_to_end_and_resumes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(quality, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(embeddings, "embed_query", lambda q, m: [0.0])
-    monkeypatch.setattr(collection, "open_collection", lambda d: (None, None))
+    monkeypatch.setattr(collection, "open_collection", lambda d, **_: (None, None))
     monkeypatch.setattr(search, "search_collection",
                         lambda *a, **k: [_hit("Rechnung4WerkstattAutoService.pdf", "Rechnungsbetrag: 784,21 €")])
     monkeypatch.setattr(react_agent, "ReActAgent", FakeAgent)
@@ -175,7 +175,7 @@ def test_heldout_set_runs_and_report_only(tmp_path, monkeypatch):
 
     monkeypatch.setattr(quality, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(embeddings, "embed_query", lambda q, m: [0.0])
-    monkeypatch.setattr(collection, "open_collection", lambda d: (None, None))
+    monkeypatch.setattr(collection, "open_collection", lambda d, **_: (None, None))
     monkeypatch.setattr(search, "search_collection",
                         lambda *a, **k: [_hit("generatedinvoicesHeizstromrechnung2024.pdf", "Grundpreis 14,000 €/Monat")])
     monkeypatch.setattr(facts, "load_facts", lambda *a, **k: {})

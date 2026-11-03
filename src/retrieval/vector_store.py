@@ -4,7 +4,7 @@ from pathlib import Path
 
 from src.config import COLLECTION_NAME, EMBED_MODEL, PROCESSED_DIR, VECTOR_DIR
 from src.embeddings import EMBED_API, document_prefix, embed_document, embed_documents
-from src.retrieval.collection import open_collection
+from src.retrieval.collection import open_collection, write_index_info
 from src.retrieval.context import indexed_texts
 from src.retrieval.search import invalidate_bm25_cache
 
@@ -178,6 +178,10 @@ class VectorStore:
                 print(f"  {len(stale)} veraltete Chunks entfernt.")
 
         invalidate_bm25_cache()
+        # Paket 8b: festhalten, mit welchem Modell der Index jetzt vollständig eingebettet ist. Bei einem
+        # Modellwechsel ändert sich der Embedding-Hash jedes Chunks, also wurde oben alles neu eingebettet.
+        if getattr(self, "vector_dir", None) is not None:
+            write_index_info(self.vector_dir, self.embed_model)
         print(
             f"\nIndizierung abgeschlossen: {indexed_count} aktualisiert, "
             f"{skipped_count} unverändert übersprungen."

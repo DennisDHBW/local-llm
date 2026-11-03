@@ -337,3 +337,14 @@ Ablehnungen mit umgerechneten Werten anderer Dokumente, falscher Bon-Filter des 
   Bezeichnung greift dann); "Restforderung" zählt als Nachzahlung; Datumsangaben "01.01.-2024" -> "01.01.2024".
 - `compare_prototypes.py`: wartet bei Ollama-Ausfall und wiederholt; Fehlerantworten werden nicht bewertet und nicht aus
   dem Qualitätslauf übernommen; Bericht nach Testsatz.
+
+## Paket 8b - Embedding-Modell im Index festgehalten und bei jeder Abfrage geprüft (03.11.2026)
+Ingest und Abfrage müssen dasselbe Embedding-Modell nutzen. Das war schon so (beide lesen `EMBED_MODEL`, beide über
+`/api/embed`, nomic-Präfixe `search_document:` / `search_query:`; ein Modellwechsel ändert den Embedding-Hash, der
+Import bettet dann alles neu ein). Nicht abgesichert war ein abweichendes `ENERGY_EMBED_MODEL` nur beim Abfragen: Bei
+gleicher Vektorlänge hätte die Suche still falsche Treffer geliefert.
+- `collection.py`: `write_index_info` / `check_index_model`; `open_collection(..., embed_model=...)` bricht mit
+  `EmbeddingModelMismatch` und einer klaren Anleitung ab, wenn der Index mit einem anderen Modell gebaut wurde.
+- `vector_store.py`: schreibt nach jeder Indizierung `data/vectors/embedding_index.json` (Modell, Präfixe, Endpunkt).
+- Agent-Werkzeuge, `quality.py`, `run_eval.py` und `compare_prototypes.py` öffnen den Index mit Modellprüfung.
+- `tests/test_paket8b_embedding.py`: gleiche Modelle und Präfixe auf beiden Wegen, Abbruch bei fremdem Modell.

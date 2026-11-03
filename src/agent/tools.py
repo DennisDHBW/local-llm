@@ -329,7 +329,7 @@ class AgentTools:
         if use_rewriter:
             from src.retrieval.query_rewriter import QueryRewriter
             self.rewriter = QueryRewriter()
-        self.client, self.collection = open_collection(vector_dir)
+        self.client, self.collection = open_collection(vector_dir, embed_model=self.embed_model)
         self._filename_cache: tuple[int, list[str]] = (-1, [])
         self._graph: DocumentGraph | None = None
         self._graph_mtime: float | None = None

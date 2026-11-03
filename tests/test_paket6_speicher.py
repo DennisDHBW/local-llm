@@ -129,7 +129,7 @@ def test_compare_prototypes_uses_current_catalog(tmp_path, monkeypatch):
     monkeypatch.setattr(compare_prototypes, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(quality, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(embeddings, "embed_query", lambda q, m: [0.0])
-    monkeypatch.setattr(collection, "open_collection", lambda d: (None, None))
+    monkeypatch.setattr(collection, "open_collection", lambda d, **_: (None, None))
     monkeypatch.setattr(search, "search_collection", lambda *a, **k: [
         SimpleNamespace(document="Rechnungsbetrag: 784,21 €", metadata={"filename": "Rechnung4WerkstattAutoService.pdf"})])
 

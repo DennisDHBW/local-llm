@@ -209,7 +209,7 @@ def test_resume_repeats_error_rows(tmp_path, monkeypatch):
                                "answer": {"text": "⚠️ weg", "correct": False, "error": True}}) + "\n", encoding="utf-8")
     monkeypatch.setattr(quality, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(embeddings, "embed_query", lambda q, m: [0.0])
-    monkeypatch.setattr(collection, "open_collection", lambda d: (None, None))
+    monkeypatch.setattr(collection, "open_collection", lambda d, **_: (None, None))
     monkeypatch.setattr(search, "search_collection", lambda *a, **k: [])
     monkeypatch.setattr(react_agent, "ReActAgent", FakeAgent)
     monkeypatch.setattr(facts, "load_facts", lambda *a, **k: {})

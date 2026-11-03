@@ -133,7 +133,7 @@ def main() -> None:
         print("Keine passenden Fragen gefunden (Filter, '_todo' oder leere Datei).")
         return
 
-    _, collection = open_collection(VECTOR_DIR)
+    _, collection = open_collection(VECTOR_DIR, embed_model=EMBED_MODEL)
     agent = None
     if not args.retrieval_only:
         from src.agent.react_agent import ReActAgent
