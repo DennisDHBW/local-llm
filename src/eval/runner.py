@@ -30,6 +30,7 @@ from src.config import (
     HIERARCHY_BOOST,
     PROCESSED_DIR,
     REWRITE_MODEL,
+    SYNTH_MODEL,
     USE_BM25,
     USE_RERANKER,
     USE_REWRITER,
@@ -69,11 +70,11 @@ def wait_for_ollama(limit_s: float = 300.0) -> bool:
     return False
 
 
-def fresh_models() -> None:
+def fresh_models(model: str = AGENT_MODEL) -> None:
     """Modelle entladen und außerhalb der Zeitmessung neu laden (Speicher freigeben, Latenz ohne Ladezeit)."""
-    llm.release([AGENT_MODEL, EMBED_MODEL])
+    llm.release(sorted({AGENT_MODEL, SYNTH_MODEL, EMBED_MODEL}))
     try:
-        llm.generate(AGENT_MODEL, "ok", num_predict=1)
+        llm.generate(model, "ok", num_predict=1)
         llm.embed(EMBED_MODEL, ["search_query: ok"])
     except llm.LLMUnavailable:
         wait_for_ollama()
@@ -101,15 +102,17 @@ def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int
     tools = AgentTools(retriever=retriever)
     p1, p2 = EvidenceFirstPipeline(retriever=retriever), ReActAgent(tools=tools)
     done = {(r["system"], r["set"], r["qid"], r["rep"]) for r in load_jsonl(raw_path) if r.get("status") == "ok"}
-    asked = 0
+    asked, last_model = 0, ""
     for index, q in enumerate(questions, 1):
         retrieved: list[dict[str, Any]] | None = None
         for rep in range(reps):
             for system in systems:
                 if (system, q["set"], q["id"], rep) in done:
                     continue
-                if asked % RELEASE_EVERY == 0:
-                    fresh_models()
+                model = SYNTH_MODEL if system == "P1" else AGENT_MODEL
+                if asked % RELEASE_EVERY == 0 or model != last_model:
+                    fresh_models(model)
+                last_model = model
                 asked += 1
                 if retrieved is None:
                     try:
@@ -125,11 +128,11 @@ def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int
                     if record["status"] == "outage" and wait_for_ollama():
                         print("   Ollama-Ausfall, Wiederholung", flush=True)
                         retried = True
-                        fresh_models()
+                        fresh_models(model)
                         record, latency = run_once(system, q["question"], p1, p2)
                 calls = llm.take_calls()
                 record.update({"variant": "v2", "system": system, "set": q["set"], "qid": q["id"], "rep": rep,
-                               "question": q["question"], "model": AGENT_MODEL, "retrieved": retrieved,
+                               "question": q["question"], "model": SYNTH_MODEL if system == "P1" else AGENT_MODEL, "retrieved": retrieved,
                                "latency_s": round(latency, 2), "llm_calls": calls, "outage_retried": retried,
                                "tokens_per_s": tokens_per_second(calls), "peak_ram_gb": round(monitor.peak_gb, 2)})
                 record.pop("evidence", None)
@@ -192,7 +195,7 @@ def main() -> None:
         extra_path.write_text(json.dumps(extra, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     scored = score_records(load_jsonl(raw_path), questions)
     meta = {"title": args.title, "started": f"{datetime.now():%d.%m.%Y %H:%M}", "variant": "Version2",
-            "models": f"Agent/Synthese {AGENT_MODEL}, Kerndaten {FACTS_MODEL}, Embedding {EMBED_MODEL}, Rewriter {REWRITE_MODEL}",
+            "models": f"Agent {AGENT_MODEL}, Synthese P1 {SYNTH_MODEL}, Kerndaten {FACTS_MODEL}, Embedding {EMBED_MODEL}, Rewriter {REWRITE_MODEL}",
             "sets": args.sets, "reps": args.reps,
             "note": f"Retrieval: Top-{CANDIDATE_K} Kandidaten, Boost {HIERARCHY_BOOST}, BM25 {'an' if USE_BM25 else 'aus'}, "
                     f"Reranker {'an' if USE_RERANKER else 'aus'}, Rewriting {'an' if USE_REWRITER else 'aus'}; "

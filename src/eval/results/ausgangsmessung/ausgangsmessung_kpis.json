@@ -1,7 +1,7 @@
 {
  "meta": {
   "title": "Ausgangsmessung Version1 (vor dem Umbau)",
-  "started": "05.11.2026 20:00",
+  "started": "05.11.2026 23:12",
   "variant": "Version1, Commit ce33217, unverändert",
   "models": "qwen2.5:7b",
   "sets": "kern (2 Wiederholungen), heldout",

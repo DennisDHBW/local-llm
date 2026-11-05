@@ -1,6 +1,6 @@
 # Ausgangsmessung Version1 (vor dem Umbau)
 
-- Start: 05.11.2026 20:00
+- Start: 05.11.2026 23:12
 - Variante: Version1, Commit ce33217, unverändert
 - Modelle: qwen2.5:7b
 - Testsätze: kern (2 Wiederholungen), heldout

@@ -60,6 +60,8 @@ def test_asserted_ignores_negated_sentences():
 def test_abstention_patterns():
     assert is_abstention("Zu einem Gasvertrag liegt kein Dokument vor.")
     assert is_abstention("Diese Information ist in den Dokumenten nicht enthalten.")
+    from src.agent.answer import NOT_FOUND
+    assert is_abstention(NOT_FOUND)          # die eigene Standardablehnung von Version2
     assert not is_abstention("Der Abschlag beträgt 130,00 € [1].")
 
 

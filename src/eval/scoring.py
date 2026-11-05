@@ -34,7 +34,7 @@ ABSTAIN_RE = re.compile(
     r"(nicht\s+(?:\w+\s+){0,4}(?:enthalten|vorhanden|angegeben|gefunden|aufgeführt|ersichtlich|verfügbar|bekannt|"
     r"belegt|beantworten|beantwortbar)|kein\w*\s+(?:\w+\s+){0,4}(?:dokument|vertrag|verträge|beleg|information|"
     r"angabe|hinweis|daten|rechnung|bescheid|quelle)\w*|liegt\s+(?:mir\s+)?(?:\w+\s+){0,2}nicht\s+vor|"
-    r"liegen\s+(?:\w+\s+){0,2}keine|fehl(?:t|en)\s+in\s+den\s+(?:quellen|dokumenten)|nicht\s+möglich)",
+    r"liegen\s+(?:\w+\s+){0,2}keine|nichts\s+(?:\w+\s+){0,2}(?:belegt|enthalten|bekannt|gefunden|vermerkt)|fehl(?:t|en)\s+in\s+den\s+(?:quellen|dokumenten)|nicht\s+möglich)",
     re.IGNORECASE,
 )
 

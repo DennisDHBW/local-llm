@@ -12,3 +12,15 @@ die Schlussmessung. Die Regeln sind in `src/eval/ablation.py` (`decide`) und `sr
 | R5 | Agentmodell | nur Modelle mit Tool-Unterstützung in Ollama; meiste richtige Werkzeugwahl auf 14 Proben; bei höchstens einer Probe Abstand mehr native Tool-Calls, dann kleinere Latenz p50. |
 | R6 | Rewriting-Modell | nur Modelle mit p95 < 500 ms und mindestens 90 % formgerechter Ausgabe; erfüllt keines das, bleibt der Regel-Rewriter bzw. Rewriting aus. |
 | R7 | Vision-Modell | meiste erkannte Diagrammwerte; einziges installiertes Vision-Modell ist gemma3:4b. |
+
+## Nachtrag vom 06.11.2026 (nach der ersten Schlussmessung, vor jeder Messung des Synthesemodells)
+
+Die erste Schlussmessung zeigte, dass P1 mit llama3.1:8b in 30 von 58 Antworten nur einen Quellenverweis ohne Inhalt
+ausgab. Das Synthesemodell von P1 war bis dahin nicht eigens gewählt worden (es übernahm das Agentmodell aus R5,
+das nur Werkzeugwahl misst). Ergänzt:
+
+| Nr. | Entscheidung | Regel |
+|---|---|---|
+| R8 | Synthesemodell P1 | Kandidaten qwen2.5:7b und llama3.1:8b, nur auf dem Entwicklungssatz (P1, eine Wiederholung): höchste Korrektheit; bei höchstens 2 Fragen Abstand niedrigere Halluzinationsrate, dann kleinere Latenz p50. |
+
+Der zurückgehaltene Satz wird danach ein zweites Mal verwendet (nur P1). Beide Schlussmessungen werden berichtet.
