@@ -103,6 +103,9 @@ def is_valid_heading(text: str) -> bool:
     clean = text.strip()
     if not 3 <= len(clean) <= 90 or clean.endswith(":"):
         return False
+    digits = sum(ch.isdigit() for ch in clean)
+    if digits / len(clean) > 0.3 or not re.search(r"[A-Za-zÄÖÜäöüß]{3}", clean):   # Nummern, Zeiträume, Beträge
+        return False
     return not any(p.match(clean) for p in _NOT_HEADING_RE)
 
 
@@ -280,9 +283,12 @@ class DocumentParser:
         werden übersprungen."""
         paragraph: list[str] = []
         for line in block.get("lines", []):
-            for span in line.get("spans", []):
+            spans = [s for s in line.get("spans", []) if s["text"].strip()]
+            # Hervorhebung im Satz (fettes Wort zwischen normalem Text) ist keine Überschrift
+            inline = len(spans) > 1 and not all(is_heading_size(s["size"], bool(s["flags"] & 16), base) for s in spans)
+            for span in spans:
                 text = span["text"].strip()
-                if not text or text.count(";") >= 4:              # Steuerzeilen der Druckstraße ("MTA;...;...")
+                if text.count(";") >= 4:                          # Steuerzeilen der Druckstraße ("MTA;...;...")
                     continue
                 x0, y0, x1, y1 = span["bbox"]
                 centre = pymupdf.Point((x0 + x1) / 2, (y0 + y1) / 2)
@@ -290,8 +296,9 @@ class DocumentParser:
                     continue
                 bold = bool(span["flags"] & 16)
                 before = " ".join(paragraph) or (b.chunks[-1].content if b.chunks else "")
-                after_salutation = bool(_SALUTATION_RE.search(before))      # "Herrn" + fetter Name ist Anschrift
-                if is_heading_size(span["size"], bold, base) and is_valid_heading(text) and not after_salutation:
+                # "Herrn" + fetter Name ist Anschrift; "Rechnungsnummer:" + fetter Wert ist ein Feldwert
+                is_value = bool(_SALUTATION_RE.search(before)) or before.rstrip().endswith(":")
+                if is_heading_size(span["size"], bold, base) and is_valid_heading(text) and not is_value and not inline:
                     b.paragraph(" ".join(paragraph), stack, page_no)
                     paragraph = []
                     level = levels.get(round(span["size"], 1), len(levels))

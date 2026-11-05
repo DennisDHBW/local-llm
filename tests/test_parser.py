@@ -96,7 +96,8 @@ def test_push_heading_levels():
 
 def test_heading_filter():
     assert is_valid_heading("§ 3 Preise")
-    for text in ("Frau Claudia Bergmann", "05.02.2025", "784,21 €", "Rechnungsnummer:", "Abschlag: 210,00 € / Monat"):
+    for text in ("Frau Claudia Bergmann", "05.02.2025", "784,21 €", "Rechnungsnummer:", "Abschlag: 210,00 € / Monat",
+                 "SP-2026-992184", "05.10.2026 – 04.11.2026"):
         assert not is_valid_heading(text), text
 
 
