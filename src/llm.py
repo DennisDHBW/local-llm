@@ -107,11 +107,19 @@ def embed(model: str, texts: Sequence[str]) -> list[list[float]]:
 
 
 def release(models: Sequence[str]) -> None:
-    """Modelle sofort entladen (keep_alive=0), z. B. zwischen Importschritten auf 16 GB RAM."""
+    """Geladene Modelle sofort entladen (keep_alive=0), z. B. zwischen Importschritten auf 16 GB RAM.
+
+    Nur Modelle, die laut /api/ps geladen sind: ein leerer Aufruf würde ein nicht geladenes Modell erst laden."""
+    try:
+        loaded = {m.model for m in client().ps().models}
+    except Exception:  # noqa: BLE001 - Entladen ist nur Kür
+        return
     for name in models:
+        if name not in loaded and f"{name}:latest" not in loaded:
+            continue
         try:
             client().generate(model=name, prompt="", keep_alive=0)
-        except Exception:  # noqa: BLE001 - Embedding-Modelle kennen generate nicht; Entladen ist nur Kür
+        except Exception:  # noqa: BLE001 - Embedding-Modelle kennen generate nicht
             try:
                 client().embed(model=name, input="", keep_alive=0)
             except Exception:  # noqa: BLE001

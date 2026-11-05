@@ -106,7 +106,10 @@ class IngestionPipeline:
         chunks = self.summarizer.enrich(chunks)
         out = self.processed_dir / chunk_file_name(Path(rel_path).name)
         out.write_text(json.dumps([c.model_dump() for c in chunks], ensure_ascii=False, indent=1), encoding="utf-8")
+        # Ollama ist hier auf 9 GB begrenzt: gemma3 und qwen2.5 passen nicht gleichzeitig hinein
+        llm.release(sorted({CAPTION_MODEL, SUMMARY_MODEL} - {FACTS_MODEL}))
         self.extractor.extract(chunks, sha)
+        llm.release([FACTS_MODEL])
         self.store.index_file([c.model_dump() for c in chunks])           # Ebene 3 (Vektoren)
         return chunks
 
