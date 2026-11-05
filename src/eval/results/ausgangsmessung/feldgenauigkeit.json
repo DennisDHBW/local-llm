@@ -1,0 +1,946 @@
+{
+ "fields": 134,
+ "correct": 66,
+ "rows": [
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Verbrauchsabrechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "provider",
+   "gold": "Neckar-Strom",
+   "extracted": "Stadtwerke Neckar-Strom GmbH",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": "Herrn Max Mustermann",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "doc_date",
+   "gold": "14.01.2025",
+   "extracted": "14.01.2025",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "invoice_number",
+   "gold": "RE-2025-004812",
+   "extracted": "RE-2025-004812",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "customer_number",
+   "gold": "KD-7409218",
+   "extracted": "KD-7409218",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "contract_number",
+   "gold": "VT-2023-ST-4491",
+   "extracted": "VT-2023-ST-4491",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "total_gross_eur",
+   "gold": 1574.37,
+   "extracted": 1574.37,
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Strom_NeckarStrom_2024.pdf",
+   "field": "amount_due_eur",
+   "gold": 144.37,
+   "extracted": 144.37,
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Verbrauchsabrechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "provider",
+   "gold": "Volt",
+   "extracted": "Volt & Wärme AG",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": "Herrn Max Mustermann",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "doc_date",
+   "gold": "18.01.2025",
+   "extracted": "18.01.2025",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "invoice_number",
+   "gold": "HS-2025-441092",
+   "extracted": "HS-2025-441092",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "contract_number",
+   "gold": "VT-2022-WP-8812|KD-7409218",
+   "extracted": "KD-7409218",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+   "field": "total_gross_eur",
+   "gold": 2540.06,
+   "extracted": 2540.06,
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Verbrauchsabrechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "provider",
+   "gold": "Zweckverband|Kraichgau",
+   "extracted": "Zweckverband Wasserreversorgung Kraichgau-Neckar & Stadtentwässerung Heilbronn",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": "Herrn Max Mustermann",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "doc_date",
+   "gold": "22.01.2025",
+   "extracted": "22.01.2025",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "invoice_number",
+   "gold": "WA-2025-091823",
+   "extracted": "WA-2025-091823",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "customer_number",
+   "gold": "KD-7409218",
+   "extracted": "KD-7409218",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "contract_number",
+   "gold": "VT-2021-WA-1029",
+   "extracted": "VT-2021-WA-1029",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "total_gross_eur",
+   "gold": 882.95,
+   "extracted": 882.95,
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Wasser_Zweckverband_2024.pdf",
+   "field": "amount_due_eur",
+   "gold": 42.95,
+   "extracted": 42.95,
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Verbrauchsuebersicht_Strom_2025.pdf",
+   "field": "doc_type",
+   "gold": "Verbrauchsübersicht",
+   "extracted": "Verbrauchsabrechnung",
+   "verdict": "falsch"
+  },
+  {
+   "filename": "Verbrauchsuebersicht_Strom_2025.pdf",
+   "field": "provider",
+   "gold": "Neckar-Strom",
+   "extracted": "Stadtwerke Neckar-Strom GmbH",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Verbrauchsuebersicht_Strom_2025.pdf",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": "Herrn Max Mustermann",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Verbrauchsuebersicht_Strom_2025.pdf",
+   "field": "doc_date",
+   "gold": "20.01.2026",
+   "extracted": "20.01.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Verbrauchsuebersicht_Strom_2025.pdf",
+   "field": "customer_number",
+   "gold": "KD-7409218",
+   "extracted": "KD-7409218",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Rechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "provider",
+   "gold": "ConnectNet",
+   "extracted": "ConnectNet Telecom GmbH",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "customer_name",
+   "gold": "Thomas Kramer",
+   "extracted": "Herr Thomas Kramer",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "doc_date",
+   "gold": "15.10.2026",
+   "extracted": "15.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "invoice_number",
+   "gold": "RE-2026-94812",
+   "extracted": "RE-2026-94812",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "customer_number",
+   "gold": "KD-849201",
+   "extracted": "KD-849201",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "contract_number",
+   "gold": "*",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "total_gross_eur",
+   "gold": 82.43,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+   "field": "due_date",
+   "gold": "22.10.2026",
+   "extracted": "22.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Rechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "provider",
+   "gold": "LuminaStyle",
+   "extracted": "LuminaStyle Online Shop GmbH",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "customer_name",
+   "gold": "Sarah Lindner",
+   "extracted": "Frau Sarah Lindner",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "doc_date",
+   "gold": "19.10.2026",
+   "extracted": "19.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "invoice_number",
+   "gold": "INV-2026-40291",
+   "extracted": "INV-2026-40291",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "contract_number",
+   "gold": "ORD-2026-77341",
+   "extracted": "ORD-2026-77341",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "total_gross_eur",
+   "gold": 274.5,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+   "field": "due_date",
+   "gold": "*",
+   "extracted": "18.10.2026",
+   "verdict": "falsch"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Rechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "provider",
+   "gold": "NordStern",
+   "extracted": "NordStern Versicherung AG",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "customer_name",
+   "gold": "Michael Stein",
+   "extracted": "Herrn Michael Stein",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "doc_date",
+   "gold": "01.10.2026",
+   "extracted": "01.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "invoice_number",
+   "gold": "BS-2026-10492",
+   "extracted": "BS-2026-10492",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "contract_number",
+   "gold": "VS-883-9102-K04",
+   "extracted": "VS-883-9102-K04",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "total_gross_eur",
+   "gold": 690.2,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+   "field": "due_date",
+   "gold": "01.11.2026",
+   "extracted": "01.11.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Rechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "provider",
+   "gold": "Müller",
+   "extracted": "Auto & Service Müller GmbH",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "customer_name",
+   "gold": "Claudia Bergmann",
+   "extracted": "Frau Claudia Bergmann",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "doc_date",
+   "gold": "22.10.2026",
+   "extracted": "22.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "invoice_number",
+   "gold": "W-2026-0849",
+   "extracted": "W-2026-0849",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "contract_number",
+   "gold": "*",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "total_gross_eur",
+   "gold": 784.21,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+   "field": "due_date",
+   "gold": "*",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Rechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "provider",
+   "gold": "StreamPulse",
+   "extracted": "StreamPulse Media GmbH",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "customer_name",
+   "gold": "David Fischer",
+   "extracted": "Herrn David Fischer",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "doc_date",
+   "gold": "05.10.2026",
+   "extracted": "05.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "invoice_number",
+   "gold": "SP-2026-992184",
+   "extracted": "SP-2026-992184",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "customer_number",
+   "gold": "SP-90214",
+   "extracted": "SP-90214",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "total_gross_eur",
+   "gold": 24.98,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+   "field": "due_date",
+   "gold": "*",
+   "extracted": "05.10.2026",
+   "verdict": "falsch"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "doc_type",
+   "gold": "Rechnung",
+   "extracted": "Rechnung",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "provider",
+   "gold": "Weber",
+   "extracted": "Praxis Dr. med. A. Weber",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "customer_name",
+   "gold": "Sabina Richter",
+   "extracted": "Frau Sabina Richter",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "doc_date",
+   "gold": "24.10.2026",
+   "extracted": "24.10.2026",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "invoice_number",
+   "gold": "ARZT-2026-0419",
+   "extracted": "ARZT-2026-0419",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "total_gross_eur",
+   "gold": 133.33,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Rechnung_Arzt_DrWeber_2026-10.pdf",
+   "field": "due_date",
+   "gold": "23.11.2026|2026-11-23",
+   "extracted": "2026-11-23",
+   "verdict": "richtig"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "doc_type",
+   "gold": "Vertrag",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "provider",
+   "gold": "Stadtwerke Neckar-Strom GmbH",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "customer_number",
+   "gold": "KD-7409218",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "contract_number",
+   "gold": "VT-2023-ST-4491",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "contract_start",
+   "gold": "2024-01-01",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "term_end",
+   "gold": "2024-12-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "notice_period_months",
+   "gold": 1,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "cancellable",
+   "gold": true,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "price_guarantee_until",
+   "gold": "2024-12-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Strom_NeckarStrom.pdf",
+   "field": "advance_payment_eur",
+   "gold": 130.0,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "doc_type",
+   "gold": "Vertrag",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "provider",
+   "gold": "Volt & Wärme AG",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "customer_number",
+   "gold": "KD-7409218",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "contract_number",
+   "gold": "VT-2022-WP-8812",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "contract_start",
+   "gold": "2023-01-01",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "term_end",
+   "gold": "2024-12-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "notice_period_months",
+   "gold": 3,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "cancellable",
+   "gold": true,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "price_guarantee_until",
+   "gold": "2025-12-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Heizstrom_VoltWaerme.docx",
+   "field": "advance_payment_eur",
+   "gold": 225.0,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "doc_type",
+   "gold": "Vertrag",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "provider",
+   "gold": "Zweckverband Wasserversorgung Kraichgau-Neckar",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "customer_name",
+   "gold": "Max Mustermann",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "customer_number",
+   "gold": "KD-7409218",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "contract_number",
+   "gold": "VT-2021-WA-1029",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "contract_start",
+   "gold": "2021-04-01",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "cancellable",
+   "gold": false,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Wasser_Zweckverband.pdf",
+   "field": "advance_payment_eur",
+   "gold": 210.0,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "doc_type",
+   "gold": "Vertrag",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "provider",
+   "gold": "ConnectNet Telecom GmbH",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "customer_name",
+   "gold": "Thomas Kramer",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "customer_number",
+   "gold": "KD-849201",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "contract_number",
+   "gold": "BK-104928",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "contract_start",
+   "gold": "2025-04-01",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "term_end",
+   "gold": "2027-03-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "notice_period_months",
+   "gold": 1,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "cancellable",
+   "gold": true,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Mobilfunk_ConnectNet.docx",
+   "field": "price_guarantee_until",
+   "gold": "2027-03-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "doc_type",
+   "gold": "Vertrag",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "provider",
+   "gold": "NordStern Versicherung AG",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "customer_name",
+   "gold": "Michael Stein",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "contract_number",
+   "gold": "VS-883-9102-K04",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "contract_start",
+   "gold": "2025-01-01",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "term_end",
+   "gold": "2025-12-31",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "notice_period_months",
+   "gold": 1,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Kfz_Versicherung_NordStern.pdf",
+   "field": "cancellable",
+   "gold": true,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "doc_type",
+   "gold": "Vertrag",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "provider",
+   "gold": "StreamPulse Media GmbH",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "customer_name",
+   "gold": "David Fischer",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "customer_number",
+   "gold": "SP-90214",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "contract_number",
+   "gold": "SP-90214",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "contract_start",
+   "gold": "2024-03-05",
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "notice_period_months",
+   "gold": 0,
+   "extracted": null,
+   "verdict": "fehlt"
+  },
+  {
+   "filename": "Vertrag_Abo_StreamPulse.docx",
+   "field": "cancellable",
+   "gold": true,
+   "extracted": null,
+   "verdict": "fehlt"
+  }
+ ],
+ "wrong": 3,
+ "missing": 65
+}

@@ -173,6 +173,7 @@ def test_pii_masking():
     masked = mask_pii(text)
     assert "6005" not in masked and "14.05.1982" not in masked and "Mustermann" not in masked
     assert "M. M." in masked and "VT-2023-ST-4491" in masked
+    assert mask_pii("Sehr geehrter Herr Mustermann,") == "Sehr geehrter Herr M.,"
     assert mask_record({"a": [text]}, names=())["a"][0].count("Max Mustermann") == 1
 
 

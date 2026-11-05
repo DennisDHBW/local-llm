@@ -93,6 +93,8 @@ def mask_pii(text: Any, names: tuple[str, ...] = PERSON_NAMES) -> str:
     value = _BIRTH_RE.sub(lambda m: m.group(1) + "**.**.****", value)
     for name in names:
         value = value.replace(name, " ".join(part[0] + "." for part in name.split()))
+        surname = name.split()[-1]          # "Herr Mustermann" ohne Vorname
+        value = re.sub(rf"\b(Herrn?|Frau)\s+{re.escape(surname)}\b", rf"\1 {surname[0]}.", value)
     return value
 
 
