@@ -212,3 +212,10 @@ def test_disabled_tools_are_removed_from_schema_and_prompt(tools, monkeypatch):
     ReActAgent(tools=tools, disabled={"get_key_facts"}).run("Frage?")
     assert "get_key_facts" not in seen["tools"] and "get_key_facts" not in seen["system"]
     assert "list_contracts" in seen["tools"]
+
+
+def test_citation_only_answers_are_detected():
+    from src.agent.evidence_first import citation_only
+
+    assert citation_only("[2]") and citation_only("[1].\n\n") and citation_only("[1], [3]")
+    assert not citation_only("Der Abschlag beträgt 130,00 € [2].")

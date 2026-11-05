@@ -155,11 +155,11 @@ def write_outputs(scored: Sequence[Mapping[str, Any]], prefix: Path, meta: Mappi
                   extras: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[Path, Path]:
     prefix = Path(prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
-    jsonl = prefix.with_suffix(".jsonl")
+    jsonl = prefix.with_name(prefix.name + ".jsonl")
     with jsonl.open("w", encoding="utf-8") as fh:
         for r in scored:                      # versionierte Ausgabe: personenbezogene Angaben maskiert
             fh.write(json.dumps(mask_record(r), ensure_ascii=False) + "\n")
-    md = prefix.with_suffix(".md")
+    md = prefix.with_name(prefix.name + ".md")
     md.write_text(mask_pii(render(scored, meta, extras)), encoding="utf-8")
     summary = {s: {k: {"value": v.value, "interval": v.interval, "n": v.n}
                    for k, v in kpis.compute([r for r in scored if r["system"] == s], (extras or {}).get(s)).items()}

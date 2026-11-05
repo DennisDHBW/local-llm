@@ -9,6 +9,7 @@ Messung wird der Klick automatisch ausgeführt.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from src import llm
@@ -17,9 +18,16 @@ from src.agent.evidence import Evidence, build_context, build_evidence, from_hit
 from src.config import SYNTH_MODEL, TOP_K
 from src.retrieval.search import Hit, Retriever
 
+def citation_only(text: str) -> bool:
+    """True, wenn die Antwort außer Belegnummern und Satzzeichen nichts enthält."""
+    return len(re.sub(r"\[\d+\]|[\s.,;:]", "", text)) < 3
+
+
 PROMPT = """Beantworte die Frage ausschließlich mit den nummerierten Belegen aus privaten Rechnungen und Verträgen.
 Regeln:
-- Setze hinter jede Aussage die Nummer des Belegs, z. B. [2]. Nur Nummern verwenden, die unten stehen.
+- Antworte in ganzen Sätzen und nenne den gefragten Wert selbst. Setze dahinter die Nummer des Belegs, z. B.
+  "Der monatliche Abschlag beträgt 130,00 € [2]." Nur Nummern verwenden, die unten stehen.
+- Eine Antwort, die nur aus einer Belegnummer besteht, ist falsch.
 - Nenne Beträge mit Einheit und Zeitraum. Rechne nur, wenn die Frage es verlangt, und zeige die Rechnung.
 - Steht die Antwort in keinem Beleg, antworte genau: "{not_found}" und nenne keine Zahlen.
 - Deutsch, knapp, ohne Einleitung.
@@ -66,6 +74,15 @@ class EvidenceFirstPipeline:
         except llm.LLMUnavailable as exc:
             result.status, result.error = "outage", str(exc)
             return result
+        if citation_only(text):        # kleine Modelle antworten sonst oft nur mit "[2]"
+            try:
+                text = llm.generate(self.model, PROMPT.format(context=context, question=question, not_found=NOT_FOUND)
+                                    + f" {text}\nDas ist nur eine Belegnummer. Antworte mit dem Wert in einem ganzen Satz:")
+            except llm.LLMUnavailable as exc:
+                result.status, result.error = "outage", str(exc)
+                return result
+            result.trajectory.append({"step": 2, "thought": "nur Belegnummer, erneut gefragt", "action": "retry",
+                                      "action_input": "", "observation": ""})
         sources = source_list(text, result.sources)
         result.answer = text + (f"\n\n{sources}" if sources else "")
         result.trajectory.append({"step": 2, "thought": "", "action": "final_answer", "action_input": "",
