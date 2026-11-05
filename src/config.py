@@ -30,9 +30,9 @@ CACHE_DIR = Path(_env("CACHE_DIR", str(PROJECT_ROOT / ".cache")))   # Ebene 2: E
 SOURCE_SUFFIXES = (".pdf", ".docx")
 
 # --- Modelle (Auswahl: docs/modellauswahl.md, gemessen auf 16 GB RAM ohne GPU) -------------------------------------
-AGENT_MODEL = _env("AGENT_MODEL", "qwen2.5:7b")        # ReAct-Controller (P2) und Synthese (P1)
+AGENT_MODEL = _env("AGENT_MODEL", "llama3.1:8b")       # ReAct-Controller (P2) und Synthese (P1); Regel R5, results/modellauswahl
 SYNTH_MODEL = _env("SYNTH_MODEL", AGENT_MODEL)
-FACTS_MODEL = _env("FACTS_MODEL", AGENT_MODEL)         # Kerndaten-Extraktion (JSON)
+FACTS_MODEL = _env("FACTS_MODEL", "qwen2.5:7b")        # Kerndaten-Extraktion (JSON); Regel R4 (gleich gut, schneller)
 SUMMARY_MODEL = _env("SUMMARY_MODEL", "gemma3:4b")     # TableSummarizer (Allgemein.md: gemma3:4b)
 CAPTION_MODEL = _env("CAPTION_MODEL", "gemma3:4b")     # ImageCaptioner (Vision)
 REWRITE_MODEL = _env("REWRITE_MODEL", "llama3.2")      # optionales Query-Rewriting
@@ -64,7 +64,7 @@ USE_BM25 = _flag("USE_BM25", False)                    # hybride Suche nur, wenn
 USE_RERANKER = _flag("USE_RERANKER", False)            # Cross-Encoder nur, wenn messbar besser (Ablation)
 RERANKER_MODEL = _env("RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 USE_REWRITER = _flag("USE_REWRITER", False)            # Query-Rewriting optional
-REWRITER_MODE = _env("REWRITER_MODE", "llm")           # "llm" (REWRITE_MODEL) oder "rules" (ohne Modell)
+REWRITER_MODE = _env("REWRITER_MODE", "rules")         # "rules" (ohne Modell) oder "llm"; LLM-Rewriting war messbar schlechter
 
 # --- Evidence-First (Allgemein.md, Abschnitt 7) -------------------------------------------------------------------
 SCORE_HIGH = 0.7

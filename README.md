@@ -15,7 +15,8 @@ Ausgangslage und Paketplan: [`docs/bestandsaufnahme.md`](docs/bestandsaufnahme.m
 
 ```bash
 uv sync                                   # Abhängigkeiten (Python 3.11+)
-ollama pull qwen2.5:7b                    # Agent, Synthese, Kerndaten
+ollama pull llama3.1:8b                   # Agent (P2) und Synthese (P1)
+ollama pull qwen2.5:7b                    # Kerndaten (JSON-Schema)
 ollama pull gemma3:4b                     # Bildbeschreibung, Tabellen-Summary
 ollama pull nomic-embed-text              # Embeddings
 ollama pull llama3.2                      # optionales Query-Rewriting

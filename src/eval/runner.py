@@ -26,6 +26,7 @@ from src.config import (
     AGENT_MODEL,
     CANDIDATE_K,
     EMBED_MODEL,
+    FACTS_MODEL,
     HIERARCHY_BOOST,
     PROCESSED_DIR,
     REWRITE_MODEL,
@@ -123,10 +124,13 @@ def main() -> None:
     parser.add_argument("--title", default="KPI-Bericht Version2")
     parser.add_argument("--no-rewrite-latency", action="store_true")
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument("--types", default="", help="nur diese Fragetypen, z. B. c,d (GraphRAG-Messung)")
     args = parser.parse_args()
     if "heldout" in args.sets and not heldout_checksum_ok():
         raise SystemExit("Zurückgehaltener Testsatz verändert (Prüfsumme) - Abbruch.")
     questions = load_sets(args.sets)
+    if args.types:
+        questions = [q for q in questions if q.get("type") in args.types.split(",")]
     out_dir = RESULTS / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
     raw_path = out_dir / f"{args.name}_raw.jsonl"
@@ -141,11 +145,12 @@ def main() -> None:
         extra_path.write_text(json.dumps(extra, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     scored = score_records(load_jsonl(raw_path), questions)
     meta = {"title": args.title, "started": f"{datetime.now():%d.%m.%Y %H:%M}", "variant": "Version2",
-            "models": f"Agent/Synthese {AGENT_MODEL}, Embedding {EMBED_MODEL}, Rewriter {REWRITE_MODEL}",
+            "models": f"Agent/Synthese {AGENT_MODEL}, Kerndaten {FACTS_MODEL}, Embedding {EMBED_MODEL}, Rewriter {REWRITE_MODEL}",
             "sets": args.sets, "reps": args.reps,
             "note": f"Retrieval: Top-{CANDIDATE_K} Kandidaten, Boost {HIERARCHY_BOOST}, BM25 {'an' if USE_BM25 else 'aus'}, "
                     f"Reranker {'an' if USE_RERANKER else 'aus'}, Rewriting {'an' if USE_REWRITER else 'aus'}; "
-                    f"Stichtag {os.environ.get('DOKAGENT_TODAY')}"}
+                    f"Stichtag {os.environ.get('DOKAGENT_TODAY')}; "
+                    f"abgeschaltete Werkzeuge: {os.environ.get('DOKAGENT_DISABLED_TOOLS') or 'keine'}"}
     _, md = write_outputs(scored, out_dir / args.name, meta, {s: extra for s in systems})
     print(f"Bericht: {md}")
 
