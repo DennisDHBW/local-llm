@@ -54,36 +54,83 @@ def retrieved_list(retriever: Retriever, question: str) -> list[dict[str, Any]]:
              "text": h.text} for i, h in enumerate(hits)]
 
 
+RELEASE_EVERY = 6        # Fragen; Ollama ist hier auf 9 GB begrenzt und wächst im Dauerbetrieb bis an die Grenze
+
+
+def wait_for_ollama(limit_s: float = 300.0) -> bool:
+    """Nach einem Ausfall warten, bis Ollama wieder antwortet (systemd startet es neu)."""
+    deadline = time.monotonic() + limit_s
+    while time.monotonic() < deadline:
+        try:
+            llm.client().list()
+            return True
+        except Exception:  # noqa: BLE001
+            time.sleep(10)
+    return False
+
+
+def fresh_models() -> None:
+    """Modelle entladen und außerhalb der Zeitmessung neu laden (Speicher freigeben, Latenz ohne Ladezeit)."""
+    llm.release([AGENT_MODEL, EMBED_MODEL])
+    try:
+        llm.generate(AGENT_MODEL, "ok", num_predict=1)
+        llm.embed(EMBED_MODEL, ["search_query: ok"])
+    except llm.LLMUnavailable:
+        wait_for_ollama()
+    llm.take_calls()
+
+
+def run_once(system: str, question: str, p1: EvidenceFirstPipeline, p2: ReActAgent) -> tuple[dict[str, Any], float]:
+    started = time.perf_counter()
+    try:
+        answer = (p1.answer(question) if system == "P1" else p2.run(question))
+        record = answer.record()
+        if record["status"] == "ok" and not str(record["answer"]).strip():
+            record["status"], record["error"] = "error", "leere Antwort"
+    except Exception as exc:  # noqa: BLE001 - jeder Fehler wird gezählt (Fehlerquote)
+        status = "outage" if isinstance(exc, llm.LLMUnavailable) else "error"
+        record = {"answer": "", "sources": [], "evidence_texts": [], "trajectory": [], "tool_calls": [],
+                  "steps": 0, "status": status, "error": f"{type(exc).__name__}: {exc}"}
+    return record, time.perf_counter() - started
+
+
 def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int, raw_path: Path) -> None:
+    """Jede Frage je System und Wiederholung. Bei einem Ollama-Ausfall: warten und einmal wiederholen; der Ausfall
+    bleibt im Datensatz vermerkt (outage_retried), zählt aber nur als Ausfall, wenn auch die Wiederholung scheitert."""
     retriever = Retriever()
     tools = AgentTools(retriever=retriever)
     p1, p2 = EvidenceFirstPipeline(retriever=retriever), ReActAgent(tools=tools)
     done = {(r["system"], r["set"], r["qid"], r["rep"]) for r in load_jsonl(raw_path) if r.get("status") == "ok"}
+    asked = 0
     for index, q in enumerate(questions, 1):
         retrieved: list[dict[str, Any]] | None = None
         for rep in range(reps):
             for system in systems:
                 if (system, q["set"], q["id"], rep) in done:
                     continue
+                if asked % RELEASE_EVERY == 0:
+                    fresh_models()
+                asked += 1
                 if retrieved is None:
-                    retrieved = retrieved_list(retriever, q["question"])
+                    try:
+                        retrieved = retrieved_list(retriever, q["question"])
+                    except llm.LLMUnavailable:
+                        wait_for_ollama()
+                        retrieved = retrieved_list(retriever, q["question"])
                 llm.take_calls()
                 print(f"[{index}/{len(questions)}] {system} {q['set']}/{q['id']} #{rep}: {q['question']}", flush=True)
-                started = time.perf_counter()
+                retried = False
                 with PeakMonitor() as monitor:
-                    try:
-                        answer = (p1.answer(q["question"]) if system == "P1" else p2.run(q["question"]))
-                        record = answer.record()
-                        if record["status"] == "ok" and not str(record["answer"]).strip():
-                            record["status"], record["error"] = "error", "leere Antwort"
-                    except Exception as exc:  # noqa: BLE001 - jeder Fehler wird gezählt (Fehlerquote)
-                        record = {"answer": "", "sources": [], "evidence_texts": [], "trajectory": [], "tool_calls": [],
-                                  "steps": 0, "status": "error", "error": f"{type(exc).__name__}: {exc}"}
-                latency = time.perf_counter() - started
+                    record, latency = run_once(system, q["question"], p1, p2)
+                    if record["status"] == "outage" and wait_for_ollama():
+                        print("   Ollama-Ausfall, Wiederholung", flush=True)
+                        retried = True
+                        fresh_models()
+                        record, latency = run_once(system, q["question"], p1, p2)
                 calls = llm.take_calls()
                 record.update({"variant": "v2", "system": system, "set": q["set"], "qid": q["id"], "rep": rep,
                                "question": q["question"], "model": AGENT_MODEL, "retrieved": retrieved,
-                               "latency_s": round(latency, 2), "llm_calls": calls,
+                               "latency_s": round(latency, 2), "llm_calls": calls, "outage_retried": retried,
                                "tokens_per_s": tokens_per_second(calls), "peak_ram_gb": round(monitor.peak_gb, 2)})
                 record.pop("evidence", None)
                 with raw_path.open("a", encoding="utf-8") as fh:
