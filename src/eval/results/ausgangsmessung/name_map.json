@@ -1,0 +1,12 @@
+{
+ "generatedinvoicesStromrechnung2024.pdf": "Rechnung_Strom_NeckarStrom_2024.pdf",
+ "generatedinvoicesHeizstromrechnung2024.pdf": "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+ "generatedinvoicesWasserrechnung2024.pdf": "Rechnung_Wasser_Zweckverband_2024.pdf",
+ "Verbrauchsuebersicht2025.pdf": "Verbrauchsuebersicht_Strom_2025.pdf",
+ "Rechnung1TelekomConnectNet.pdf": "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+ "Rechnung2OnlineshopLuminaStyle.pdf": "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+ "Rechnung3VersicherungNordStern.pdf": "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+ "Rechnung4WerkstattAutoService.pdf": "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+ "Rechnung5AboStreamPulse.pdf": "Rechnung_Abo_StreamPulse_2026-10.pdf",
+ "Rechnung6ArztPrivatabrechnung.pdf": "Rechnung_Arzt_DrWeber_2026-10.pdf"
+}

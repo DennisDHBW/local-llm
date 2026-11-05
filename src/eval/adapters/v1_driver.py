@@ -129,15 +129,15 @@ def main() -> None:
                             trajectory.append({"step": 1, "thought": "", "action": "retrieve",
                                                "action_input": q["question"], "observation": f"{len(used)} Chunks"})
                         else:
-                            def callback(event: dict[str, Any]) -> None:
+                            def callback(event: dict[str, Any], traj: list[dict[str, Any]] = trajectory) -> None:
                                 if event.get("type") == "action_execution":
-                                    trajectory.append({"step": event.get("iteration"), "thought": event.get("thought", ""),
+                                    traj.append({"step": event.get("iteration"), "thought": event.get("thought", ""),
                                                        "action": event.get("action"),
                                                        "action_input": event.get("action_input"), "observation": ""})
-                                elif event.get("type") == "observation_result" and trajectory:
-                                    trajectory[-1]["observation"] = str(event.get("observation", ""))[:4000]
+                                elif event.get("type") == "observation_result" and traj:
+                                    traj[-1]["observation"] = str(event.get("observation", ""))[:4000]
                                 elif event.get("type") == "final_answer":
-                                    trajectory.append({"step": event.get("iteration"), "thought": event.get("thought", ""),
+                                    traj.append({"step": event.get("iteration"), "thought": event.get("thought", ""),
                                                        "action": "final_answer", "action_input": "",
                                                        "observation": ""})
 

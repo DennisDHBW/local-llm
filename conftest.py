@@ -1,29 +1,22 @@
 """Gemeinsame Test-Einstellungen.
 
-1. Die Datei liegt im Projektstamm: pytest legt dadurch den Stamm in den Importpfad (`import src...`).
-2. Schutz vor schweren Abhängigkeiten in normalen Testläufen (RAM, Laufzeit):
-   - Der Cross-Encoder-Reranker (sentence-transformers/torch, ~1 GB RAM) bleibt aus, solange
-     ENERGY_USE_RERANKER nicht ausdrücklich gesetzt ist.
-   - Echte Ollama-Aufrufe sind gesperrt. Ein Test, der versehentlich das Sprachmodell aufruft, schlägt sofort
-     mit einer klaren Meldung fehl, statt minutenlang zu rechnen oder den Rechner auszulasten.
-     Tests, die bewusst gegen ein laufendes Ollama prüfen, bekommen den Marker `@pytest.mark.ollama`
-     und laufen nur auf Wunsch:  uv run pytest -m ollama
+- Liegt im Projektstamm, damit `import src...` in Tests funktioniert.
+- Echte Ollama-Aufrufe sind gesperrt: ein Test, der versehentlich ein Modell aufruft, schlägt sofort fehl.
+  Tests gegen ein laufendes Ollama tragen `@pytest.mark.ollama` und laufen nur mit `uv run pytest -m ollama`.
+- Daten- und Cache-Ordner zeigen in ein temporäres Verzeichnis, damit Tests nie den echten Bestand verändern.
 """
 
 from __future__ import annotations
 
 import os
+import tempfile
 
 import pytest
 
-# Muss VOR dem ersten Import von src.config passieren (die Konfiguration liest die Variable beim Import).
-os.environ.setdefault("ENERGY_USE_RERANKER", "0")
-# Die älteren Agententests prüfen die Werkzeugschleife Schritt für Schritt; die Vorab-Suche ("retrieval first")
-# schalten die Tests in tests/test_paket7_qualitaet.py gezielt ein.
-os.environ.setdefault("ENERGY_AGENT_PRE_RETRIEVAL_K", "0")
-os.environ.setdefault("ENERGY_AGENT_FAST_PATH", "0")
-
-_OLLAMA_FUNCTIONS = ("chat", "generate", "embed", "embeddings", "ps")
+_TMP = tempfile.mkdtemp(prefix="dokagent_test_")
+os.environ.setdefault("DOKAGENT_DATA_DIR", os.path.join(_TMP, "data"))
+os.environ.setdefault("DOKAGENT_CACHE_DIR", os.path.join(_TMP, "cache"))
+os.environ.setdefault("DOKAGENT_TODAY", "2026-11-05")
 
 
 class RealOllamaCallError(RuntimeError):
@@ -34,19 +27,12 @@ class RealOllamaCallError(RuntimeError):
 def _block_real_ollama(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     if request.node.get_closest_marker("ollama"):
         return
-    try:
-        import ollama
-    except ImportError:
-        return
+    import src.llm as llm
 
     def blocked(name: str):
         def call(*args, **kwargs):
-            raise RealOllamaCallError(
-                f"Test ruft das echte ollama.{name}() auf. Bitte im Test durch eine Attrappe ersetzen "
-                "(monkeypatch.setattr) oder den Test mit @pytest.mark.ollama markieren."
-            )
+            raise RealOllamaCallError(f"Test ruft echtes Ollama ({name}) auf; bitte Attrappe verwenden.")
         return call
 
-    for name in _OLLAMA_FUNCTIONS:
-        if hasattr(ollama, name):
-            monkeypatch.setattr(ollama, name, blocked(name))
+    for name in ("chat", "generate", "embed"):
+        monkeypatch.setattr(llm, name, blocked(name))

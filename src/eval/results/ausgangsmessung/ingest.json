@@ -1,0 +1,15 @@
+{
+ "seconds_total": 168.4,
+ "new_documents": [
+  "Vertrag_Strom_NeckarStrom.pdf",
+  "Vertrag_Wasser_Zweckverband.pdf",
+  "Vertrag_Kfz_Versicherung_NordStern.pdf"
+ ],
+ "returncode": 0,
+ "seconds_per_new_doc": null,
+ "failed_documents": [
+  "Vertrag_Kfz_Versicherung_NordStern.pdf",
+  "Vertrag_Strom_NeckarStrom.pdf",
+  "Vertrag_Wasser_Zweckverband.pdf"
+ ]
+}

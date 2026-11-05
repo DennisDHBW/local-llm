@@ -1,133 +1,85 @@
-"""Zentrale Konfiguration. Alles lässt sich per Umgebungsvariable überschreiben.
+"""Zentrale Konfiguration. Jeder Wert lässt sich per Umgebungsvariable DOKAGENT_<NAME> überschreiben.
 
-Beispiel (PowerShell/Bash):
-    ENERGY_AGENT_MODEL=llama3.1:latest   # falls qwen2.5:14b nicht gezogen wurde
-    ENERGY_NUM_CTX=16384
+Beispiel:  DOKAGENT_AGENT_MODEL=llama3.1:8b DOKAGENT_HIERARCHY_BOOST=1.25 uv run streamlit run app.py
+
+Standardwerte, die durch Messung entschieden wurden, nennen die Messung im Kommentar (docs/reverse_engineering.md).
 """
 
+from __future__ import annotations
+
 import os
+from datetime import date
 from pathlib import Path
 
+
+def _env(name: str, default: str) -> str:
+    return os.getenv(f"DOKAGENT_{name}", default)
+
+
+def _flag(name: str, default: bool) -> bool:
+    return _env(name, "1" if default else "0").strip().lower() in ("1", "true", "ja", "yes", "on")
+
+
+# --- Pfade ---------------------------------------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data"
-PROCESSED_DIR = DATA_DIR / "processed"
-VECTOR_DIR = DATA_DIR / "vectors"
-GRAPH_DIR = DATA_DIR / "graph"
-GRAPH_PATH = GRAPH_DIR / "document_graph.json"
-# Bilder, deren kürzere Seite kleiner ist (Pixel), werden beim Parsen übersprungen (Logos, Icons). 0 = alle.
-MIN_IMAGE_PX = int(os.getenv("ENERGY_MIN_IMAGE_PX", "100"))
-# Erzeugte Dateien der Ausgabe-Werkzeuge (Diagramme, Berichte, CSV-Exporte)
-OUTPUT_DIR = Path(os.getenv("ENERGY_OUTPUT_DIR", str(DATA_DIR / "outputs")))
-SCHEMAS_DIR = PROJECT_ROOT / "config" / "schemas"
+DATA_DIR = Path(_env("DATA_DIR", str(PROJECT_ROOT / "data")))
+RAW_DIR = DATA_DIR / "raw"                     # Eingang: Unterordner (Rechnungen/, Vertraege/) gehen ins Präfix ein
+PROCESSED_DIR = DATA_DIR / "processed"         # Ebene 1: <datei>_chunks.json, <datei>_facts.json, Bilder
+VECTOR_DIR = DATA_DIR / "vectors"              # Ebene 3: ChromaDB
+CACHE_DIR = Path(_env("CACHE_DIR", str(PROJECT_ROOT / ".cache")))   # Ebene 2: Enrichment-DiskCache (SHA-256)
+SOURCE_SUFFIXES = (".pdf", ".docx")
 
-# Erstelle benötigte Verzeichnisse
-SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
+# --- Modelle (Auswahl: docs/modellauswahl.md, gemessen auf 16 GB RAM ohne GPU) -------------------------------------
+AGENT_MODEL = _env("AGENT_MODEL", "qwen2.5:7b")        # ReAct-Controller (P2) und Synthese (P1)
+SYNTH_MODEL = _env("SYNTH_MODEL", AGENT_MODEL)
+FACTS_MODEL = _env("FACTS_MODEL", AGENT_MODEL)         # Kerndaten-Extraktion (JSON)
+SUMMARY_MODEL = _env("SUMMARY_MODEL", "gemma3:4b")     # TableSummarizer (Allgemein.md: gemma3:4b)
+CAPTION_MODEL = _env("CAPTION_MODEL", "gemma3:4b")     # ImageCaptioner (Vision)
+REWRITE_MODEL = _env("REWRITE_MODEL", "llama3.2")      # optionales Query-Rewriting
+EMBED_MODEL = _env("EMBED_MODEL", "nomic-embed-text")  # 768 Dimensionen, 8k Kontext
 
-# --- Modelle -----------------------------------------------------------------
-# qwen2.5:7b (~4,7 GB): läuft auch auf Laptops ohne dedizierte GPU und beherrscht Tool-Calling.
-# Mit viel RAM/VRAM (>= 16 GB frei) ist qwen2.5:14b noch zuverlässiger:
-#   ENERGY_AGENT_MODEL=qwen2.5:14b
-# Vorher einmalig:  ollama pull qwen2.5:7b
-AGENT_MODEL = os.getenv("ENERGY_AGENT_MODEL", "qwen2.5:7b")
-SYNTH_MODEL = os.getenv("ENERGY_SYNTH_MODEL", AGENT_MODEL)
-FACTS_MODEL = os.getenv("ENERGY_FACTS_MODEL", AGENT_MODEL)
-SUMMARY_MODEL = os.getenv("ENERGY_SUMMARY_MODEL", AGENT_MODEL)
-EMBED_MODEL = os.getenv("ENERGY_EMBED_MODEL", "nomic-embed-text")
-CONDENSE_MODEL = os.getenv("ENERGY_CONDENSE_MODEL", AGENT_MODEL)          # Folgefragen -> eigenständige Fragen
-CAPTION_MODEL = os.getenv("ENERGY_CAPTION_MODEL", "gemma3:4b")            # Bildbeschreibung (Vision)
-PARSER_MODEL = os.getenv("ENERGY_PARSER_MODEL", "llama3.2:latest")        # Metadaten beim PDF-Parsing
-REWRITER_MODEL = os.getenv("ENERGY_REWRITER_MODEL", "llama3.2:latest")    # Query-Rewriter
-
-# --- Kontextfenster ----------------------------------------------------------
-# Ollama schneidet Prompts bei zu kleinem num_ctx STILL ab (Standard: 2048-4096).
-# Genau das zerstört bei langen ReAct-Verläufen Systemprompt und Frage.
-# Der KV-Cache wächst mit num_ctx (14B-Modell: ~0,2 MB pro Token). 8192 reicht für die
-# Agentenschleife; bei viel RAM kann ENERGY_NUM_CTX=16384 gesetzt werden.
-NUM_CTX = int(os.getenv("ENERGY_NUM_CTX", "8192"))
-# Ab diesem Anteil von NUM_CTX warnt der Agent im Log (prompt_eval_count aus der Ollama-Antwort).
-CONTEXT_WARN_RATIO = float(os.getenv("ENERGY_CONTEXT_WARN_RATIO", "0.9"))
-# Werkzeugausgaben werden im Agenten-Verlauf auf so viele Zeichen gekürzt (die Evidenz für die Quellen
-# bleibt vollständig). Verhindert, dass lange Ausgaben den Systemprompt aus dem Kontext drängen.
-MAX_OBSERVATION_CHARS = int(os.getenv("ENERGY_MAX_OBSERVATION_CHARS", "2500"))
-
-# --- Embedding-Prefixe (nomic-embed-text erwartet sie) -----------------------
+# nomic-embed-text wurde mit Aufgaben-Präfixen trainiert; Ingest und Abfrage nutzen dieselben (src/retrieval/embeddings.py)
 EMBED_DOC_PREFIX = "search_document: "
 EMBED_QUERY_PREFIX = "search_query: "
-# Texte pro Embedding-Aufruf beim Indizieren (Ollama /api/embed nimmt Listen an). Kleiner = weniger RAM-Spitze.
-EMBED_BATCH_SIZE = int(os.getenv("ENERGY_EMBED_BATCH_SIZE", "32"))
+EMBED_BATCH_SIZE = int(_env("EMBED_BATCH_SIZE", "32"))
 
-# --- Vektordatenbank -----------------------------------------------------------
-# Name der ChromaDB-Collection. Der historische Name bleibt Standard, damit der vorhandene Index weiter gilt.
-COLLECTION_NAME = os.getenv("ENERGY_COLLECTION", "energy_docs")
+NUM_CTX = int(_env("NUM_CTX", "8192"))                 # Ollama schneidet zu lange Prompts sonst still ab
+SEED = int(_env("SEED", "42"))                         # zusammen mit temperature 0 für reproduzierbare Antworten
+KEEP_ALIVE = _env("KEEP_ALIVE", "5m")
+LLM_TIMEOUT_S = float(_env("LLM_TIMEOUT_S", "600"))
 
-# --- Retrieval & Reranking ---------------------------------------------------
-# Der Query-Rewriter (3B-Modell) hängte Rauschen an die Suchanfrage. Standard: aus.
-USE_QUERY_REWRITER = os.getenv("ENERGY_USE_REWRITER", "0") == "1"
+# --- DocumentParser (Allgemein.md, Abschnitt 4) -------------------------------------------------------------------
+MIN_CHARS = int(_env("MIN_CHARS", "20"))               # kürzere Absätze werden an den vorigen angehängt
+MAX_BLOCK_CHARS = int(_env("MAX_BLOCK_CHARS", "1500"))  # längere werden an Satzgrenzen geteilt
+MIN_IMAGE_PX = int(_env("MIN_IMAGE_PX", "100"))         # kleinere Bilder (Logos, Linien) werden übersprungen
+HEADING_SIZE_FACTOR = float(_env("HEADING_SIZE_FACTOR", "1.25"))   # Überschrift ab 1,25 x Grundschrift ...
+HEADING_BOLD_FACTOR = float(_env("HEADING_BOLD_FACTOR", "1.05"))   # ... oder fett und ab 1,05 x Grundschrift
 
-# Cross-Encoder Reranker für finale Re-Relevanzbewertung nach RRF
-USE_RERANKER = os.getenv("ENERGY_USE_RERANKER", "1") == "1"
-RERANKER_MODEL = os.getenv("ENERGY_RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
-# Standard seit Paket 7: mehrsprachiger Cross-Encoder, gewählt per evaluation/pick_reranker.py nur auf Testsatz A+B
-# (MRR 0,92 gegenüber 0,75 ohne Reranker und 0,88 mit dem früheren englischen Standard). Kandidaten:
-#   cross-encoder/msmarco-MiniLM-L12-en-de-v1    (Englisch/Deutsch, ~0,5 GB)
-#   cross-encoder/mmarco-mMiniLMv2-L12-H384-v1   (mehrsprachig, ~0,5 GB)
-#   BAAI/bge-reranker-v2-m3                      (mehrsprachig, ~2,3 GB RAM, deutlich langsamer auf CPU)
-# Vergleich: evaluation/quality.py --retrieval-only mit ENERGY_RERANKER_MODEL=<Name> (README).
-# Nur lokal laden (kein Zugriff auf den Hugging-Face-Hub; Modell muss einmal heruntergeladen worden sein).
-# Standard 0, damit ein neues Modell beim ersten Mal geladen wird; danach ENERGY_RERANKER_LOCAL_ONLY=1 oder
-# HF_HUB_OFFLINE=1 setzen, dann bleibt die Suche vollständig lokal.
-RERANKER_LOCAL_ONLY = os.getenv("ENERGY_RERANKER_LOCAL_ONLY", os.getenv("HF_HUB_OFFLINE", "0")) == "1"
-# Nur so viele Kandidaten (nach RRF) bewertet der Reranker; spart CPU/RAM bei jeder Suche.
-RERANK_TOP_N = int(os.getenv("ENERGY_RERANK_TOP_N", "20"))
+# --- Retrieval (Allgemein.md, Abschnitt 5) ------------------------------------------------------------------------
+COLLECTION_NAME = _env("COLLECTION", "dokumente")
+CANDIDATE_K = int(_env("CANDIDATE_K", "20"))           # Kandidatensuche in ChromaDB (Kosinus)
+TOP_K = int(_env("TOP_K", "5"))                        # Treffer für Evidenz und Kontext
+HIERARCHY_BOOST = float(_env("HIERARCHY_BOOST", "1.5"))  # final_score = base_score x boost bei Treffer im Pfad
+USE_BM25 = _flag("USE_BM25", False)                    # hybride Suche nur, wenn messbar besser (Ablation)
+USE_RERANKER = _flag("USE_RERANKER", False)            # Cross-Encoder nur, wenn messbar besser (Ablation)
+RERANKER_MODEL = _env("RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+USE_REWRITER = _flag("USE_REWRITER", False)            # Query-Rewriting optional
+REWRITER_MODE = _env("REWRITER_MODE", "llm")           # "llm" (REWRITE_MODEL) oder "rules" (ohne Modell)
 
-# Kontext im Suchindex (src/retrieval/context.py): Nachbarzeilen derselben Seite, bis der indizierte Text mindestens
-# so viele Zeichen hat (0 = aus), höchstens WINDOW_MAX_NEIGHBORS Zeilen je Richtung. Änderung -> neu indizieren.
-WINDOW_MIN_CHARS = int(os.getenv("ENERGY_WINDOW_MIN_CHARS", "300"))
-WINDOW_MAX_NEIGHBORS = int(os.getenv("ENERGY_WINDOW_MAX_NEIGHBORS", "2"))
+# --- Evidence-First (Allgemein.md, Abschnitt 7) -------------------------------------------------------------------
+SCORE_HIGH = 0.7
+SCORE_LOW = 0.4
 
-# Agent: vor dem ersten Schritt die besten Treffer der hybriden Suche als Belege holen ("retrieval first").
-# Messung Paket 6: Der Agent fragte oft nur die Kerndaten ab und meldete "nicht enthalten", obwohl die Stelle auf
-# Platz 1 der Suche stand; die einfache Pipeline (Suche + Antwort) war auf dem zurückgehaltenen Satz besser.
-# 0 = aus (früheres Verhalten).
-AGENT_PRE_RETRIEVAL_K = int(os.getenv("ENERGY_AGENT_PRE_RETRIEVAL_K", "5"))
-# Kurzweg: Fragen ohne Hinweis auf Rechnen/Listen/Kategorien/Ausgabedateien zuerst nur aus den Vorab-Treffern
-# beantworten (wie die einfache Pipeline); "nicht enthalten" -> der Agent übernimmt. 0 = immer der volle Agent.
-AGENT_FAST_PATH = os.getenv("ENERGY_AGENT_FAST_PATH", "1") == "1"
-# So viele Zeichen je Vorab-Treffer sieht das Agentenmodell (die Antwort bekommt den vollen Treffer).
-AGENT_PRE_SNIPPET_CHARS = int(os.getenv("ENERGY_AGENT_PRE_SNIPPET_CHARS", "400"))
-
-# BM25-Index im Speicher: nach dieser Zeit (Sekunden) neu aufbauen, damit ein in einem anderen Prozess
-# neu indizierter Bestand mit gleicher Chunk-Anzahl nicht dauerhaft veraltet bleibt. 0 = kein Ablauf.
-BM25_CACHE_TTL = float(os.getenv("ENERGY_BM25_TTL", "300"))
-
-# Mehrwertsteuersatz für die Netto/Brutto-Umrechnung von Strom-, Gas- und Wärmepreisen.
-# (Wasser/Abwasser werden bewusst nicht umgerechnet: dort gelten andere Sätze.)
-VAT_RATE = float(os.getenv("ENERGY_VAT_RATE", "0.19"))
-
-# Chat: so viele frühere Frage-Antwort-Paare fließen in die Umformulierung von Folgefragen ein.
-CHAT_MAX_TURNS = int(os.getenv("ENERGY_CHAT_TURNS", "4"))
-
-# Optionale Zahlenprüfung der Antwort gegen die Quellen (Hinweis unter der Antwort). Standard: aus.
-CHECK_NUMBERS = os.getenv("ENERGY_CHECK_NUMBERS", "0") == "1"
-
-# Zweiter LLM-Aufruf, der die Antwort aus der Evidenz neu formuliert (Zitate [n]). Standard: an (wie bisher).
-# ENERGY_USE_SYNTHESIZER=0 übernimmt stattdessen die Antwort des Agenten und hängt nur die Quellen an;
-# das ist auf der CPU deutlich schneller. Per Evaluation (run_eval) vergleichen, bevor der Standard wechselt.
-USE_SYNTHESIZER = os.getenv("ENERGY_USE_SYNTHESIZER", "1") == "1"
+# --- Agent (ReAct, Prototyp 2) ------------------------------------------------------------------------------------
+MAX_STEPS = int(_env("MAX_STEPS", "6"))
+MAX_OBSERVATION_CHARS = int(_env("MAX_OBSERVATION_CHARS", "3000"))
 
 
-def graph_path_for(processed_dir) -> Path:
-    """Pfad des Dokumentgraphen zu einem Verarbeitungsordner.
-
-    Der Standardordner nutzt GRAPH_PATH. Andere Ordner (z. B. in Tests) bekommen einen eigenen Graphen,
-    damit der produktive Graph nicht überschrieben bzw. mit fremden Daten gelesen wird.
-    """
-    processed_dir = Path(processed_dir)
-    if processed_dir.resolve() == PROCESSED_DIR.resolve():
-        return GRAPH_PATH
-    return processed_dir / "graph" / "document_graph.json"
+def today() -> date:
+    """Stichtag für Fristberechnungen. DOKAGENT_TODAY=2026-11-05 macht Messungen reproduzierbar."""
+    value = _env("TODAY", "")
+    return date.fromisoformat(value) if value else date.today()
 
 
-def ollama_options(**extra):
-    """Standard-Optionen für jeden Ollama-Aufruf (inkl. ausreichendem Kontext)."""
-    return {"num_ctx": NUM_CTX, **extra}
+def ollama_options(**extra: object) -> dict[str, object]:
+    return {"num_ctx": NUM_CTX, "temperature": 0.0, "seed": SEED, **extra}

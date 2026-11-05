@@ -1,0 +1,131 @@
+=== 1. PDF Layout Parsing: PDF LAYOUT PARSING ===
+Entfernte Dokumente bereinigt: Alle6RechnungenSammeldokument.pdf, Bon1_Lidl.png, Bon2_Lidl.png, Bon3_Kaufland.png, Kassenbon1Rewe.pdf, Kassenbon2Lidl.pdf, Kassenbon3Kaufland.pdf, Kassenbon4Aldi.pdf, Kassenbon5Edeka.pdf
+Unverändert, nicht erneut geparst: Rechnung1TelekomConnectNet.pdf
+Unverändert, nicht erneut geparst: Rechnung2OnlineshopLuminaStyle.pdf
+Unverändert, nicht erneut geparst: Rechnung3VersicherungNordStern.pdf
+Unverändert, nicht erneut geparst: Rechnung4WerkstattAutoService.pdf
+Unverändert, nicht erneut geparst: Rechnung5AboStreamPulse.pdf
+Unverändert, nicht erneut geparst: Rechnung6ArztPrivatabrechnung.pdf
+Unverändert, nicht erneut geparst: Verbrauchsuebersicht2025.pdf
+  -> Extrahiere Metadaten für Vertrag_Kfz_Versicherung_NordStern.pdf...
+     [Typ: Vertragsinformation | Datum: 02.12.2024 | Anbieter: NordStern Versicherung AG]
+Consider using the pymupdf_layout package for a greatly improved page layout analysis.
+⚠️ Parsen fehlgeschlagen: Vertrag_Kfz_Versicherung_NordStern.pdf: too many values to unpack (expected 2)
+  -> Extrahiere Metadaten für Vertrag_Strom_NeckarStrom.pdf...
+     [Typ: Stromliefervertrag | Datum: 20.11.2023 | Anbieter: Stadtwerke Neckar-Strom GmbH]
+⚠️ Parsen fehlgeschlagen: Vertrag_Strom_NeckarStrom.pdf: too many values to unpack (expected 2)
+  -> Extrahiere Metadaten für Vertrag_Wasser_Zweckverband.pdf...
+     [Typ: Vertragsinformation | Datum: 15.03.2021 | Anbieter: Zweckverband Wasserversorgung Kraichgau-Neckar]
+⚠️ Parsen fehlgeschlagen: Vertrag_Wasser_Zweckverband.pdf: too many values to unpack (expected 2)
+Unverändert, nicht erneut geparst: generatedinvoicesHeizstromrechnung2024.pdf
+Unverändert, nicht erneut geparst: generatedinvoicesStromrechnung2024.pdf
+Unverändert, nicht erneut geparst: generatedinvoicesWasserrechnung2024.pdf
+Speicher freigegeben: llama3.2:latest entladen.
+=== 2. Multimodale Bild-Anreicherung: MULTIMODALE BILD-ANREICHERUNG ===
+
+Überprüfe Rechnung1TelekomConnectNet_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe Rechnung2OnlineshopLuminaStyle_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe Rechnung3VersicherungNordStern_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe Rechnung4WerkstattAutoService_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe Rechnung5AboStreamPulse_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe Rechnung6ArztPrivatabrechnung_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe Verbrauchsuebersicht2025_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe generatedinvoicesHeizstromrechnung2024_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe generatedinvoicesStromrechnung2024_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+
+Überprüfe generatedinvoicesWasserrechnung2024_chunks.json auf unbeschriftete Bilder...
+Keine neuen Bilder zu verarbeiten.
+=== 3. Tabellen-Zusammenfassung: TABELLEN-ZUSAMMENFASSUNG ===
+
+Überprüfe Rechnung1TelekomConnectNet_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe Rechnung2OnlineshopLuminaStyle_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe Rechnung3VersicherungNordStern_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe Rechnung4WerkstattAutoService_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe Rechnung5AboStreamPulse_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe Rechnung6ArztPrivatabrechnung_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe Verbrauchsuebersicht2025_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe generatedinvoicesHeizstromrechnung2024_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe generatedinvoicesStromrechnung2024_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+
+Überprüfe generatedinvoicesWasserrechnung2024_chunks.json auf unzusammengefasste Tabellen...
+Keine neuen Tabellen zu verarbeiten.
+=== 4. Fakten-Extraktion: STRUKTURIERTE FAKTEN-EXTRAKTION ===
+Fakten für Rechnung1TelekomConnectNet.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für Rechnung2OnlineshopLuminaStyle.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für Rechnung3VersicherungNordStern.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für Rechnung4WerkstattAutoService.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für Rechnung5AboStreamPulse.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für Rechnung6ArztPrivatabrechnung.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für Verbrauchsuebersicht2025.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für generatedinvoicesHeizstromrechnung2024.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für generatedinvoicesStromrechnung2024.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Fakten für generatedinvoicesWasserrechnung2024.pdf: Rohdaten unverändert, nur neu normalisiert (ohne LLM).
+Speicher freigegeben: qwen2.5:7b entladen.
+=== 5. Vektorstore Indizierung: VEKTORSTORE INDIZIERUNG ===
+
+Starte Vektorisierung für: Rechnung1TelekomConnectNet_chunks.json...
+
+Starte Vektorisierung für: Rechnung2OnlineshopLuminaStyle_chunks.json...
+
+Starte Vektorisierung für: Rechnung3VersicherungNordStern_chunks.json...
+
+Starte Vektorisierung für: Rechnung4WerkstattAutoService_chunks.json...
+
+Starte Vektorisierung für: Rechnung5AboStreamPulse_chunks.json...
+
+Starte Vektorisierung für: Rechnung6ArztPrivatabrechnung_chunks.json...
+
+Starte Vektorisierung für: Verbrauchsuebersicht2025_chunks.json...
+
+Starte Vektorisierung für: generatedinvoicesHeizstromrechnung2024_chunks.json...
+
+Starte Vektorisierung für: generatedinvoicesStromrechnung2024_chunks.json...
+
+Starte Vektorisierung für: generatedinvoicesWasserrechnung2024_chunks.json...
+
+Indizierung abgeschlossen: 0 aktualisiert, 294 unverändert übersprungen.
+=== 6. GraphRAG Dokumentgraph: GRAPHRAG DOKUMENTGRAPH ===
+Dokumentgraph gespeichert: 52 Knoten (Account: 8, Customer: 7, Document: 10, EnergyType: 3, Invoice: 9, Meter: 3, NoticePeriod: 1, Provider: 9, Tariff: 2), 53 Kanten -> /tmp/claude-1000/-home-usr0-Nextcloud-Agentenbasierte-Systeme-Version2/e7763cd6-2b16-49e3-880e-93a2e1f3b1c3/scratchpad/v1_baseline/data/graph/document_graph.json
+
+Import abgeschlossen:
+  ✅ 1. PDF Layout Parsing: 13 Datei(en), 354 Chunks: 0 geparst, 10 unverändert übernommen, 3 Fehler (Vertrag_Kfz_Versicherung_NordStern.pdf: too many values to unpack (expected 2); Vertrag_Strom_NeckarStrom.pdf: too many values to unpack (expected 2); Vertrag_Wasser_Zweckverband.pdf: too many values to unpack (expected 2)).
+  ✅ 2. Multimodale Bild-Anreicherung: Bilder analysiert, Captions in Chunks integriert, Duplikate gereinigt.
+  ✅ 3. Tabellen-Zusammenfassung: Tabellen-Summaries erzeugt.
+  ✅ 4. Fakten-Extraktion: Strukturierte Kerndaten (_facts.json) extrahiert und verifiziert.
+  ✅ 5. Vektorstore Indizierung: Chunks & Metadaten in ChromaDB indiziert (0 aktualisiert).
+  ✅ 6. GraphRAG Dokumentgraph: Dokumentgraph aufgebaut: 52 Knoten (Account: 8, Customer: 7, Document: 10, EnergyType: 3, Invoice: 9, Meter: 3, NoticePeriod: 1, Provider: 9, Tariff: 2), 53 Kanten.
+

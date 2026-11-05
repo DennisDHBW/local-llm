@@ -84,8 +84,10 @@ def step_ingest(v1: Path, work: Path) -> dict[str, Any]:
     seconds = time.perf_counter() - started
     (RESULTS / "ingest_log.txt").write_text(proc.stdout + "\n" + proc.stderr, encoding="utf-8")
     new_docs = [c["filename"] for c in contracts_spec()["contracts"] if c["format"] == "pdf"]
+    failed = sorted({d for d in new_docs if f"Parsen fehlgeschlagen: {d}" in proc.stdout})
     info = {"seconds_total": round(seconds, 1), "new_documents": new_docs, "returncode": proc.returncode,
-            "seconds_per_new_doc": round(seconds / len(new_docs), 1)}
+            "failed_documents": failed,
+            "seconds_per_new_doc": None if failed else round(seconds / len(new_docs), 1)}
     print(f"Ingest: {seconds:.0f} s, Rückgabe {proc.returncode}")
     return info
 
@@ -151,14 +153,18 @@ def step_report(work: Path, raw_out: Path, ingest: dict[str, Any] | None, rewrit
     (RESULTS / "feldgenauigkeit.json").write_text(json.dumps(extraction, ensure_ascii=False, indent=1, default=str),
                                                  encoding="utf-8")
     extra = {"field_accuracy": extraction, "rewrite_ms": rewrite_ms}
-    if ingest:
+    if ingest and ingest.get("seconds_per_new_doc"):
         extra["ingest_s"] = [ingest["seconds_per_new_doc"]] * len(ingest["new_documents"])
+    failed = (ingest or {}).get("failed_documents") or []
     models = sorted({r.get("model", "") for r in raw if r.get("model")})
     meta = {"title": "Ausgangsmessung Version1 (vor dem Umbau)", "started": f"{datetime.now():%d.%m.%Y %H:%M}",
             "variant": "Version1, Commit ce33217, unverändert", "models": ", ".join(models),
             "sets": "kern (2 Wiederholungen), heldout", "reps": "Kern 2, H 1",
-            "note": "Version1 liest keine DOCX-Verträge; Ingest-Zeit = Mittel über die drei neuen PDF-Verträge; "
-                    "Rewriting-Latenz = Query-Rewriter von Version1 (llama3.2), dort standardmäßig aus."}
+            "note": "Version1 liest keine DOCX-Verträge"
+                    + (f"; der Import der PDF-Verträge brach ab ({', '.join(failed)}: Fehler in "
+                       "DocumentParser.reconstruct_table), Ingest-Zeit daher nicht messbar" if failed else
+                       "; Ingest-Zeit = Mittel über die drei neuen PDF-Verträge")
+                    + "; Rewriting-Latenz = Query-Rewriter von Version1 (llama3.2), dort standardmäßig aus."}
     jsonl, md = write_outputs(scored, RESULTS / "ausgangsmessung", meta, {"P1": extra, "P2": extra})
     print(f"Bericht: {md}")
 

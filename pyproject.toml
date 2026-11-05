@@ -3,34 +3,32 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "localllm"
-version = "0.1.0"
-description = "Lokale KI-Agenten-Architektur für Dokumentenanalyse (RAG, GraphRAG, ReAct)"
+name = "dokagent"
+version = "2.0.0"
+description = "Lokaler Agent für private Rechnungen und Verträge: modulares RAG, Evidence-First und ReAct (Ollama, ChromaDB)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "chromadb>=0.5.0",
     "diskcache>=5.6.3",
-    "matplotlib>=3.10.9",
-    "networkx>=3.0",
     "ollama>=0.3.0",
-    "psutil>=7.2.2",
     "pydantic>=2.0",
     "pymupdf>=1.23.0",
     "python-docx>=1.2.0",
-    "rapidocr_onnxruntime>=1.4.4",
-    "sentence-transformers>=3.0.0",
     "streamlit>=1.65.0",
 ]
 
+[project.optional-dependencies]
+# Cross-Encoder-Reranker: nur für die Ablation (src/eval/ablation.py); Standard aus, weil nicht messbar besser
+rerank = ["sentence-transformers>=3.0.0"]
+
 [tool.hatch.build.targets.wheel]
-packages = ["src", "evaluation"]
+packages = ["src"]
 
 [dependency-groups]
 dev = [
-    "matplotlib>=3.10.9",
+    "matplotlib>=3.10.9",     # nur für das Diagramm im synthetischen Heizstromvertrag (src/eval/make_contracts.py)
     "pytest>=9.1.1",
-    "pytest-testmon>=2.2.0",
     "ruff>=0.17.1",
 ]
 
@@ -47,12 +45,12 @@ markers = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "UP", "SIM"]
 ignore = [
-    "E501",    # Zeilenlänge: 132 Zeilen > 120 Zeichen; wird in einem eigenen Formatierungsschritt gekürzt
+    "E501",    # Zeilenlänge: lange deutsche Kommentare und Prompts; Formatierung über line-length = 120
     "SIM105",  # try/except/pass ist hier bewusst explizit (Kommentar am except)
     "SIM108",  # if/else-Block statt Einzeiler: bei langen Ausdrücken lesbarer
 ]
