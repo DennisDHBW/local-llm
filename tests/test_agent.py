@@ -122,6 +122,9 @@ def test_list_contracts_computes_deadlines(tools):
     assert "(aktiv am 05.11.2026)" in text["Vertrag_Mobilfunk_ConnectNet.docx"]
     assert "= 70,00 € je Monat" in text["Vertrag_Wasser_Zweckverband.pdf"]
     assert len(tools.list_contracts(customer="Max Mustermann").evidence) == 3
+    assert [e.filename for e in tools.list_contracts(customer="Heizstrom").evidence] == ["Vertrag_Heizstrom_VoltWaerme.docx"]
+    fallback = tools.list_contracts(customer="Gaswerk")
+    assert len(fallback.evidence) == 6 and "Kein Vertrag passt" in fallback.note
 
 
 def test_key_facts_follow_contract_number_to_related_document(tools):

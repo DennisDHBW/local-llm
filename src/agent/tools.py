@@ -71,7 +71,7 @@ TOOL_SCHEMAS = [
           "frühestem Vertragsende bei Kündigung am Stichtag, Preisgarantie und Abschlag je Monat. Für Fragen über "
           "mehrere Verträge.",
           {"notice_date": {"type": "string", "description": "Stichtag der Kündigung TT.MM.JJJJ (Standard: heute)"},
-           "customer": {"type": "string", "description": "optional: nur Verträge dieses Kunden"}}, []),
+           "customer": {"type": "string", "description": "optional: nur Verträge, deren Kunde, Anbieter oder Vertragsart dieses Wort enthält"}}, []),
 ]
 TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
 
@@ -240,13 +240,20 @@ class AgentTools:
 
     def list_contracts(self, notice_date: str = "", customer: str = "") -> ToolResult:
         when = date.fromisoformat(to_iso(notice_date)) if to_iso(notice_date) else today()
+        contracts = [(name, rec) for name, rec in sorted(self.facts().items())
+                     if (rec.get("facts") or {}).get("doc_type") == "Vertrag" or rec.get("folder") == "Vertraege"]
+        note = ""
+        if customer:     # Modelle setzen hier oft die Vertragsart ("Heizstrom") statt eines Namens
+            key = fold(customer)
+            chosen = [(n, r) for n, r in contracts if key in fold(" ".join(
+                [n, str((r.get("facts") or {}).get("customer_name") or ""), str((r.get("facts") or {}).get("provider") or "")]))]
+            if chosen:
+                contracts = chosen
+            else:
+                note = f"Kein Vertrag passt zu '{customer}', daher alle Verträge:\n"
         evidence = []
-        for name, rec in sorted(self.facts().items()):
+        for name, rec in contracts:
             facts = rec.get("facts") or {}
-            if facts.get("doc_type") != "Vertrag" and rec.get("folder") != "Vertraege":
-                continue
-            if customer and fold(customer) not in fold(facts.get("customer_name") or ""):
-                continue
             deadline = earliest_end(facts, when)
             active = guarantee_active(facts, when)
             monthly = monthly_advance(facts)
@@ -273,7 +280,7 @@ class AgentTools:
             if facts.get("monthly_price_eur") is not None:
                 parts.append(f"Monatspreis {de_number(float(facts['monthly_price_eur']))} €")
             evidence.append(Evidence(" | ".join(parts), filename=name, folder=rec.get("folder", ""), kind="contract"))
-        return ToolResult(evidence, "" if evidence else "Keine Verträge gefunden.")
+        return ToolResult(evidence, note if evidence else "Keine Verträge gefunden.")
 
     # --- Ausführung -------------------------------------------------------------------------------------------------
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
