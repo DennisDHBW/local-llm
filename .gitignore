@@ -1,6 +1,5 @@
 .venv/
 .cache/
-data/
 .aider*
 project_content.txt
 *.xml
@@ -22,7 +21,8 @@ __pycache__/
 # Laufzeit-Caches (werden aus den Dokumenten neu erzeugt)
 
 # Daten: echte Dokumente, Ableitungen, Indizes (personenbezogen, groß, reproduzierbar)
-data/raw/
+data/raw/*
+!data/raw/Vertraege/
 data/processed/
 data/vectors/
 data/graph/

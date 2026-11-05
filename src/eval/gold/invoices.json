@@ -1,0 +1,173 @@
+{
+ "_hinweis": "Sollwerte der Kerndaten-Extraktion für die zehn Rechnungsdokumente. Übernommen aus Version1 (evaluation/gold_belege.json, dort von Hand geprüft), Dateinamen auf den neuen Korpus umgestellt; die Verbrauchsübersicht von Hand ergänzt. Listen = jede Angabe gilt als richtig.",
+ "documents": {
+  "Rechnung_Strom_NeckarStrom_2024.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "Neckar-Strom",
+   "customer_name": "Max Mustermann",
+   "doc_date": "14.01.2025",
+   "energy_type": "Strom",
+   "invoice_number": "RE-2025-004812",
+   "customer_number": "KD-7409218",
+   "contract_number": "VT-2023-ST-4491",
+   "meter_number": "1STR-8839201",
+   "tariff_name": "NeckarÖko Basis",
+   "billing_period_start": "01.01.2024",
+   "billing_period_end": "31.12.2024",
+   "consumption_kwh": 3400.0,
+   "working_price_ct_per_kwh": 34.5,
+   "base_price_eur": [
+    12.5,
+    150.0
+   ],
+   "price_basis": "netto",
+   "monthly_advance_payment_eur": [
+    130.0,
+    135.0
+   ],
+   "total_gross_eur": 1574.37,
+   "credit_eur": null,
+   "amount_due_eur": 144.37,
+   "notice_period": "1 Monat"
+  },
+  "Rechnung_Heizstrom_VoltWaerme_2024.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "Volt",
+   "customer_name": "Max Mustermann",
+   "doc_date": "18.01.2025",
+   "energy_type": "Strom",
+   "invoice_number": "HS-2025-441092",
+   "contract_number": "VT-2022-WP-8812|KD-7409218",
+   "meter_number": "2HTNT-7710293",
+   "tariff_name": "WP-Natur",
+   "billing_period_start": "01.01.2024",
+   "billing_period_end": "31.12.2024",
+   "consumption_kwh": 8300.0,
+   "working_price_ct_per_kwh": [
+    28.0,
+    21.5
+   ],
+   "base_price_eur": [
+    14.0,
+    168.0
+   ],
+   "price_basis": "netto",
+   "monthly_advance_payment_eur": [
+    220.0,
+    210.0
+   ],
+   "total_gross_eur": 2540.06,
+   "credit_eur": 99.94,
+   "amount_due_eur": null
+  },
+  "Rechnung_Wasser_Zweckverband_2024.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "Zweckverband|Kraichgau",
+   "customer_name": "Max Mustermann",
+   "doc_date": "22.01.2025",
+   "invoice_number": "WA-2025-091823",
+   "customer_number": "KD-7409218",
+   "contract_number": "VT-2021-WA-1029",
+   "meter_number": "WAS-449201",
+   "billing_period_start": "01.01.2024",
+   "billing_period_end": "31.12.2024",
+   "consumption_m3": 125.0,
+   "water_price_eur_per_m3": 2.2,
+   "wastewater_price_eur_per_m3": 2.8,
+   "base_price_eur": [
+    5.0,
+    60.0
+   ],
+   "monthly_advance_payment_eur": "*",
+   "total_gross_eur": 882.95,
+   "credit_eur": null,
+   "amount_due_eur": 42.95
+  },
+  "Verbrauchsuebersicht_Strom_2025.pdf": {
+   "doc_type": "Verbrauchsübersicht",
+   "provider": "Neckar-Strom",
+   "customer_name": "Max Mustermann",
+   "doc_date": "20.01.2026",
+   "customer_number": "KD-7409218",
+   "meter_number": "1STR-8839201"
+  },
+  "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "ConnectNet",
+   "customer_name": "Thomas Kramer",
+   "doc_date": "15.10.2026",
+   "invoice_number": "RE-2026-94812",
+   "customer_number": "KD-849201",
+   "contract_number": "*",
+   "net_amount_eur": 69.27,
+   "vat_eur": 13.16,
+   "gross_amount_eur": 82.43,
+   "due_date": "22.10.2026"
+  },
+  "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "LuminaStyle",
+   "customer_name": "Sarah Lindner",
+   "doc_date": "19.10.2026",
+   "invoice_number": "INV-2026-40291",
+   "customer_number": null,
+   "contract_number": "ORD-2026-77341",
+   "net_amount_eur": 230.67,
+   "vat_eur": 43.83,
+   "gross_amount_eur": 274.5,
+   "due_date": "*"
+  },
+  "Rechnung_Kfz_Versicherung_NordStern_2027.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "NordStern",
+   "customer_name": "Michael Stein",
+   "doc_date": "01.10.2026",
+   "invoice_number": "BS-2026-10492",
+   "customer_number": null,
+   "contract_number": "VS-883-9102-K04",
+   "net_amount_eur": 580.0,
+   "vat_eur": 110.2,
+   "gross_amount_eur": 690.2,
+   "due_date": "01.11.2026"
+  },
+  "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "Müller",
+   "customer_name": "Claudia Bergmann",
+   "doc_date": "22.10.2026",
+   "invoice_number": "W-2026-0849",
+   "customer_number": null,
+   "contract_number": "*",
+   "net_amount_eur": 659.0,
+   "vat_eur": 125.21,
+   "gross_amount_eur": 784.21,
+   "due_date": "*"
+  },
+  "Rechnung_Abo_StreamPulse_2026-10.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "StreamPulse",
+   "customer_name": "David Fischer",
+   "doc_date": "05.10.2026",
+   "invoice_number": "SP-2026-992184",
+   "customer_number": "SP-90214",
+   "contract_number": null,
+   "net_amount_eur": 20.99,
+   "vat_eur": 3.99,
+   "gross_amount_eur": 24.98,
+   "due_date": "*"
+  },
+  "Rechnung_Arzt_DrWeber_2026-10.pdf": {
+   "doc_type": "Rechnung",
+   "provider": "Weber",
+   "customer_name": "Sabina Richter",
+   "doc_date": "24.10.2026",
+   "invoice_number": "ARZT-2026-0419",
+   "customer_number": null,
+   "contract_number": null,
+   "net_amount_eur": "*",
+   "vat_eur": "*",
+   "gross_amount_eur": 133.33,
+   "due_date": "23.11.2026|2026-11-23"
+  }
+ }
+}
