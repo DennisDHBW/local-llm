@@ -32,8 +32,9 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def score_records(raw: Sequence[Mapping[str, Any]], questions: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     by_key = {(q["set"], q["id"]): q for q in questions}
+    latest = {(r.get("system"), r["set"], r["qid"], r.get("rep")): r for r in raw}   # fortgesetzte Läufe: letzter zählt
     scored = []
-    for record in raw:
+    for record in latest.values():
         q = by_key.get((record["set"], record["qid"]))
         if q is None:
             continue
