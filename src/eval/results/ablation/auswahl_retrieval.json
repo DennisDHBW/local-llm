@@ -1,0 +1,7 @@
+{
+ "boost": 1.5,
+ "boost_reason": "Boost 1,5 (Vorgabe)",
+ "bm25": false,
+ "reranker": false,
+ "rewriter": "aus"
+}

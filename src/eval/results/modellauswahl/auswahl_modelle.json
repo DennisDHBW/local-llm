@@ -1,0 +1,6 @@
+{
+ "agent": "llama3.1:8b",
+ "extraction": "qwen2.5:7b",
+ "rewriter": null,
+ "vision": "gemma3:4b"
+}
