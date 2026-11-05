@@ -72,6 +72,8 @@ SCORE_LOW = 0.4
 
 # --- Agent (ReAct, Prototyp 2) ------------------------------------------------------------------------------------
 MAX_STEPS = int(_env("MAX_STEPS", "6"))
+# Werkzeuge abschalten, z. B. für die GraphRAG-Messung: DOKAGENT_DISABLED_TOOLS=get_key_facts
+DISABLED_TOOLS = {t.strip() for t in _env("DISABLED_TOOLS", "").split(",") if t.strip()}
 MAX_OBSERVATION_CHARS = int(_env("MAX_OBSERVATION_CHARS", "3000"))
 
 

@@ -195,3 +195,17 @@ def test_evidence_first_synthesis_only_on_request(monkeypatch):
     answer = p1.synthesize("Abschlag Strom?", evidence)
     assert len(prompts) == 1 and "[1] Datei: Vertrag_Strom_NeckarStrom.pdf" in prompts[0]
     assert answer.answer.endswith("[1] Vertrag_Strom_NeckarStrom.pdf, S. 1, § 5 Abschlagszahlungen")
+
+
+def test_disabled_tools_are_removed_from_schema_and_prompt(tools, monkeypatch):
+    seen = {}
+
+    def chat(model, messages, tools=None, **kw):
+        seen["tools"] = [t["function"]["name"] for t in tools or []]
+        seen["system"] = messages[0]["content"]
+        return {"message": {"content": "Dazu ist nichts belegt."}}
+
+    monkeypatch.setattr(llm, "chat", chat)
+    ReActAgent(tools=tools, disabled={"get_key_facts"}).run("Frage?")
+    assert "get_key_facts" not in seen["tools"] and "get_key_facts" not in seen["system"]
+    assert "list_contracts" in seen["tools"]

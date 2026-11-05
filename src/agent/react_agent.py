@@ -22,7 +22,7 @@ from src import llm
 from src.agent.answer import NOT_FOUND, AgentAnswer
 from src.agent.evidence import build_context, source_list
 from src.agent.tools import TOOL_NAMES, TOOL_SCHEMAS, AgentTools
-from src.config import AGENT_MODEL, MAX_OBSERVATION_CHARS, MAX_STEPS, today
+from src.config import AGENT_MODEL, DISABLED_TOOLS, MAX_OBSERVATION_CHARS, MAX_STEPS, today
 from src.textutil import de_date
 
 SYSTEM_PROMPT = """Du bist ein lokaler Assistent für private Rechnungen und Verträge. Heute ist der {today}.
@@ -76,13 +76,19 @@ def parse_tool_calls(message: Any) -> list[tuple[str, dict[str, Any]]]:
 
 
 class ReActAgent:
-    def __init__(self, tools: AgentTools | None = None, model: str = AGENT_MODEL, max_steps: int = MAX_STEPS):
+    def __init__(self, tools: AgentTools | None = None, model: str = AGENT_MODEL, max_steps: int = MAX_STEPS,
+                 disabled: set[str] | None = None):
         self.tools = tools or AgentTools()
         self.model, self.max_steps = model, max_steps
+        off = DISABLED_TOOLS if disabled is None else disabled
+        self.disabled = set(off)
+        self.schemas = [t for t in TOOL_SCHEMAS if t["function"]["name"] not in off]
 
     def run(self, question: str, callback: Callable[[dict[str, Any]], None] | None = None) -> AgentAnswer:
         result = AgentAnswer(question=question)
         system = SYSTEM_PROMPT.format(today=de_date(today().isoformat()), not_found=NOT_FOUND)
+        if self.disabled:            # abgeschaltete Werkzeuge auch aus der Werkzeugwahl im Prompt nehmen
+            system = "\n".join(line for line in system.splitlines() if not any(t in line for t in self.disabled))
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}, {"role": "user", "content": question}]
         seen: set[str] = set()
         nudged = False
@@ -92,7 +98,7 @@ class ReActAgent:
                 last = step > self.max_steps
                 if last:
                     messages.append({"role": "user", "content": FINAL})
-                response = llm.chat(self.model, messages, tools=None if last else TOOL_SCHEMAS)
+                response = llm.chat(self.model, messages, tools=None if last else self.schemas)
                 message = _get(response, "message") or {}
                 thought = _THINK_RE.sub("", str(_get(message, "content") or "")).strip()
                 calls = [] if last else parse_tool_calls(message)
@@ -126,6 +132,8 @@ class ReActAgent:
         if signature in seen:
             return REPEAT
         seen.add(signature)
+        if name not in {t["function"]["name"] for t in self.schemas}:
+            return f"Werkzeug '{name}' ist nicht verfügbar."
         outcome = self.tools.execute(name, args)
         context, sources = build_context(outcome.evidence, start=len(result.evidence) + 1)
         result.evidence.extend(outcome.evidence)
