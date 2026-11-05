@@ -77,11 +77,13 @@ def chat(model: str, messages: Sequence[dict[str, Any]], tools: Sequence[dict[st
 
 
 def generate(model: str, prompt: str, *, images: Sequence[bytes] | None = None, json_format: bool = False,
-             **options: Any) -> str:
+             schema: dict[str, Any] | None = None, **options: Any) -> str:
+    """Text erzeugen. `schema` = JSON-Schema für Ollama Structured Output (erzwingt gültiges JSON in dieser Form),
+    `json_format` = beliebiges JSON."""
     started = time.perf_counter()
     try:
         response = client().generate(model=model, prompt=prompt, images=list(images) if images else None,
-                                     format="json" if json_format else "", options=ollama_options(**options),
+                                     format=schema or ("json" if json_format else ""), options=ollama_options(**options),
                                      keep_alive=KEEP_ALIVE)
     except _DOWN as exc:
         raise LLMUnavailable(f"Ollama nicht erreichbar ({type(exc).__name__}: {exc})") from exc

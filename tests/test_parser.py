@@ -117,3 +117,9 @@ def test_reconstructed_rows_for_header_only_tables():
         pytest.skip("Rechnungen liegen nicht im Repository (personenbezogen)")
     rows = [c for c in parser.parse_file(path.relative_to(RAW), write=False) if c.chunk_type == "table_row"]
     assert any("AW / STD.: 1,8 Std" in c.content and c.metadata.get("reconstructed") for c in rows)
+
+
+def test_ligatures_and_soft_hyphens_are_normalised():
+    from src.textutil import LIGATURES
+
+    assert "Zahlungsﬁrma Ab­schlag".translate(LIGATURES) == "Zahlungsfirma Abschlag"

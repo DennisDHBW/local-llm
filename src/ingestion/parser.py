@@ -39,6 +39,7 @@ from src.config import (
     PROCESSED_DIR,
     RAW_DIR,
 )
+from src.textutil import LIGATURES
 
 ChunkType = Literal["text", "heading", "table_row", "image"]
 _VALUE_CELL_RE = re.compile(r"\d+,\d+|\d{1,3}\.\d{3}\b")
@@ -283,7 +284,7 @@ class DocumentParser:
         werden übersprungen."""
         paragraph: list[str] = []
         for line in block.get("lines", []):
-            spans = [s for s in line.get("spans", []) if s["text"].strip()]
+            spans = [{**s, "text": s["text"].translate(LIGATURES)} for s in line.get("spans", []) if s["text"].strip()]
             # Hervorhebung im Satz (fettes Wort zwischen normalem Text) ist keine Überschrift
             inline = len(spans) > 1 and not all(is_heading_size(s["size"], bool(s["flags"] & 16), base) for s in spans)
             for span in spans:
@@ -408,7 +409,7 @@ class DocumentParser:
                 b.add("image", f"Bild auf Seite {page_no} (noch ohne Beschreibung)", stack, page_no,
                       image_path=str(img_path), bbox=None, needs_caption=True)
 
-            text = element.text.strip()
+            text = element.text.translate(LIGATURES).strip()
             if not text:
                 continue
             style = (element.style.name or "").lower() if element.style is not None else ""

@@ -139,8 +139,8 @@ def test_pipeline_end_to_end_with_fakes(tmp_path, fake_embed, monkeypatch):
     from src.enrichment.summarizer import TableSummarizer
     from src.ingestion.pipeline import IngestionPipeline, source_files
 
-    def generate(model, prompt, images=None, json_format=False, **kw):
-        if json_format:
+    def generate(model, prompt, images=None, json_format=False, schema=None, **kw):
+        if json_format or schema:
             return json.dumps({"doc_type": "Vertrag", "contract_number": "VT-2022-WP-8812"})
         return "HT: 2.800 kWh, NT: 5.200 kWh" if images else "Preistabelle."
 

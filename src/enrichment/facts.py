@@ -1,5 +1,5 @@
-"""Kerndaten je Dokument (Rechnung, Vertrag, Verbrauchsübersicht): ein JSON-Aufruf an das lokale Modell, danach
-Prüfung jedes Werts gegen den Dokumenttext.
+"""Kerndaten je Dokument (Rechnung, Vertrag, Verbrauchsübersicht): ein Aufruf mit Ollama Structured Output (JSON-Schema),
+danach Prüfung jedes Werts gegen den Dokumenttext.
 
 Warum: Listen- und Fristfragen ("Welche Verträge kann ich bis März kündigen?") brauchen je Vertrag dieselben Felder
 in maschinenlesbarer Form; Top-k-Suche liefert nur Ausschnitte. Das Modell füllt ein festes Schema; Zahlen, Daten und
@@ -19,7 +19,7 @@ from src.config import FACTS_MODEL, PROCESSED_DIR
 from src.ingestion.parser import DocumentChunk
 from src.textutil import dates_in, normalize, numbers_in, to_iso
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2       # 2: JSON-Schema (Structured Output) und Feldgruppen je Ordner
 MAX_TEXT_CHARS = 7000
 NOTICE_MODES = ("laufzeitende", "jederzeit_nach_mindestlaufzeit", "abrechnungszeitraum", "nicht_kuendbar")
 
@@ -47,6 +47,35 @@ FIELDS: dict[str, tuple[str, str]] = {
     "advance_interval": ("enum", "'monatlich', 'quartalsweise' oder 'jährlich'"),
     "monthly_price_eur": ("number", "monatlicher Gesamtpreis brutto (Abos, Telekommunikation), sonst null"),
 }
+COMMON_FIELDS = ("doc_type", "provider", "customer_name", "customer_number", "contract_number", "doc_date")
+INVOICE_FIELDS = COMMON_FIELDS + ("invoice_number", "due_date", "total_gross_eur", "amount_due_eur")
+CONTRACT_FIELDS = COMMON_FIELDS + ("contract_start", "term_end", "extension_months", "notice_period_months",
+                                   "notice_mode", "price_guarantee_until", "advance_payment_eur", "advance_interval",
+                                   "monthly_price_eur")
+_ENUMS = {"doc_type": ["Rechnung", "Vertrag", "Verbrauchsübersicht"], "notice_mode": list(NOTICE_MODES),
+          "advance_interval": ["monatlich", "quartalsweise", "jährlich"]}
+_JSON_TYPES = {"text": "string", "id": "string", "date": "string", "number": "number", "int": "integer",
+               "enum": "string"}
+
+
+def field_group(folder: str) -> tuple[str, ...]:
+    """Verträge bekommen Laufzeit-/Fristfelder, Rechnungen Betrags-/Fälligkeitsfelder (kürzeres Schema = weniger
+    Verwechslungen; z. B. kein 'Abschlag' aus einer Rechnung, die nur den berechneten Abschlag nennt)."""
+    return CONTRACT_FIELDS if str(folder).casefold().startswith("vertr") else INVOICE_FIELDS
+
+
+def json_schema(fields: tuple[str, ...]) -> dict[str, Any]:
+    """JSON-Schema für Ollama Structured Output: jedes Feld darf null sein, Aufzählungen sind festgelegt."""
+    props: dict[str, Any] = {}
+    for name in fields:
+        kind, desc = FIELDS[name]
+        prop: dict[str, Any] = {"type": [_JSON_TYPES[kind], "null"], "description": desc}
+        if name in _ENUMS:
+            prop["enum"] = [*_ENUMS[name], None]
+        props[name] = prop
+    return {"type": "object", "properties": props, "required": list(fields)}
+
+
 PROMPT = """Lies das Dokument und fülle das JSON-Schema. Regeln:
 - Nur Werte, die im Dokument stehen; fehlt etwas: null. Nichts berechnen oder schätzen.
 - Datumsangaben als TT.MM.JJJJ, Beträge als Zahl mit Punkt als Dezimaltrennzeichen (1574.37), ohne Einheit.
@@ -134,15 +163,16 @@ class KeyFactExtractor:
     def extract(self, chunks: list[DocumentChunk], source_sha256: str = "") -> dict[str, Any]:
         meta = chunks[0].metadata if chunks else {}
         text = document_text(chunks)
-        fields = "\n".join(f"- {name}: {desc}" for name, (_, desc) in FIELDS.items())
+        group = field_group(meta.get("folder", ""))
+        fields = "\n".join(f"- {name}: {FIELDS[name][1]}" for name in group)
         raw_text = llm.generate(self.model, PROMPT.format(fields=fields, folder=meta.get("folder", ""),
                                                           filename=meta.get("filename", ""), text=text),
-                                json_format=True)
+                                schema=json_schema(group))
         try:
             raw = _parse_json(raw_text)
         except json.JSONDecodeError:
             raw = {}
-        facts, rejected = verify(raw, text)
+        facts, rejected = verify({k: v for k, v in raw.items() if k in group}, text)
         record = {"filename": meta.get("filename"), "rel_path": meta.get("rel_path"), "folder": meta.get("folder"),
                   "source_sha256": source_sha256, "model": self.model, "prompt_version": PROMPT_VERSION,
                   "facts": facts, "unverified": rejected, "raw": raw, "json_ok": bool(raw)}

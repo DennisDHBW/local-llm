@@ -24,7 +24,7 @@ from src.agent.react_agent import SYSTEM_PROMPT, parse_tool_calls
 from src.agent.tools import TOOL_SCHEMAS
 from src.config import PROJECT_ROOT
 from src.enrichment.captioner import PROMPT as CAPTION_PROMPT
-from src.enrichment.facts import FIELDS, PROMPT as FACTS_PROMPT, document_text, verify
+from src.enrichment.facts import FIELDS, PROMPT as FACTS_PROMPT, document_text, field_group, json_schema, verify
 from src.eval import stats
 from src.eval.datasets import extraction_gold, load_sets
 from src.eval.scoring import field_matches, matches
@@ -105,14 +105,15 @@ def probe_agent(model: str) -> dict[str, Any]:
 def probe_facts(model: str) -> dict[str, Any]:
     parser = DocumentParser(raw_dir=PROJECT_ROOT / "data" / "raw")
     gold = extraction_gold()
-    fields = "\n".join(f"- {name}: {desc}" for name, (_, desc) in FIELDS.items())
+    group = field_group("Vertraege")
+    fields = "\n".join(f"- {name}: {FIELDS[name][1]}" for name in group)
     valid, right, total, secs = 0, 0, 0, []
     for rel in FACT_DOCS:
         chunks = parser.parse_file(rel, write=False)
         text = document_text(chunks)
         started = time.perf_counter()
         raw = llm.generate(model, FACTS_PROMPT.format(fields=fields, folder="Vertraege", filename=Path(rel).name,
-                                                      text=text), json_format=True)
+                                                      text=text), schema=json_schema(group))
         secs.append(time.perf_counter() - started)
         try:
             data = json.loads(raw)
@@ -158,6 +159,24 @@ def probe_vision(model: str) -> dict[str, Any]:
             "ram_gb": model_ram_gb(model), "captions": captions}
 
 
+def choose(out: dict[str, Any]) -> dict[str, Any]:
+    """Regeln R4-R7 aus docs/abstimmungsregeln.md."""
+    facts = sorted(out["facts"], key=lambda f: -(f["field_accuracy"] or 0))
+    best = facts[0]
+    close = [f for f in facts if (best["field_accuracy"] or 0) - (f["field_accuracy"] or 0) < 0.02]
+    extraction = min(close, key=lambda f: f["latency_p50"] or 1e9)["model"]
+    agents = [a for a in out["agents"] if a["native"] > 0]
+    agent = None
+    if agents:
+        top = max(a["correct"] for a in agents)
+        tied = [a for a in agents if top - a["correct"] <= 1]
+        agent = sorted(tied, key=lambda a: (-a["native"], a["latency_p50"] or 1e9))[0]["model"]
+    rewriters = [r for r in out["rewriters"] if (r["ms_p95"] or 1e9) < 500 and r["format_ok"] >= 0.9 * r["n"]]
+    rewriter = min(rewriters, key=lambda r: r["ms_p50"])["model"] if rewriters else None
+    vision = max(out["vision"], key=lambda v: v["values_found"])["model"] if out["vision"] else None
+    return {"agent": agent, "extraction": extraction, "rewriter": rewriter, "vision": vision}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--agents", default="qwen2.5:7b,llama3.1:8b,llama3.2")
@@ -201,6 +220,12 @@ def main() -> None:
     for v in out["vision"]:
         lines.append(f"| {v['model']} | {v['values_found']}/{v['values']} | {v['latency_p50']:.0f} s | {v['ram_gb']} GB |")
     lines += ["", f"Embedding: {out['embedding']['model']}, Dimension {out['embedding']['dimension']}."]
+    choice = choose(out)
+    lines += ["", "## Auswahl nach docs/abstimmungsregeln.md (R4-R7)", "",
+              f"- Agent: {choice['agent']}", f"- Extraktion: {choice['extraction']}",
+              f"- Rewriting-Modell: {choice['rewriter'] or 'keines erfüllt p95 < 500 ms (Regel-Rewriter oder aus)'}",
+              f"- Vision: {choice['vision']}"]
+    (RESULTS / "auswahl_modelle.json").write_text(json.dumps(choice, indent=1), encoding="utf-8")
     (RESULTS / "modellauswahl.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 

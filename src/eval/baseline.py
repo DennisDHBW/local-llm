@@ -33,6 +33,7 @@ from typing import Any
 from src.eval.datasets import contracts_spec, extraction_gold, heldout_checksum_ok, load_sets
 from src.eval.report import load_jsonl, score_records, write_outputs
 from src.eval.scoring import score_extraction
+from src.textutil import mask_record
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESULTS = PROJECT_ROOT / "src" / "eval" / "results" / "ausgangsmessung"
@@ -147,7 +148,8 @@ def v1_facts(work: Path) -> dict[str, dict[str, Any]]:
 
 
 def step_report(work: Path, raw_out: Path, ingest: dict[str, Any] | None, rewrite_ms: list[float]) -> None:
-    raw = load_jsonl(raw_out)
+    raw = [mask_record(r, names=()) for r in load_jsonl(raw_out)]      # IBAN/Geburtsdatum auch in den Rohdaten
+    raw_out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in raw), encoding="utf-8")
     scored = score_records(raw, load_sets("kern,heldout"))
     extraction = score_extraction(extraction_gold(), v1_facts(work))
     (RESULTS / "feldgenauigkeit.json").write_text(json.dumps(extraction, ensure_ascii=False, indent=1, default=str),

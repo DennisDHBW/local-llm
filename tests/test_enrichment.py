@@ -86,6 +86,16 @@ def test_verify_rejects_unknown_notice_mode_and_marks_not_cancellable():
     assert facts["cancellable"] is False
 
 
+def test_schema_and_field_groups():
+    from src.enrichment.facts import CONTRACT_FIELDS, INVOICE_FIELDS, field_group, json_schema
+
+    assert field_group("Vertraege") == CONTRACT_FIELDS and field_group("Rechnungen") == INVOICE_FIELDS
+    schema = json_schema(CONTRACT_FIELDS)
+    assert schema["required"] == list(CONTRACT_FIELDS) and "nicht_kuendbar" in schema["properties"]["notice_mode"]["enum"]
+    assert schema["properties"]["advance_payment_eur"]["type"] == ["number", "null"]
+    assert "notice_mode" not in json_schema(INVOICE_FIELDS)["properties"]
+
+
 def test_extractor_writes_facts_json(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: json.dumps(
         {"doc_type": "Vertrag", "contract_number": "VT-2023-ST-4491", "advance_payment_eur": 130}))

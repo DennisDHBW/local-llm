@@ -75,3 +75,33 @@ def de_date(iso: str | None) -> str:
         return "-"
     d = date.fromisoformat(iso)
     return f"{d.day:02d}.{d.month:02d}.{d.year}"
+
+
+# --- Datenschutz in Messausgaben --------------------------------------------------------------------------------
+_IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[0-9A-Z*]{4}){3,7}(?:[ ]?[0-9A-Z*]{1,4})?\b")
+_BIRTH_RE = re.compile(r"(Geburtsdatum:?\s*)\d{1,2}\.\d{1,2}\.\d{4}", re.IGNORECASE)
+# Personen aus den Testdokumenten (synthetisch, aber wie echte Daten behandelt)
+PERSON_NAMES = ("Max Mustermann", "Thomas Kramer", "Sarah Lindner", "Michael Stein", "Claudia Bergmann",
+                "David Fischer", "Sabina Richter")
+LIGATURES = str.maketrans({"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st", "ﬆ": "st",
+                           "\u00a0": " ", "\u00ad": ""})
+
+
+def mask_pii(text: Any, names: tuple[str, ...] = PERSON_NAMES) -> str:
+    """IBAN -> Länderkennung + Sternchen, Geburtsdatum -> Sternchen, bekannte Namen -> Initialen ('M. M.')."""
+    value = _IBAN_RE.sub(lambda m: m.group(0)[:2] + "** **** **** **** **", str(text or ""))
+    value = _BIRTH_RE.sub(lambda m: m.group(1) + "**.**.****", value)
+    for name in names:
+        value = value.replace(name, " ".join(part[0] + "." for part in name.split()))
+    return value
+
+
+def mask_record(obj: Any, names: tuple[str, ...] = PERSON_NAMES) -> Any:
+    """mask_pii rekursiv auf alle Zeichenketten eines JSON-Objekts."""
+    if isinstance(obj, str):
+        return mask_pii(obj, names)
+    if isinstance(obj, list):
+        return [mask_record(v, names) for v in obj]
+    if isinstance(obj, dict):
+        return {k: mask_record(v, names) for k, v in obj.items()}
+    return obj

@@ -40,6 +40,7 @@ from src.eval.resources import PeakMonitor, tokens_per_second
 from src.eval.scoring import score_extraction
 from src.retrieval.rewriter import QueryRewriter
 from src.retrieval.search import Retriever
+from src.textutil import mask_record
 
 RESULTS = Path(__file__).resolve().parent / "results"
 RETRIEVAL_K = 10
@@ -85,7 +86,7 @@ def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int
                                "tokens_per_s": tokens_per_second(calls), "peak_ram_gb": round(monitor.peak_gb, 2)})
                 record.pop("evidence", None)
                 with raw_path.open("a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    fh.write(json.dumps(mask_record(record, names=()), ensure_ascii=False) + "\n")
                 print(f"   -> {record['status']}, {latency:.0f} s, Werkzeuge: {record['tool_calls']}", flush=True)
 
 

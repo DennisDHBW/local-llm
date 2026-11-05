@@ -48,6 +48,33 @@ def paired_diff(a: list[float], b: list[float], samples: int = 2000, seed: int =
     return sum(diffs) / len(diffs), stats.percentile(means, 2.5), stats.percentile(means, 97.5)
 
 
+MIN_GAIN = 0.01          # R1/R2: mindestens +0,01 MRR und Intervall über 0
+MIN_GAIN_REWRITE = 0.02  # R3: Rewriting nur bei +0,02 MRR und p95 < 500 ms
+REWRITE_P95_MS = 500.0
+
+
+def better(delta: tuple[float, float, float], min_gain: float = MIN_GAIN) -> bool:
+    return delta[0] >= min_gain and delta[1] > 0
+
+
+def decide(summary: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Regeln R1-R3 aus docs/abstimmungsregeln.md anwenden. Rückgabe: gewählte Einstellungen mit Begründung."""
+    boosts = {name: s for name, s in summary.items() if "+" not in name}
+    winners = [n for n, s in boosts.items() if n != REFERENCE and better(s["delta_mrr"])]
+    boost_name = max(winners, key=lambda n: boosts[n]["rr"][0]) if winners else REFERENCE
+    choice: dict[str, Any] = {"boost": VARIANTS[boost_name]["boost"], "boost_reason": boost_name,
+                              "bm25": False, "reranker": False, "rewriter": "aus"}
+    for name, s in summary.items():
+        if "BM25" in name and better(s["delta_mrr"]):
+            choice["bm25"] = True
+        if "Reranker" in name and better(s["delta_mrr"]):
+            choice["reranker"] = True
+        if "Rewriting" in name and better(s["delta_mrr"], MIN_GAIN_REWRITE) and \
+                (s.get("rewrite_ms_p95") or 0) < REWRITE_P95_MS:
+            choice["rewriter"] = "rules" if "Regeln" in name else "llm"
+    return choice
+
+
 def run_variant(questions: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
     cfg = dict(config)
     rewriter = QueryRewriter(mode=cfg.pop("mode", "rules"))
@@ -72,6 +99,7 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     out["beleg@5"] = (sum(beleg) / len(beleg) if beleg else None, stats.wilson(sum(beleg), len(beleg)))
     out["ms_p50"] = stats.p50([r["ms"] for r in rows])
     out["rewrite_ms_p50"] = stats.p50([r["rewrite_ms"] for r in rows])
+    out["rewrite_ms_p95"] = stats.p95([r["rewrite_ms"] for r in rows])
     return out
 
 
@@ -109,13 +137,18 @@ def main() -> None:
     for name, rows in results.items():
         s = summarize(rows)
         d = paired_diff(ref, [r["rr"] for r in rows])
-        verdict = "besser" if d[1] > 0 else ("schlechter" if d[2] < 0 else "kein messbarer Unterschied")
+        verdict = "besser" if better(d) else ("schlechter" if d[2] < 0 else "kein messbarer Unterschied")
         summary[name] = {**{k: v for k, v in s.items()}, "delta_mrr": d, "verdict": verdict}
         mrr = s["rr"]
         lines.append(f"| {name} | {_pct(s['recall@5'])} | {_pct(s['precision@5'])} | "
                      f"{mrr[0]:.2f} [{mrr[1][0]:.2f}–{mrr[1][1]:.2f}] | {_pct(s['beleg@5'])} | "
                      f"{d[0]:+.3f} [{d[1]:+.3f}; {d[2]:+.3f}] ({verdict if name != REFERENCE else 'Referenz'}) | "
                      f"{s['ms_p50']:.0f} ms | {s['rewrite_ms_p50']:.0f} ms |")
+    choice = decide(summary)
+    lines += ["", "## Entscheidung nach docs/abstimmungsregeln.md (R1-R3)", "",
+              f"- Boost: {choice['boost']} ({choice['boost_reason']})", f"- BM25: {'an' if choice['bm25'] else 'aus'}",
+              f"- Reranker: {'an' if choice['reranker'] else 'aus'}", f"- Rewriting: {choice['rewriter']}"]
+    (RESULTS / "auswahl_retrieval.json").write_text(json.dumps(choice, indent=1), encoding="utf-8")
     (RESULTS / "ablation.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (RESULTS / "ablation.json").write_text(json.dumps({"summary": summary, "rows": results}, ensure_ascii=False,
                                                       indent=1, default=str), encoding="utf-8")

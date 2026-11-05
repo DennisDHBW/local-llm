@@ -17,6 +17,7 @@ from typing import Any
 from src.eval import kpis
 from src.eval.datasets import load_sets
 from src.eval.scoring import score_answer, score_retrieval
+from src.textutil import mask_pii, mask_record
 
 TYPE_NAMES = {"a": "Tabelle/Berechnung", "b": "Text/Gliederung", "c": "Multi-Hop", "d": "Liste", "e": "ohne Beleg"}
 UNITS = {"latency_p50": " s", "latency_p95": " s", "tokens_per_s": "", "peak_ram_gb": " GB", "ingest_s_per_doc": " s",
@@ -155,10 +156,10 @@ def write_outputs(scored: Sequence[Mapping[str, Any]], prefix: Path, meta: Mappi
     prefix.parent.mkdir(parents=True, exist_ok=True)
     jsonl = prefix.with_suffix(".jsonl")
     with jsonl.open("w", encoding="utf-8") as fh:
-        for r in scored:
-            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        for r in scored:                      # versionierte Ausgabe: personenbezogene Angaben maskiert
+            fh.write(json.dumps(mask_record(r), ensure_ascii=False) + "\n")
     md = prefix.with_suffix(".md")
-    md.write_text(render(scored, meta, extras), encoding="utf-8")
+    md.write_text(mask_pii(render(scored, meta, extras)), encoding="utf-8")
     summary = {s: {k: {"value": v.value, "interval": v.interval, "n": v.n}
                    for k, v in kpis.compute([r for r in scored if r["system"] == s], (extras or {}).get(s)).items()}
                for s in sorted({r["system"] for r in scored})}

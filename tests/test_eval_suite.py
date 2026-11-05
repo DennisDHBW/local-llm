@@ -164,3 +164,32 @@ def test_kpi_catalogue_complete_and_report_renders():
     assert "| Qualität | Korrektheit |" in text and "P1" in text and "P2" in text
     assert kpis.compute([r for r in scored if r["system"] == "P1"])["consistency"].value == 1.0
     json.dumps([r["score"] for r in scored])      # bewertete Datensätze bleiben JSON
+
+
+def test_pii_masking():
+    from src.textutil import mask_pii, mask_record
+
+    text = "IBAN DE89 6005 0000 1234 5678 90, Geburtsdatum: 14.05.1982, Herrn Max Mustermann, Vertrag VT-2023-ST-4491"
+    masked = mask_pii(text)
+    assert "6005" not in masked and "14.05.1982" not in masked and "Mustermann" not in masked
+    assert "M. M." in masked and "VT-2023-ST-4491" in masked
+    assert mask_record({"a": [text]}, names=())["a"][0].count("Max Mustermann") == 1
+
+
+def test_selection_rules():
+    from src.eval.ablation import REFERENCE, decide
+    from src.eval.models import choose
+
+    base = {"rr": (0.8, None), "delta_mrr": (0.0, 0.0, 0.0), "rewrite_ms_p95": 0}
+    summary = {REFERENCE: base, "Boost 2,0": {**base, "rr": (0.81, None), "delta_mrr": (0.005, 0.001, 0.01)},
+               "Boost 1,5 + BM25": {**base, "delta_mrr": (0.03, 0.01, 0.05)},
+               "Boost 1,5 + Rewriting (LLM)": {**base, "delta_mrr": (0.05, 0.02, 0.08), "rewrite_ms_p95": 2400}}
+    choice = decide(summary)
+    assert choice["boost"] == 1.5 and choice["bm25"] and choice["rewriter"] == "aus"   # zu klein / zu langsam
+    out = {"facts": [{"model": "a", "field_accuracy": 0.95, "latency_p50": 30}, {"model": "b", "field_accuracy": 0.94,
+                                                                                 "latency_p50": 10}],
+           "agents": [{"model": "a", "native": 14, "correct": 12, "latency_p50": 20},
+                      {"model": "b", "native": 0, "correct": 13, "latency_p50": 5}],
+           "rewriters": [{"model": "a", "ms_p50": 900, "ms_p95": 1500, "format_ok": 20, "n": 20}],
+           "vision": [{"model": "g", "values_found": 10}]}
+    assert choose(out) == {"agent": "a", "extraction": "b", "rewriter": None, "vision": "g"}
