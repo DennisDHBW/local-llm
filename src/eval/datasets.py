@@ -69,12 +69,24 @@ CONTRACT_FIELD_MAP = {
 }
 
 
-def extraction_gold() -> dict[str, dict[str, Any]]:
-    """Sollwerte der Kerndaten je Datei (Rechnungen aus gold/invoices.json, Verträge aus gold/contracts.json)."""
-    gold = dict(json.loads((GOLD_DIR / "invoices.json").read_text(encoding="utf-8"))["documents"])
+INVOICE_ALIASES = {"gross_amount_eur": "total_gross_eur"}
+
+
+def extraction_gold(fields: set[str] | None = None) -> dict[str, dict[str, Any]]:
+    """Sollwerte der Kerndaten je Datei (Rechnungen aus gold/invoices.json, Verträge aus gold/contracts.json).
+
+    Bewertet werden nur die Felder des Kerndaten-Schemas (src/enrichment/facts.py); weitere Sollwerte (z. B.
+    Zählernummer) bleiben für die Testfragen, gehören aber nicht zur Extraktion."""
+    from src.enrichment.facts import FIELDS
+
+    wanted = set(fields or set(FIELDS) | {"cancellable"})
+    gold: dict[str, dict[str, Any]] = {}
+    for name, doc in json.loads((GOLD_DIR / "invoices.json").read_text(encoding="utf-8"))["documents"].items():
+        doc = {INVOICE_ALIASES.get(k, k): v for k, v in doc.items()}
+        gold[name] = {k: v for k, v in doc.items() if k in wanted}
     for c in contracts_spec()["contracts"]:
         doc = {"doc_type": "Vertrag"}
         for field, source in CONTRACT_FIELD_MAP.items():
             doc[field] = c.get(source)
-        gold[c["filename"]] = doc
+        gold[c["filename"]] = {k: v for k, v in doc.items() if k in wanted}
     return gold

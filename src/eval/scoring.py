@@ -13,14 +13,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import date
 from typing import Any
 
-# --- Text- und Zahlennormalisierung ------------------------------------------------------------------------------
-_SPACE_RE = re.compile(r"[\s  ]+")
-_DATE_RE = re.compile(r"\b(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{4})\b")
-_ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
-_NUMBER_RE = re.compile(r"(?<![\w.,])[-+]?\d{1,3}(?:\.\d{3})+(?:,\d+)?(?![\d])|(?<![\w.,])[-+]?\d+(?:[.,]\d+)?(?![\d])")
+from src.textutil import DATE_RE as _DATE_RE
+from src.textutil import ISO_RE as _ISO_RE
+from src.textutil import dates_in as _dates
+from src.textutil import normalize, numbers_in, parse_number  # noqa: F401 - parse_number wird von Tests genutzt
+
+# Zahlen- und Datumsregeln stammen aus src/textutil.py (gleiche Regeln wie Extraktion und Werkzeuge).
+
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
 _SOURCES_BLOCK_RE = re.compile(r"\n\s*(?:Quellen|Sources)\s*:.*\Z", re.IGNORECASE | re.DOTALL)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[!?;])\s+|(?<=[.:])\s+(?=[A-ZÄÖÜ\-•*\d])|\n+")
@@ -36,51 +37,6 @@ ABSTAIN_RE = re.compile(
     r"liegen\s+(?:\w+\s+){0,2}keine|fehl(?:t|en)\s+in\s+den\s+(?:quellen|dokumenten)|nicht\s+möglich)",
     re.IGNORECASE,
 )
-
-
-def normalize(text: Any) -> str:
-    return _SPACE_RE.sub(" ", str(text or "")).strip().casefold()
-
-
-def parse_number(token: str) -> float | None:
-    """Deutsche und englische Schreibweisen: '1.574,37' '5.500' '22,92' '3.5' '425' -> float."""
-    t = token.strip().replace("−", "-")
-    if not t:
-        return None
-    if "," in t:
-        t = t.replace(".", "").replace(",", ".")
-    elif re.fullmatch(r"[-+]?\d{1,3}(?:\.\d{3})+", t):
-        t = t.replace(".", "")                      # '5.500' ist im Deutschen 5500
-    try:
-        return float(t)
-    except ValueError:
-        return None
-
-
-def _dates(text: str) -> set[str]:
-    found = set()
-    for d, m, y in _DATE_RE.findall(text):
-        try:
-            found.add(date(int(y), int(m), int(d)).isoformat())
-        except ValueError:
-            pass
-    for y, m, d in _ISO_RE.findall(text):
-        try:
-            found.add(date(int(y), int(m), int(d)).isoformat())
-        except ValueError:
-            pass
-    return found
-
-
-def numbers_in(text: str) -> list[float]:
-    """Zahlen eines Textes ohne Datumsangaben und ohne Zitatnummern [n]."""
-    cleaned = _CITATION_RE.sub(" ", _ISO_RE.sub(" ", _DATE_RE.sub(" ", str(text or ""))))
-    values = []
-    for token in _NUMBER_RE.findall(cleaned):
-        value = parse_number(token)
-        if value is not None:
-            values.append(value)
-    return values
 
 
 def strip_sources_block(answer: str) -> str:
