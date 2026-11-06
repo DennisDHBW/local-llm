@@ -170,7 +170,7 @@ def score_answer(question: Mapping[str, Any], record: Mapping[str, Any]) -> dict
         "cited_sources": cited,
         "false_abstention": abstained if result["answerable"] else None,
         "tool_selection": tool_selection_ok(question.get("expected_tools") or [], used_tools)
-        if record.get("system") == "P2" else None,
+        if record.get("system") == "P2" or record.get("routed_to") == "P2" else None,
         "steps": int(record.get("steps") or 0),
     }
 

@@ -1,4 +1,5 @@
-"""Streamlit-Oberfläche: Prototyp 1 (Evidence-First) und Prototyp 2 (ReAct) auf denselben Dokumenten.
+"""Streamlit-Oberfläche: Prototyp 1 (Evidence-First), Prototyp 2 (ReAct) und die Weiche zwischen beiden
+(src/agent/router.py) auf denselben Dokumenten.
 
     uv run streamlit run app.py
 """
@@ -18,6 +19,7 @@ from src import llm
 from src.agent.contracts import earliest_end, guarantee_active, monthly_advance
 from src.agent.evidence_first import EvidenceFirstPipeline
 from src.agent.react_agent import ReActAgent
+from src.agent.router import route
 from src.agent.tools import AgentTools
 from src.config import AGENT_MODEL, HIERARCHY_BOOST, PROCESSED_DIR, RAW_DIR, today
 from src.enrichment.facts import load_all_facts
@@ -56,7 +58,7 @@ def show_evidence(tree: list[dict]) -> None:
 def sidebar() -> str:
     st.sidebar.title("DokAgent")
     st.sidebar.caption(f"Lokal mit Ollama · Agent {AGENT_MODEL} · Stichtag {de_date(today().isoformat())}")
-    mode = st.sidebar.radio("Workflow", ["P1 Evidence-First", "P2 ReAct-Agent"])
+    mode = st.sidebar.radio("Workflow", ["Automatisch (Weiche)", "P1 Evidence-First", "P2 ReAct-Agent"])
     files = source_files(RAW_DIR)
     st.sidebar.write(f"{len(files)} Dokumente in `data/raw`, Hierarchie-Boost {HIERARCHY_BOOST}")
     if st.sidebar.button("Import starten (nur neue/geänderte Dateien)"):
@@ -78,7 +80,24 @@ def tab_questions(mode: str) -> None:
     question = st.text_input("Frage zu Rechnungen und Verträgen",
                              placeholder="Welche Verträge kann ich zum 31.03.2027 beenden, wenn ich heute kündige?")
     retriever, p1, p2 = components()
-    if mode.startswith("P1"):
+    if mode.startswith("Automatisch"):
+        if not question:
+            return
+        chosen = route(question)
+        st.caption(f"Weiche: {'P2 ReAct-Agent' if chosen.system == 'P2' else 'P1 Evidence-First'} "
+                   f"(Regel: {chosen.rule})")
+        if not st.button("Antwort erzeugen"):
+            return
+        if chosen.system == "P1":
+            with st.spinner("Belege suchen und Antwort erzeugen ..."):
+                answer = p1.answer(question)
+            st.subheader("Antwort")
+            st.markdown(answer.answer)
+            with st.expander("Belege"):
+                show_evidence(p1.panel(answer.evidence))
+            return
+        run_agent(p2, question)
+    elif mode.startswith("P1"):
         if st.button("1. Belege suchen", disabled=not question):
             st.session_state["p1"] = {"question": question, "evidence": p1.retrieve(question)}
             st.session_state.pop("p1_answer", None)
@@ -93,20 +112,24 @@ def tab_questions(mode: str) -> None:
                 st.subheader("Antwort")
                 st.markdown(st.session_state["p1_answer"].answer)
     elif st.button("Agent starten", disabled=not question):
-        box = st.status("ReAct-Agent arbeitet ...", expanded=True)
+        run_agent(p2, question)
 
-        def on_step(event: dict) -> None:
-            if event.get("type") == "step":
-                box.markdown(f"**Schritt {event['step']}** · Thought: {event['thought'] or '–'}  \n"
-                             f"Action: `{event['action']}({event['action_input']})`")
-                box.code(event["observation"][:1500])
 
-        answer = p2.run(question, callback=on_step)
-        box.update(label=f"Fertig: {len(answer.tool_calls)} Werkzeugaufrufe", state="complete", expanded=False)
-        st.subheader("Antwort")
-        st.markdown(answer.answer)
-        if answer.status != "ok":
-            st.error(answer.error)
+def run_agent(p2: ReActAgent, question: str) -> None:
+    box = st.status("ReAct-Agent arbeitet ...", expanded=True)
+
+    def on_step(event: dict) -> None:
+        if event.get("type") == "step":
+            box.markdown(f"**Schritt {event['step']}** · Thought: {event['thought'] or '–'}  \n"
+                         f"Action: `{event['action']}({event['action_input']})`")
+            box.code(event["observation"][:1500])
+
+    answer = p2.run(question, callback=on_step)
+    box.update(label=f"Fertig: {len(answer.tool_calls)} Werkzeugaufrufe", state="complete", expanded=False)
+    st.subheader("Antwort")
+    st.markdown(answer.answer)
+    if answer.status != "ok":
+        st.error(answer.error)
 
 
 def tab_contracts() -> None:

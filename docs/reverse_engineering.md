@@ -20,6 +20,7 @@ src/retrieval/embeddings.py  nomic-embed-text, "search_document: " / "search_que
    ▼
 data/vectors/ (ChromaDB, Kosinus, 768 Dim.) + embedding_index.json   ◄── Ebene 3
    │
+   │   Weiche src/agent/router.py: Fristen/Listen/Vergleiche → P2, sonst P1 (App-Modus "Automatisch")
    ├─► Prototyp 1  src/agent/evidence_first.py: Retriever.search → build_evidence (Panel) → Klick → build_context → Synthese
    └─► Prototyp 2  src/agent/react_agent.py: Thought → Action (tools.py) → Observation → … → Final Answer
                     Werkzeuge: search_documents | search_tables | search_images | get_document_outline | calculate
@@ -182,6 +183,12 @@ je Vertrag eine Zeile mit berechnetem frühestem Ende, Kündigungsdatum, Preisga
 wenn im ersten Schritt ohne Werkzeug geantwortet wird; identische Aufrufe werden nicht wiederholt; nach `MAX_STEPS`
 Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, Action Input, Observation).
 
+### `src/agent/router.py` – Weiche
+`route(frage)` → `Route(system, rule)`: drei Regex-Muster auf der gefalteten Frage (Umlaute ausgeschrieben):
+`frist` (kündig, Frist, Laufzeit, Vertragsende, verlänger, Preisgarantie), `liste` („Welche Verträge/Rechnungen/
+Dokumente …“, „alle …“), `vergleich` (entspricht, stimmt … überein, Unterschied, abweichen) → P2, sonst P1. Kein
+Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `src/eval/router_eval.py`.
+
 ### `src/agent/answer.py`
 `AgentAnswer` als gemeinsames Format; `record()` liefert den Rohdatensatz für die KPI-Suite.
 
@@ -203,6 +210,7 @@ Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, A
 | `runner.py` | Messlauf Version2 (Wiederaufnahme nach Abbruch, bei Ollama-Ausfall warten und einmal wiederholen, Modelle alle 6 Fragen außerhalb der Zeitmessung neu laden; Filter `--types`; Extras: Feldgenauigkeit, Ingest, Rewriting) |
 | `ablation.py`, `models.py` | Retrieval-Ablation (gepaarter Bootstrap); Modellauswahl |
 | `baseline.py`, `adapters/v1_driver.py` | Ausgangsmessung von Version1 in deren Umgebung, gleiche Bewertung |
+| `router_eval.py` | Weiche P1/P2 aus vorhandenen Antworten zusammensetzen (Varianten Regel, Kaskade, beides), gepaarter Bootstrap gegen P1 und P2 |
 | `latex.py` | KPI-Tabelle für die Ausarbeitung aus `ausgangsmessung` und `schlussmessung2` |
 
 ### Messergebnisse (`src/eval/results/`)
@@ -215,6 +223,9 @@ Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, A
 | `schlussmessung/` | erste Schlussmessung (P1 gab oft nur Belegnummern aus) |
 | `synthese_*`, `p1_neu_dev/` | R8 (Synthesemodell) und P1 nach Prompt-Korrektur, nur Entwicklungssatz |
 | `schlussmessung2/` | maßgebliche Schlussmessung: P1 neu, P2 aus der ersten; Kern ×2 + zurückgehalten ×2 |
+| `p2_dev/` | P2 auf dem Entwicklungssatz (eine Wiederholung), Grundlage für R9 |
+| `weiche_dev/` | R9 auf dem Entwicklungssatz: Weiche 44/54 wie P1 (P2 23/54), Kaskaden 43/54; Weiche übernommen |
+| `weiche_schluss/` | Weiche einmal auf Kern + zurückgehalten aus `schlussmessung2`: 34/58 (59 %) gegen P1 28 und P2 30 |
 
 Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
-Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet.
+Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet. Weiche (src/agent/router.py): 59 %, gegen P1 +10 pp [0; +21], gegen P2 +7 pp [−7; +22].

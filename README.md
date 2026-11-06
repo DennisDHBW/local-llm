@@ -24,6 +24,9 @@ uv run python -m src.ingestion.pipeline   # Import aller Dateien unter data/raw/
 uv run streamlit run app.py
 ```
 
+In der App wählt der Modus „Automatisch (Weiche)“ je Frage P1 oder P2 (`src/agent/router.py`); P1 und P2 sind
+einzeln wählbar.
+
 Die sechs Verträge in `data/raw/Vertraege` sind synthetisch und versioniert; neu erzeugen mit
 `uv run python -m src.eval.make_contracts` (braucht LibreOffice für die PDF-Fassungen).
 
