@@ -4,6 +4,7 @@
     dev        sets/dev.json        Entwicklungssatz: darf zur Fehleranalyse und zum Einstellen genutzt werden
     synthetic  aus gold/*.json      per Vorlage aus den Sollwerten erzeugt (src/eval/synthetic.py)
     heldout    sets/heldout.json    zurückgehalten: vor dem Umbau geschrieben, nur Ausgangs- und Schlussmessung
+    heldout2   sets/heldout2.json   zweiter zurückgehaltener Satz: vor der Kerndaten-Antwortschicht geschrieben, einmal
 
 Alle Fragen haben dasselbe Format (siehe Kopf von sets/heldout.json).
 """
@@ -18,18 +19,19 @@ from typing import Any
 EVAL_DIR = Path(__file__).resolve().parent
 SETS_DIR = EVAL_DIR / "sets"
 GOLD_DIR = EVAL_DIR / "gold"
-SET_FILES = {"kern": SETS_DIR / "kern.json", "dev": SETS_DIR / "dev.json", "heldout": SETS_DIR / "heldout.json"}
+SET_FILES = {"kern": SETS_DIR / "kern.json", "dev": SETS_DIR / "dev.json", "heldout": SETS_DIR / "heldout.json",
+             "heldout2": SETS_DIR / "heldout2.json"}
 ALL_SETS = ("kern", "dev", "synthetic", "heldout")
 
 
-def heldout_checksum_ok() -> bool:
-    """Der zurückgehaltene Satz ist unverändert seit Paket 0 (Prüfsumme in sets/heldout.sha256)."""
+def heldout_checksum_ok(name: str = "heldout") -> bool:
+    """Ein zurückgehaltener Satz ist unverändert seit dem Versiegeln (Prüfsumme in sets/<name>.sha256)."""
     expected = {}
-    for line in (SETS_DIR / "heldout.sha256").read_text(encoding="utf-8").splitlines():
-        digest, _, name = line.partition("  ")
-        expected[Path(name.strip()).name] = digest.strip()
-    actual = hashlib.sha256((SETS_DIR / "heldout.json").read_bytes()).hexdigest()
-    return expected.get("heldout.json") == actual
+    for line in (SETS_DIR / f"{name}.sha256").read_text(encoding="utf-8").splitlines():
+        digest, _, file = line.partition("  ")
+        expected[Path(file.strip()).name] = digest.strip()
+    actual = hashlib.sha256((SETS_DIR / f"{name}.json").read_bytes()).hexdigest()
+    return expected.get(f"{name}.json") == actual
 
 
 def load_set(name: str) -> list[dict[str, Any]]:

@@ -1,0 +1,457 @@
+{
+ "_hinweis": "Zweiter zurückgehaltener Testsatz H2. Geschrieben am 06.11.2026, nachdem der erste zurückgehaltene Satz durch die Fehleranalyse und die Weiche verbraucht war, und VOR dem Bau der Kerndaten-Antwortschicht. Gleiche Zusammensetzung nach Typ und Kategorie wie H, keine Frage aus kern, dev, synthetic oder heldout wiederholt. Sollwerte aus dem Rohtext der Originaldateien (pdftotext, python-docx), nicht aus dem Parser. Geschrieben vom Entwickler der Antwortschicht; das ist eine Einschränkung. Wird genau einmal gemessen. Feldformat wie in heldout.json.",
+ "set": "heldout2",
+ "written": "2026-11-06",
+ "questions": [
+  {
+   "id": "N01",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch war der Nettobetrag der Stromlieferung 2024 bei den Stadtwerken Neckar-Strom?",
+   "expected": [
+    "1.323,00|1323,00|1.323|1323"
+   ],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf"
+   ],
+   "evidence": [
+    "1.323,00"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "N02",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viel Umsatzsteuer weist die Heizstromabrechnung 2024 von Volt & Wärme aus?",
+   "expected": [
+    "405,56|405.56"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+   ],
+   "evidence": [
+    "405,56"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "N03",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was kostete der ATE-Bremsscheiben- und Belagsatz bei Auto & Service Müller netto?",
+   "expected": [
+    "215,00|215 €|215€"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "215,00 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "N04",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welcher Betrag wurde für die Echokardiographie auf der Arztrechnung von Dr. Weber berechnet?",
+   "expected": [
+    "60,33|60.33"
+   ],
+   "expected_sources": [
+    "Rechnung_Arzt_DrWeber_2026-10.pdf"
+   ],
+   "evidence": [
+    "60,33 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "N05",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie hoch sind die Lohnkosten auf der Werkstattrechnung von Auto & Service Müller brutto?",
+   "expected": [
+    "395,68|395.68"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "395,68 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "N06",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie viel Schmutzwassergebühr wurde in der Wasserabrechnung 2024 brutto berechnet?",
+   "expected": [
+    "416,50|416.50"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [
+    "416,50"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "N07",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Um wie lange verlängert sich der Heizstromvertrag von Volt & Wärme, wenn er nicht rechtzeitig gekündigt wird?",
+   "expected": [
+    "12 Monate|zwölf Monate|ein Jahr|einem Jahr|1 Jahr"
+   ],
+   "expected_sources": [
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "jeweils um 12 Monate"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "list_contracts"
+    ]
+   ]
+  },
+  {
+   "id": "N08",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie wird der Beitrag der NordStern Kfz-Versicherung laut Versicherungsschein bezahlt?",
+   "expected": [
+    "Überweisung",
+    "jährlich"
+   ],
+   "expected_sources": [
+    "Vertrag_Kfz_Versicherung_NordStern.pdf"
+   ],
+   "evidence": [
+    "Zahlungsweise: Überweisung, jährlich"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "list_contracts"
+    ]
+   ]
+  },
+  {
+   "id": "N09",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie lange vorher muss ich mich beim Zweckverband Wasserversorgung abmelden, wenn ich ausziehe?",
+   "expected": [
+    "zwei Wochen|2 Wochen|14 Tage|vierzehn Tage"
+   ],
+   "expected_sources": [
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "die Abmeldung muss zwei Wochen vorher schriftlich erfolgen"
+   ],
+   "expected_tools": [
+    [
+     "search_documents"
+    ]
+   ]
+  },
+  {
+   "id": "N10",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viele parallele Streams umfasst das StreamPulse-Abo Ultra HD Family?",
+   "expected": [
+    "vier|4 "
+   ],
+   "expected_sources": [
+    "Vertrag_Abo_StreamPulse.docx",
+    "Rechnung_Abo_StreamPulse_2026-10.pdf"
+   ],
+   "evidence": [
+    "vier parallele Streams"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "search_tables"
+    ]
+   ]
+  },
+  {
+   "id": "N11",
+   "type": "c",
+   "category": "standard",
+   "answerable": true,
+   "question": "Um wie viel Euro ist der Gesamtbeitrag der NordStern Kfz-Versicherung für 2027 höher als der Jahresbeitrag 2025 laut Versicherungsschein?",
+   "expected": [
+    "34,80|34.80|34,8 "
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+    "Vertrag_Kfz_Versicherung_NordStern.pdf"
+   ],
+   "evidence": [
+    "690,20",
+    "655,40"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_tables",
+     "search_documents"
+    ],
+    [
+     "calculate"
+    ]
+   ]
+  },
+  {
+   "id": "N12",
+   "type": "c",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Stimmt der Grundpreis in der Heizstromabrechnung 2024 mit dem Grundpreis aus dem Heizstromvertrag überein?",
+   "expected": [
+    "14,00|14 €|14€"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "14,000 €/Monat",
+    "14,00 €/Monat"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_tables",
+     "search_documents"
+    ]
+   ]
+  },
+  {
+   "id": "N13",
+   "type": "c",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wird auf der ConnectNet-Rechnung für September 2026 für den Router derselbe Preis berechnet wie im Vertrag?",
+   "expected": [
+    "4,19|4.19"
+   ],
+   "expected_sources": [
+    "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [
+    "4,19 €",
+    "4,19 €/Monat"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_tables",
+     "search_documents"
+    ]
+   ]
+  },
+  {
+   "id": "N14",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche meiner Verträge haben eine Kündigungsfrist von einem Monat?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Kfz_Versicherung_NordStern.pdf",
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag|Strom ",
+    "NordStern|Kfz",
+    "ConnectNet"
+   ],
+   "excluded_items": [
+    "Volt & Wärme|Heizstrom",
+    "Zweckverband|Wasser",
+    "StreamPulse"
+   ]
+  },
+  {
+   "id": "N15",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Rechnungen wurden bereits per Kreditkarte oder PayPal bezahlt?",
+   "expected": [],
+   "expected_sources": [
+    "Rechnung_Abo_StreamPulse_2026-10.pdf",
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "search_tables"
+    ]
+   ],
+   "expected_items": [
+    "StreamPulse",
+    "LuminaStyle"
+   ],
+   "excluded_items": [
+    "ConnectNet",
+    "NordStern",
+    "Weber"
+   ]
+  },
+  {
+   "id": "N16",
+   "type": "d",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Bei welchen Verträgen zahle ich umgerechnet mehr als 100 € pro Monat an Abschlag, Vorauszahlung oder Monatspreis?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag|Strom ",
+    "Volt & Wärme|Heizstrom"
+   ],
+   "excluded_items": [
+    "ConnectNet",
+    "Zweckverband|Wasser",
+    "StreamPulse",
+    "NordStern"
+   ]
+  },
+  {
+   "id": "N17",
+   "type": "d",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Welche Rechnungen sind an eine Adresse in Stuttgart gerichtet?",
+   "expected": [],
+   "expected_sources": [
+    "Rechnung_Arzt_DrWeber_2026-10.pdf"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts"
+    ]
+   ],
+   "expected_items": [
+    "Weber|Arzt"
+   ],
+   "excluded_items": [
+    "Volt & Wärme|Heizstrom"
+   ]
+  },
+  {
+   "id": "N18",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist der monatliche Beitrag meiner Krankenversicherung?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  },
+  {
+   "id": "N19",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist die monatliche Leasingrate für meinen BMW?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  },
+  {
+   "id": "N20",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Welche Kündigungsfrist hat mein Mietvertrag für die Wohnung in der Mozartstraße?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  }
+ ]
+}
