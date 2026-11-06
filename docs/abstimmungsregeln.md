@@ -34,3 +34,16 @@ Die Fehleranalyse der Schlussmessung zeigte, dass P1 und P2 an verschiedenen Fra
 | Nr. | Entscheidung | Regel |
 |---|---|---|
 | R9 | Weiche | Varianten: (a) Textregel, (b) Kaskade P1 → P2, wenn P1 sich enthält, (c) Textregel mit Kaskade. Gemessen nur auf dem Entwicklungssatz aus den vorhandenen Antworten von P1 und P2 (eine Wiederholung). Übernommen wird die Variante mit der höchsten Korrektheit, wenn sie mindestens so viele Fragen richtig beantwortet wie der bessere Einzelprototyp; bei Gleichstand die mit der niedrigeren Halluzinationsrate, dann kleinerer Latenz p50. Erfüllt keine Variante das, wird keine Weiche übernommen. Die gewählte Variante wird danach einmal unverändert auf Kern- und zurückgehaltenem Satz ausgewertet, aus den Antworten der zweiten Schlussmessung. |
+
+## Nachtrag vom 06.11.2026 (Kerndaten-Antwortschicht, vor ihrem Bau)
+
+Der erste zurückgehaltene Satz ist durch Fehleranalyse und Weiche verbraucht. Vorher geschrieben und versiegelt:
+`sets/heldout2.json` (20 Fragen, gleiche Zusammensetzung, Prüfsumme in `heldout2.sha256`, Commit c0d3cac).
+Vor die Weiche kommen zwei Komponenten ohne Sprachmodell: (K) Kerndaten-Antwort: Fragt die Frage nach genau einem
+Kerndatenfeld eines eindeutig erkannten Dokuments, antwortet Code aus den Kerndaten mit Beleg; sonst geht die Frage
+an die Weiche. (B) Bestandsprüfung: Nennt die Frage eine Dokument- oder Vertragsart, die im Bestand fehlt, lautet die
+Antwort "nicht belegt".
+
+| Nr. | Entscheidung | Regel |
+|---|---|---|
+| R10 | Kerndaten-Antwort, Bestandsprüfung | Je Komponente gemessen nur auf dem Entwicklungssatz (aus den vorhandenen Antworten von P1 und P2, eine Wiederholung) gegenüber der Weiche ohne diese Komponente. Übernommen, wenn die Korrektheit nicht sinkt und die Halluzinationsrate nicht steigt. Der synthetische Satz wird berichtet, zählt aber nicht, weil er aus denselben Sollwerten erzeugt ist, die die Kerndaten prüfen. Danach einmal auf `heldout2`: P1 und P2 laufen dort neu (zwei Wiederholungen), Weiche und Schicht werden aus diesen Antworten zusammengesetzt. Das Ergebnis wird berichtet, wie es ausfällt. |
