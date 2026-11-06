@@ -61,6 +61,6 @@ src/retrieval/          embeddings.py, prefix.py, vector_store.py (ChromaDB), re
 src/agent/              evidence.py, evidence_first.py (P1), react_agent.py (P2), tools.py, contracts.py (Fristen)
 src/eval/               Testsätze, Sollwerte, Bewertung, KPIs, Berichte, Ablation, Modellauswahl, Ausgangsmessung
 tests/                  pytest je Modul
-docs/                   Bestandsaufnahme, Reverse Engineering, Modellauswahl, GraphRAG-Entscheidung
+docs/                   Bestandsaufnahme, Reverse Engineering (mit Messergebnissen), Auswahlregeln R1–R8
 data/                   raw/ (Eingang), processed/ (JSON), vectors/ (ChromaDB) – nur raw/Vertraege versioniert
 ```

@@ -115,7 +115,7 @@ gemma3:4b mit Bild-Bytes; Prompt verlangt bei Diagrammen alle Werte als „Besch
 wird durch „Bildbeschreibung (Seite n): …“ ersetzt; Cache über SHA-256 der Bilddatei.
 
 ### `src/enrichment/facts.py` – `KeyFactExtractor`
-Ein JSON-Aufruf (qwen2.5:7b, `format=json`) je Dokument über `document_text()` (Kapitel in Klammern, Tabellenzeilen,
+Ein Aufruf (qwen2.5:7b, Structured Output mit JSON-Schema je Feldgruppe Rechnung/Vertrag) je Dokument über `document_text()` (Kapitel in Klammern, Tabellenzeilen,
 Bildbeschreibungen). Schema `FIELDS`: Dokumentart, Aussteller, Kunde, Kunden-/Vertrags-/Rechnungsnummer, Datum,
 Fälligkeit, Beträge, Vertragsbeginn, Laufzeitende, Verlängerung, Kündigungsfrist, **Kündigungsart** (`laufzeitende`,
 `jederzeit_nach_mindestlaufzeit`, `abrechnungszeitraum`, `nicht_kuendbar`), Preisgarantie, Abschlag und Turnus.
@@ -160,7 +160,9 @@ Nummern an.
 
 ### `src/agent/evidence_first.py` – Prototyp 1
 `retrieve()` (eine Suche) → `panel()` (für Streamlit) → `synthesize()` (ein Aufruf, nur auf Klick) mit Regeln:
-[n] hinter jeder Aussage, bei fehlendem Beleg genau `NOT_FOUND`. `answer()` = Klick automatisch (Messung).
+ganze Sätze mit dem Wert und [n] dahinter, bei fehlendem Beleg genau `NOT_FOUND`. Besteht die Antwort nur aus
+Belegnummern (`citation_only`), wird einmal nachgefragt: llama3.1:8b und qwen2.5:7b taten das sonst in rund einem
+Drittel der Antworten. `answer()` = Klick automatisch (Messung).
 
 ### `src/agent/contracts.py`
 `add_months()` (Monatsenden bleiben Monatsenden), `earliest_end(facts, stichtag)` je Kündigungsart (siehe Modulkopf),
@@ -198,6 +200,21 @@ Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, A
 | `kpis.py` | 23 KPIs mit Definition, Ziel, Begründung; `compute()` je System |
 | `report.py` | Bewertung der Rohdaten, Markdown-Bericht P1/P2 nebeneinander, JSONL mit Trajektorie |
 | `resources.py` | Spitzen-RAM (eigener Prozess + Ollama über /proc), Tokens/s |
-| `runner.py` | Messlauf Version2 (Wiederaufnahme nach Abbruch, Extras: Feldgenauigkeit, Ingest, Rewriting) |
+| `runner.py` | Messlauf Version2 (Wiederaufnahme nach Abbruch, bei Ollama-Ausfall warten und einmal wiederholen, Modelle alle 6 Fragen außerhalb der Zeitmessung neu laden; Filter `--types`; Extras: Feldgenauigkeit, Ingest, Rewriting) |
 | `ablation.py`, `models.py` | Retrieval-Ablation (gepaarter Bootstrap); Modellauswahl |
 | `baseline.py`, `adapters/v1_driver.py` | Ausgangsmessung von Version1 in deren Umgebung, gleiche Bewertung |
+| `latex.py` | KPI-Tabelle für die Ausarbeitung aus `ausgangsmessung` und `schlussmessung2` |
+
+### Messergebnisse (`src/eval/results/`)
+| Lauf | Inhalt |
+|---|---|
+| `ausgangsmessung/` | Version1 unverändert, Kern ×2 + zurückgehalten, 76 Antworten |
+| `ablation/` | Boost 1,0–2,0, BM25, Reranker, Rewriting auf 93 Fragen; Entscheidung nach R1–R3: alles bleibt bei der Vorgabe |
+| `modellauswahl/` | R4–R7: Agent llama3.1:8b, Kerndaten qwen2.5:7b, Vision gemma3:4b, kein Rewriting-Modell unter 500 ms |
+| `graphrag_mit/`, `graphrag_ohne/` | P2 auf 8 Multi-Hop-/Listenfragen mit und ohne `get_key_facts`/`list_contracts`: 4 gegen 2 richtig |
+| `schlussmessung/` | erste Schlussmessung (P1 gab oft nur Belegnummern aus) |
+| `synthese_*`, `p1_neu_dev/` | R8 (Synthesemodell) und P1 nach Prompt-Korrektur, nur Entwicklungssatz |
+| `schlussmessung2/` | maßgebliche Schlussmessung: P1 neu, P2 aus der ersten; Kern ×2 + zurückgehalten ×2 |
+
+Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
+Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet.

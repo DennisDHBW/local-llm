@@ -52,7 +52,7 @@ def load(path: Path) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--baseline", type=Path, default=RESULTS / "ausgangsmessung" / "ausgangsmessung_kpis.json")
-    parser.add_argument("--final", type=Path, default=RESULTS / "schlussmessung" / "schlussmessung_kpis.json")
+    parser.add_argument("--final", type=Path, default=RESULTS / "schlussmessung2" / "schlussmessung2_kpis.json")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     runs = {f"V1{k}": v for k, v in load(args.baseline).items()} | load(args.final)
@@ -73,7 +73,7 @@ def main() -> None:
 
     cols = [r for r in ("V1P1", "V1P2", "P1", "P2") if r in runs]
     header = {"V1P1": "V1 P1", "V1P2": "V1 P2", "P1": "V2 P1", "P2": "V2 P2"}
-    table = ["% automatisch erzeugt von src/eval/latex.py", "\\begin{table}[H]", "\\centering", "\\scriptsize",
+    table = ["% automatisch erzeugt von src/eval/latex.py", "\\begin{table}[tp]", "\\centering", "\\scriptsize",
              "\\setlength{\\tabcolsep}{3pt}",
              "\\begin{tabularx}{\\textwidth}{@{}l l " + " ".join("Y" for _ in cols) + "@{}}", "\\toprule",
              "\\textbf{KPI} & \\textbf{Ziel} & " + " & ".join(f"\\textbf{{{header[c]}}}" for c in cols) + " \\\\",
