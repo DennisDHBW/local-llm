@@ -3,7 +3,7 @@
     uv run python -m src.eval.latex --out ../LocalLLM_Ausarbeitung/content/generated
 
 Quellen: Ausgangsmessung (Version1, src/eval/results/ausgangsmessung/*_kpis.json) und Schlussmessung (Version2,
-src/eval/results/schlussmessung/*_kpis.json). Im Text steht z. B. \\kpi{P2}{correct}; die Tabelle wird mit
+src/eval/results/schlussmessung2/*_kpis.json) sowie die Weiche P1/P2 (weiche_schluss). Im Text steht z. B. \\kpi{P2}{correct}; die Tabelle wird mit
 \\input{content/generated/kpi_tabelle.tex} eingebunden. So stammt jede Zahl der Ausarbeitung aus einer Messdatei.
 """
 
@@ -53,9 +53,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--baseline", type=Path, default=RESULTS / "ausgangsmessung" / "ausgangsmessung_kpis.json")
     parser.add_argument("--final", type=Path, default=RESULTS / "schlussmessung2" / "schlussmessung2_kpis.json")
+    parser.add_argument("--router", type=Path, default=RESULTS / "weiche_schluss" / "weiche_schluss_kpis.json")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     runs = {f"V1{k}": v for k, v in load(args.baseline).items()} | load(args.final)
+    runs |= {k: v for k, v in load(args.router).items() if k == "Weiche"}
     args.out.mkdir(parents=True, exist_ok=True)
     lines = ["% automatisch erzeugt von src/eval/latex.py - nicht von Hand ändern",
              "\\makeatletter", "\\providecommand{\\kpi}[2]{\\csname kpi@#1@#2\\endcsname}",
@@ -71,8 +73,8 @@ def main() -> None:
     lines.append("\\makeatother")
     (args.out / "zahlen.tex").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    cols = [r for r in ("V1P1", "V1P2", "P1", "P2") if r in runs]
-    header = {"V1P1": "V1 P1", "V1P2": "V1 P2", "P1": "V2 P1", "P2": "V2 P2"}
+    cols = [r for r in ("V1P1", "V1P2", "P1", "P2", "Weiche") if r in runs]
+    header = {"V1P1": "V1 P1", "V1P2": "V1 P2", "P1": "V2 P1", "P2": "V2 P2", "Weiche": "V2 Weiche"}
     table = ["% automatisch erzeugt von src/eval/latex.py", "\\begin{table}[tp]", "\\centering", "\\scriptsize",
              "\\setlength{\\tabcolsep}{3pt}",
              "\\begin{tabularx}{\\textwidth}{@{}l l " + " ".join("Y" for _ in cols) + "@{}}", "\\toprule",
@@ -89,7 +91,7 @@ def main() -> None:
         table.append(f"{kpi.name} & {target} & " + " & ".join(fmt(kpi.key, runs[c].get(kpi.key)) for c in cols)
                      + " \\\\")
     table += ["\\bottomrule", "\\end{tabularx}",
-              "\\caption{KPIs der Ausgangsmessung (Version1) und der Schlussmessung (Version2) auf denselben Fragen, "
+              "\\caption[KPIs der Ausgangs- und Schlussmessung]{KPIs der Ausgangsmessung (Version1) und der Schlussmessung (Version2) auf denselben Fragen (V2 Weiche: aus den Antworten von V2 P1 und P2 zusammengesetzt, Werkzeugwahl nur über die an P2 geleiteten Fragen), "
               "Punktwert mit 95-\\%-Intervall (Anteile: Wilson, Mittelwerte und Perzentile: Bootstrap)}",
               "\\label{tab:kpis}", "\\end{table}"]
     (args.out / "kpi_tabelle.tex").write_text("\n".join(table) + "\n", encoding="utf-8")
