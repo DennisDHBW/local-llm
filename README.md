@@ -24,8 +24,9 @@ uv run python -m src.ingestion.pipeline   # Import aller Dateien unter data/raw/
 uv run streamlit run app.py
 ```
 
-In der App wählt der Modus „Automatisch (Weiche)“ je Frage P1 oder P2 (`src/agent/router.py`); P1 und P2 sind
-einzeln wählbar.
+In der App beantwortet der Modus „Automatisch (Weiche)“ Einzelwerte direkt aus den Kerndaten und lehnt Fragen zu
+Dokumentarten ab, die im Bestand fehlen (`src/agent/facts_answer.py`); alle anderen Fragen gehen je nach Art an P1
+oder P2 (`src/agent/router.py`). P1 und P2 sind einzeln wählbar.
 
 Die sechs Verträge in `data/raw/Vertraege` sind synthetisch und versioniert; neu erzeugen mit
 `uv run python -m src.eval.make_contracts` (braucht LibreOffice für die PDF-Fassungen).
@@ -61,9 +62,10 @@ src/config.py           Einstellungen          src/llm.py   Ollama-Zugang mit Me
 src/ingestion/          parser.py (PDF/DOCX -> Chunks), pipeline.py (Import, drei Speicherebenen)
 src/enrichment/         captioner.py, summarizer.py (DiskCache SHA-256), facts.py (Kerndaten mit Textprüfung)
 src/retrieval/          embeddings.py, prefix.py, vector_store.py (ChromaDB), rewriter.py, search.py (Boost)
-src/agent/              evidence.py, evidence_first.py (P1), react_agent.py (P2), tools.py, contracts.py (Fristen)
+src/agent/              evidence.py, evidence_first.py (P1), react_agent.py (P2), tools.py, contracts.py (Fristen),
+                        router.py (Weiche), facts_answer.py (Kerndaten-Schicht)
 src/eval/               Testsätze, Sollwerte, Bewertung, KPIs, Berichte, Ablation, Modellauswahl, Ausgangsmessung
 tests/                  pytest je Modul
-docs/                   Bestandsaufnahme, Reverse Engineering (mit Messergebnissen), Auswahlregeln R1–R8
+docs/                   Bestandsaufnahme, Reverse Engineering (mit Messergebnissen), Auswahlregeln R1–R10
 data/                   raw/ (Eingang), processed/ (JSON), vectors/ (ChromaDB) – nur raw/Vertraege versioniert
 ```

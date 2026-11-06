@@ -47,3 +47,15 @@ Antwort "nicht belegt".
 | Nr. | Entscheidung | Regel |
 |---|---|---|
 | R10 | Kerndaten-Antwort, Bestandsprüfung | Je Komponente gemessen nur auf dem Entwicklungssatz (aus den vorhandenen Antworten von P1 und P2, eine Wiederholung) gegenüber der Weiche ohne diese Komponente. Übernommen, wenn die Korrektheit nicht sinkt und die Halluzinationsrate nicht steigt. Der synthetische Satz wird berichtet, zählt aber nicht, weil er aus denselben Sollwerten erzeugt ist, die die Kerndaten prüfen. Danach einmal auf `heldout2`: P1 und P2 laufen dort neu (zwei Wiederholungen), Weiche und Schicht werden aus diesen Antworten zusammengesetzt. Das Ergebnis wird berichtet, wie es ausfällt. |
+
+**Ergebnis R10 (Entwicklungssatz, `results/schicht_dev`):** Weiche 44/54; Bestand+Weiche, Kerndaten+Weiche und
+Schicht+Weiche ebenfalls 44/54, Halluzination je 2/54. Die Schicht beantwortet 7 Fragen aus den Kerndaten und 2 aus
+der Bestandsprüfung, alle dort, wo die Weiche schon richtig lag. Korrektheit sinkt nicht, Halluzination steigt nicht:
+übernommen. Synthetisch (nur berichtet): 36 von 51 Fragen beantwortet, alle richtig.
+
+**Ergebnis auf `heldout2` (einmal, `results/schlussmessung3`, `results/schicht_schluss`, 20 Fragen × 2):** P1 26/40
+(65 %), P2 4/40 (10 %), Weiche 22/40 (55 %), Schicht+Weiche 22/40 (55 %). Gegenüber P1 −10 Prozentpunkte
+[−20; −2,5], gegenüber P2 +45 [+30; +60]. Keine Frage traf ein Kerndatenfeld; die Bestandsprüfung lehnte N18 und N19
+ab, die P1 ebenfalls richtig ablehnte. Die Weiche verliert N12 (Vergleich) und N14 (Kündigungsfrist-Liste) an P2.
+Damit ist R9 auf neuen Daten nicht bestätigt; der Vorteil auf dem alten zurückgehaltenen Satz war überangepasst.
+Einschränkung: `heldout2` wurde vom Entwickler der Schicht geschrieben.

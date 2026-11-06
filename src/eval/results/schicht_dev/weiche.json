@@ -1,0 +1,105 @@
+{
+ "sets": [
+  "dev"
+ ],
+ "p1": "src/eval/results/p1_neu_dev",
+ "p2": "src/eval/results/p2_dev",
+ "variants": {
+  "Weiche": {
+   "n": 54,
+   "correct": 44.0,
+   "p1_correct": 44.0,
+   "p2_correct": 23.0,
+   "an_p2": 9,
+   "diff_vs_p1": [
+    0.0,
+    -0.07407407407407407,
+    0.07407407407407407
+   ],
+   "diff_vs_p2": [
+    0.3888888888888889,
+    0.24074074074074073,
+    0.5370370370370371
+   ],
+   "rules": {
+    "frist": 4,
+    "liste": 4,
+    "standard": 45,
+    "vergleich": 1
+   }
+  },
+  "Bestand+Weiche": {
+   "n": 54,
+   "correct": 44.0,
+   "p1_correct": 44.0,
+   "p2_correct": 23.0,
+   "an_p2": 9,
+   "diff_vs_p1": [
+    0.0,
+    -0.07407407407407407,
+    0.07407407407407407
+   ],
+   "diff_vs_p2": [
+    0.3888888888888889,
+    0.24074074074074073,
+    0.5370370370370371
+   ],
+   "rules": {
+    "bestand": 2,
+    "frist": 4,
+    "liste": 4,
+    "standard": 43,
+    "vergleich": 1
+   }
+  },
+  "Kerndaten+Weiche": {
+   "n": 54,
+   "correct": 44.0,
+   "p1_correct": 44.0,
+   "p2_correct": 23.0,
+   "an_p2": 8,
+   "diff_vs_p1": [
+    0.0,
+    -0.07407407407407407,
+    0.07407407407407407
+   ],
+   "diff_vs_p2": [
+    0.3888888888888889,
+    0.24074074074074073,
+    0.5370370370370371
+   ],
+   "rules": {
+    "frist": 3,
+    "kerndaten": 7,
+    "liste": 4,
+    "standard": 39,
+    "vergleich": 1
+   }
+  },
+  "Schicht+Weiche": {
+   "n": 54,
+   "correct": 44.0,
+   "p1_correct": 44.0,
+   "p2_correct": 23.0,
+   "an_p2": 8,
+   "diff_vs_p1": [
+    0.0,
+    -0.07407407407407407,
+    0.07407407407407407
+   ],
+   "diff_vs_p2": [
+    0.3888888888888889,
+    0.24074074074074073,
+    0.5370370370370371
+   ],
+   "rules": {
+    "bestand": 2,
+    "frist": 3,
+    "kerndaten": 7,
+    "liste": 4,
+    "standard": 37,
+    "vergleich": 1
+   }
+  }
+ }
+}

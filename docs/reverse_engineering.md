@@ -20,7 +20,8 @@ src/retrieval/embeddings.py  nomic-embed-text, "search_document: " / "search_que
    ▼
 data/vectors/ (ChromaDB, Kosinus, 768 Dim.) + embedding_index.json   ◄── Ebene 3
    │
-   │   Weiche src/agent/router.py: Fristen/Listen/Vergleiche → P2, sonst P1 (App-Modus "Automatisch")
+   │   Kerndaten-Schicht src/agent/facts_answer.py: Einzelfeld aus Kerndaten oder "nicht im Bestand" (ohne LLM)
+   │   sonst Weiche src/agent/router.py: Fristen/Listen/Vergleiche → P2, sonst P1 (App-Modus "Automatisch")
    ├─► Prototyp 1  src/agent/evidence_first.py: Retriever.search → build_evidence (Panel) → Klick → build_context → Synthese
    └─► Prototyp 2  src/agent/react_agent.py: Thought → Action (tools.py) → Observation → … → Final Answer
                     Werkzeuge: search_documents | search_tables | search_images | get_document_outline | calculate
@@ -189,6 +190,19 @@ Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, A
 Dokumente …“, „alle …“), `vergleich` (entspricht, stimmt … überein, Unterschied, abweichen) → P2, sonst P1. Kein
 Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `src/eval/router_eval.py`.
 
+### `src/agent/facts_answer.py` – Kerndaten-Schicht vor der Weiche
+`FactsAnswerer.answer(frage)` → `(AgentAnswer | None, teil)`, ohne Sprachmodell, zwei Komponenten:
+- Bestandsprüfung: Zerlegt Wörter wie „Leasingrate“, „Gasvertrag“, „Hausratversicherung“ in Bestimmungs- und
+  Grundwort (Grundwörter: Vertrag, Versicherung, Rechnung, Rate, Preis, Beitrag, Police …). Steht das Bestimmungswort
+  in keinem Chunk und keinem Dateinamen als Wortanfang, lautet die Antwort „nicht belegt“. Keine Liste von Vertragsarten.
+- Kerndaten-Antwort: `FIELD_RULES` ordnen eine Frage genau einem Feld zu (Kündigungsfrist, Preisgarantie, Laufzeitende,
+  Beginn, Abschlussdatum, Abschlag, Zahlungsdatum, Nachzahlung/Guthaben, Rechnungs-, Kunden-, Vertragsnummer,
+  Rechnungsbetrag). Fragen mit mehreren Werten (`COMPLEX`: „um wie viel“, „insgesamt“, „netto“, „neue“, Listen …)
+  bleiben ausgeschlossen. `tools.resolve` liefert bis zu drei Dokumente der passenden Art; nur wenn alle denselben
+  Wert haben, antwortet Code mit einem Satz und den Kerndaten als Beleg [1].
+Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `router_eval.py` (Varianten
+`Bestand+Weiche`, `Kerndaten+Weiche`, `Schicht+Weiche`). Test: `tests/test_facts_answer.py`.
+
 ### `src/agent/answer.py`
 `AgentAnswer` als gemeinsames Format; `record()` liefert den Rohdatensatz für die KPI-Suite.
 
@@ -200,7 +214,7 @@ Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `s
 ## 8. KPI-Suite (`src/eval`)
 | Datei | Aufgabe |
 |---|---|
-| `sets/*.json`, `datasets.py` | Kern (9), Entwicklung (54), zurückgehalten (20, Prüfsumme), `synthetic.py` (51 aus Sollwerten) |
+| `sets/*.json`, `datasets.py` | Kern (9), Entwicklung (54), zurückgehalten (20, Prüfsumme), zweiter zurückgehaltener Satz `heldout2` (20, Prüfsumme, einmal gemessen), `synthetic.py` (51 aus Sollwerten) |
 | `gold/contracts.json`, `gold/invoices.json`, `make_contracts.py` | Sollwerte; Generator der sechs Verträge (DOCX, PDF via LibreOffice) |
 | `scoring.py` | Korrektheit (verneinte Sätze zählen nicht), Listen mit erwarteten/ausgeschlossenen Einträgen, Enthaltung, Treue, Halluzination, Zitate, Werkzeugwahl, Recall/Precision@k, RR, Feldgenauigkeit |
 | `stats.py` | Wilson-Intervall, Bootstrap (Seed 7), Perzentile |
@@ -210,7 +224,7 @@ Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `s
 | `runner.py` | Messlauf Version2 (Wiederaufnahme nach Abbruch, bei Ollama-Ausfall warten und einmal wiederholen, Modelle alle 6 Fragen außerhalb der Zeitmessung neu laden; Filter `--types`; Extras: Feldgenauigkeit, Ingest, Rewriting) |
 | `ablation.py`, `models.py` | Retrieval-Ablation (gepaarter Bootstrap); Modellauswahl |
 | `baseline.py`, `adapters/v1_driver.py` | Ausgangsmessung von Version1 in deren Umgebung, gleiche Bewertung |
-| `router_eval.py` | Weiche P1/P2 aus vorhandenen Antworten zusammensetzen (Varianten Regel, Kaskade, beides), gepaarter Bootstrap gegen P1 und P2 |
+| `router_eval.py` | Weiche P1/P2 aus vorhandenen Antworten zusammensetzen (Varianten Regel, Kaskade, beides, Kerndaten-Schicht), gepaarter Bootstrap gegen P1 und P2 |
 | `latex.py` | KPI-Tabelle für die Ausarbeitung aus `ausgangsmessung` und `schlussmessung2` |
 
 ### Messergebnisse (`src/eval/results/`)
@@ -226,6 +240,11 @@ Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `s
 | `p2_dev/` | P2 auf dem Entwicklungssatz (eine Wiederholung), Grundlage für R9 |
 | `weiche_dev/` | R9 auf dem Entwicklungssatz: Weiche 44/54 wie P1 (P2 23/54), Kaskaden 43/54; Weiche übernommen |
 | `weiche_schluss/` | Weiche einmal auf Kern + zurückgehalten aus `schlussmessung2`: 34/58 (59 %) gegen P1 28 und P2 30 |
+| `schicht_dev/` | R10 auf dem Entwicklungssatz: alle Varianten 44/54 wie die Weiche, Halluzination unverändert; Schicht übernommen (synthetisch, nur berichtet: 36 von 51 beantwortet, alle richtig) |
+| `schlussmessung3/` | P1 und P2 auf `heldout2`, zwei Wiederholungen |
+| `schicht_schluss/` | Weiche und Schicht+Weiche einmal aus `schlussmessung3` zusammengesetzt: P1 26/40 (65 %), P2 4/40 (10 %, Halluzination 33 %), Weiche und Schicht+Weiche je 22/40 (55 %); gegen P1 −10 pp [−20; −2,5]. Die Schicht greift nur bei N18/N19 (Bestand), die P1 schon richtig hatte |
 
 Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
 Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet. Weiche (src/agent/router.py): 59 %, gegen P1 +10 pp [0; +21], gegen P2 +7 pp [−7; +22].
+Auf dem neuen versiegelten Satz `heldout2` bestätigt sich das nicht: P1 65 %, P2 10 %, Weiche 55 % (gegen P1 −10 pp
+[−20; −2,5]); die Kerndaten-Schicht ändert dort keine Antwort.

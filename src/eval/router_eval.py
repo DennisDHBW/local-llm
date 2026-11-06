@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections.abc import Callable, Mapping
+from functools import cache
 from pathlib import Path
 from typing import Any
 
+from src.agent.facts_answer import FactsAnswerer
 from src.agent.router import route
 from src.eval.ablation import paired_diff
 from src.eval.datasets import load_sets
@@ -42,8 +45,29 @@ def _rule_cascade(q: str, p1: Mapping[str, Any], p2: Mapping[str, Any]) -> tuple
     return _rule(q, p1, p2) if route(q).system == "P2" else _cascade(q, p1, p2)
 
 
+@cache
+def _answerer(use_facts: bool, use_inventory: bool) -> FactsAnswerer:
+    return FactsAnswerer(use_facts=use_facts, use_inventory=use_inventory)
+
+
+def _layer(use_facts: bool, use_inventory: bool):
+    """Kerndaten-Schicht (R10) vor der Weiche: antwortet sie, zählt ihre Antwort, sonst die der Weiche."""
+    def choose(q: str, p1: Mapping[str, Any], p2: Mapping[str, Any]) -> tuple[Mapping[str, Any], str]:
+        started = time.perf_counter()
+        answer, part = _answerer(use_facts, use_inventory).answer(q)
+        if answer is None:
+            return _rule(q, p1, p2)
+        record = {**answer.record(), "retrieved": p1.get("retrieved"), "latency_s": round(time.perf_counter() - started, 3),
+                  "llm_calls": [], "tokens_per_s": None, "peak_ram_gb": None, "system": part.capitalize()}
+        record.pop("evidence", None)
+        return record, part
+    return choose
+
+
 VARIANTS: dict[str, Callable[[str, Mapping[str, Any], Mapping[str, Any]], tuple[Mapping[str, Any], str]]] = {
-    "Weiche": _rule, "Kaskade": _cascade, "Weiche+Kaskade": _rule_cascade}
+    "Weiche": _rule, "Kaskade": _cascade, "Weiche+Kaskade": _rule_cascade,
+    "Bestand+Weiche": _layer(False, True), "Kerndaten+Weiche": _layer(True, False),
+    "Schicht+Weiche": _layer(True, True)}
 
 
 def compose(raw: list[dict[str, Any]], variant: str) -> list[dict[str, Any]]:
@@ -55,8 +79,8 @@ def compose(raw: list[dict[str, Any]], variant: str) -> list[dict[str, Any]]:
         if system != "P1" or p2 is None:
             continue
         chosen, rule = VARIANTS[variant](p1["question"], p1, p2)
-        out.append({**chosen, "system": variant, "routed_to": chosen["system"] if rule != "kaskade" else "P2",
-                    "route_rule": rule})
+        out.append({**chosen, "set": set_name, "qid": qid, "rep": rep, "question": p1["question"], "system": variant,
+                    "routed_to": chosen["system"] if rule != "kaskade" else "P2", "route_rule": rule})
     return out
 
 
@@ -79,7 +103,7 @@ def main() -> None:
         raw += [r for r in load_jsonl(folder / f"{folder.name}_raw.jsonl") if r.get("system") == system]
     sets = [s.strip() for s in args.sets.split(",") if s.strip()]
     raw = [r for r in raw if r["set"] in sets]
-    variants = [args.variant] if args.variant else list(VARIANTS)
+    variants = [v.strip() for v in args.variant.split(",")] if args.variant else list(VARIANTS)
     combined = raw + [r for v in variants for r in compose(raw, v)]
     scored = score_records(combined, load_sets(",".join(sets)))
     out_dir = RESULTS / args.name

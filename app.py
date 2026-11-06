@@ -1,5 +1,5 @@
 """Streamlit-Oberfläche: Prototyp 1 (Evidence-First), Prototyp 2 (ReAct) und die Weiche zwischen beiden
-(src/agent/router.py) auf denselben Dokumenten.
+(src/agent/router.py) mit vorgeschalteter Kerndaten-Schicht (src/agent/facts_answer.py) auf denselben Dokumenten.
 
     uv run streamlit run app.py
 """
@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from src import llm
 from src.agent.contracts import earliest_end, guarantee_active, monthly_advance
 from src.agent.evidence_first import EvidenceFirstPipeline
+from src.agent.facts_answer import FactsAnswerer
 from src.agent.react_agent import ReActAgent
 from src.agent.router import route
 from src.agent.tools import AgentTools
@@ -34,6 +35,11 @@ st.set_page_config(page_title="DokAgent – Rechnungen & Verträge", layout="wid
 def components() -> tuple[Retriever, EvidenceFirstPipeline, ReActAgent]:
     retriever = Retriever()
     return retriever, EvidenceFirstPipeline(retriever=retriever), ReActAgent(tools=AgentTools(retriever=retriever))
+
+
+@st.cache_resource
+def facts_layer() -> FactsAnswerer:
+    return FactsAnswerer()
 
 
 def badge(level: str, color: str, score: float | None) -> str:
@@ -83,10 +89,22 @@ def tab_questions(mode: str) -> None:
     if mode.startswith("Automatisch"):
         if not question:
             return
+        layer_answer, part = facts_layer().answer(question)      # Kerndaten-Schicht (R10), ohne Sprachmodell
         chosen = route(question)
-        st.caption(f"Weiche: {'P2 ReAct-Agent' if chosen.system == 'P2' else 'P1 Evidence-First'} "
-                   f"(Regel: {chosen.rule})")
+        if layer_answer is not None:
+            st.caption("Kerndaten-Schicht: " + ("Dokumentart nicht im Bestand" if part == "bestand"
+                                                else "Wert direkt aus den Kerndaten"))
+        else:
+            st.caption(f"Weiche: {'P2 ReAct-Agent' if chosen.system == 'P2' else 'P1 Evidence-First'} "
+                       f"(Regel: {chosen.rule})")
         if not st.button("Antwort erzeugen"):
+            return
+        if layer_answer is not None:
+            st.subheader("Antwort")
+            st.markdown(layer_answer.answer)
+            if layer_answer.evidence:
+                with st.expander("Beleg (Kerndaten)"):
+                    st.code(layer_answer.evidence[0].text)
             return
         if chosen.system == "P1":
             with st.spinner("Belege suchen und Antwort erzeugen ..."):
