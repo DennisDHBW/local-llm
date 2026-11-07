@@ -45,6 +45,13 @@ def test_check_draft_rejects_calculation_with_unsupported_value():
     assert any("Rechnung" in p for p in checked.problems)
 
 
+def test_calculation_without_placeholder_is_ignored():
+    checked = check_draft(draft([{"bezeichnung": "Grundpreis", "wert": "12,50 €", "beleg": 1},
+                                 {"bezeichnung": "Laufzeit", "wert": "24 Monate", "beleg": 1}], "w1 + w2",
+                                "Der Grundpreis beträgt 12,50 € [1]."), EVIDENCE)
+    assert checked.result is None and checked.answer == "Der Grundpreis beträgt 12,50 € [1]."
+
+
 def test_not_supported_when_model_says_so():
     assert not check_draft(draft([], antwort="Nicht belegt.", belegt=False), EVIDENCE).supported
 

@@ -7,6 +7,7 @@ Ablauf für P1 (Evidence-First):
     2. Code prüft jeden Wert gegen den genannten Beleg: Zahlen und Daten müssen dort stehen, Text muss dort
        vorkommen. Steht der Wert in einem anderen Beleg, wird nur die Nummer berichtigt.
     3. Code rechnet die Rechnung (sichere Arithmetik aus tools.safe_eval) und setzt das Ergebnis ein.
+       Die Rechnung zählt nur, wenn der Antwortsatz den Platzhalter {ergebnis} enthält.
     4. Jede Zahl im Antwortsatz muss aus einem geprüften Wert, dem Ergebnis oder der Frage stammen.
     5. Gibt es Fehler, bekommt das Modell sie einmal zur Korrektur zurück (Selbstkorrektur mit konkretem Befund).
        Bleiben Fehler, werden unbelegte Werte verworfen und die Antwort aus den geprüften Werten gebaut; bleibt nichts,
@@ -179,7 +180,9 @@ def check_draft(draft: dict[str, Any], evidence: Sequence[Evidence], question: s
             out.rejected.append(item)
             out.problems.append(f"Der Wert \"{value}\" ({item.get('bezeichnung', '')}) steht nicht in Beleg [{n}] "
                                 f"und in keinem anderen Beleg.")
-    if draft["rechnung"]:
+    # Eine Rechnung zählt nur, wenn der Antwortsatz ihr Ergebnis verwendet ({ergebnis}); sonst hängte Code Zahlen an
+    # eine schon fertige Antwort (Fehleranalyse R11 auf dev: "300 € ... Ergebnis: 450,00").
+    if draft["rechnung"] and "{ergebnis}" in draft["antwort"]:
         expr = draft["rechnung"]
         used = [int(i) for i in _VAR.findall(expr)]
         missing = [i for i in used if i > len(draft["werte"]) or draft["werte"][i - 1] in out.rejected]
@@ -197,7 +200,7 @@ def check_draft(draft: dict[str, Any], evidence: Sequence[Evidence], question: s
     answer = draft["antwort"]
     if out.result is not None:
         shown = de_number(out.result)
-        answer = answer.replace("{ergebnis}", shown) if "{ergebnis}" in answer else f"{answer} Ergebnis: {shown}."
+        answer = answer.replace("{ergebnis}", shown)
     allowed = set(number_pool(question))
     for item in out.values:
         allowed |= {abs(v) for v in number_pool(item["wert"])}
