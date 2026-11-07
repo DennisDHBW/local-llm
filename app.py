@@ -64,7 +64,7 @@ def show_evidence(tree: list[dict]) -> None:
 def sidebar() -> str:
     st.sidebar.title("DokAgent")
     st.sidebar.caption(f"Lokal mit Ollama · Agent {AGENT_MODEL} · Stichtag {de_date(today().isoformat())}")
-    mode = st.sidebar.radio("Workflow", ["Automatisch (Weiche)", "P1 Evidence-First", "P2 ReAct-Agent"])
+    mode = st.sidebar.radio("Workflow", ["P1 Evidence-First", "P2 ReAct-Agent", "Automatisch (Weiche)"])
     files = source_files(RAW_DIR)
     st.sidebar.write(f"{len(files)} Dokumente in `data/raw`, Hierarchie-Boost {HIERARCHY_BOOST}")
     if st.sidebar.button("Import starten (nur neue/geänderte Dateien)"):

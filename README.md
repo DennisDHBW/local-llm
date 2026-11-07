@@ -24,7 +24,8 @@ uv run python -m src.ingestion.pipeline   # Import aller Dateien unter data/raw/
 uv run streamlit run app.py
 ```
 
-In der App beantwortet der Modus „Automatisch (Weiche)“ Einzelwerte direkt aus den Kerndaten und lehnt Fragen zu
+Standard in der App ist P1, weil es auf dem zweiten versiegelten Testsatz am besten abschnitt (65 % gegen
+55 % für die Weiche). Wahlweise beantwortet der Modus „Automatisch (Weiche)“ Einzelwerte direkt aus den Kerndaten und lehnt Fragen zu
 Dokumentarten ab, die im Bestand fehlen (`src/agent/facts_answer.py`); alle anderen Fragen gehen je nach Art an P1
 oder P2 (`src/agent/router.py`). P1 und P2 sind einzeln wählbar.
 
