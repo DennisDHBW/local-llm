@@ -68,9 +68,18 @@ def matches(expected: str, text: str) -> bool:
     return any(_alt_matches(alt, text) for alt in str(expected).split("|"))
 
 
+_CONDITION_RE = re.compile(r",?\s*\b(?:wenn|falls|sofern|sonst)\b[^,.;]*", re.IGNORECASE)
+
+
+def negated(sentence: str) -> bool:
+    """Verneinung im Hauptsatz. Bedingungssätze zählen nicht: 'verlängert sich um 12 Monate, wenn er nicht
+    rechtzeitig gekündigt wird' bejaht die 12 Monate."""
+    return bool(NEGATION_RE.search(_CONDITION_RE.sub("", sentence)))
+
+
 def asserted(expected: str, text: str) -> bool:
     """Wie `matches`, aber nur in Sätzen ohne Verneinung ('für X liegt kein Vertrag vor' nennt X, bejaht es nicht)."""
-    return any(matches(expected, s) and not NEGATION_RE.search(s) for s in sentences(text))
+    return any(matches(expected, s) and not negated(s) for s in sentences(text))
 
 
 def is_abstention(answer: str) -> bool:
@@ -170,7 +179,7 @@ def score_answer(question: Mapping[str, Any], record: Mapping[str, Any]) -> dict
         "cited_sources": cited,
         "false_abstention": abstained if result["answerable"] else None,
         "tool_selection": tool_selection_ok(question.get("expected_tools") or [], used_tools)
-        if record.get("system") == "P2" or record.get("routed_to") == "P2" else None,
+        if str(record.get("system")).startswith("P2") or record.get("routed_to") == "P2" else None,
         "steps": int(record.get("steps") or 0),
     }
 

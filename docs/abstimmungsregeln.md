@@ -59,3 +59,12 @@ der Bestandsprüfung, alle dort, wo die Weiche schon richtig lag. Korrektheit si
 ab, die P1 ebenfalls richtig ablehnte. Die Weiche verliert N12 (Vergleich) und N14 (Kündigungsfrist-Liste) an P2.
 Damit ist R9 auf neuen Daten nicht bestätigt; der Vorteil auf dem alten zurückgehaltenen Satz war überangepasst.
 Einschränkung: `heldout2` wurde vom Entwickler der Schicht geschrieben.
+
+| Nr. | Entscheidung | Regel |
+|---|---|---|
+| R11 | Verifizierte Antwort (P1 und P2) | Festgelegt am 07.11.2026, vor dem Bau, nach dem Versiegeln von `heldout3`. Komponenten: (V1) Kerndaten und, bei Listen- und Fristfragen, die Vertrags- bzw. Rechnungsliste als zusätzliche Belege im Kontext von P1; (V2) strukturierte Antwort per JSON-Schema (Werte mit Belegnummer, optional eine Rechnung), Code prüft jeden Wert gegen den zitierten Beleg und rechnet selbst, bei Fehlern eine Korrekturrunde, danach werden unbelegte Werte verworfen; (V3) Bestandsprüfung vor P1 und P2; (V4) in P2 Prüfung der Endantwort gegen die Beobachtungen mit einer Korrekturrunde. Modell für V2: llama3.1:8b oder qwen2.5:7b, höhere Korrektheit auf dem Entwicklungssatz, bei Gleichstand geringere Latenz. Übernahme je Prototyp, wenn auf dem Entwicklungssatz (eine Wiederholung) die Korrektheit gegenüber dem alten Stand steigt und die Halluzinationsrate nicht steigt. Danach einmal auf `heldout3`, zwei Wiederholungen: P1 alt, P1 neu, P2 neu. Bericht wie es ausfällt, gepaarte Differenz P1 neu gegen P1 alt. |
+
+**Bewertungskorrektur (07.11.2026, vor R11):** Ein Satz galt als verneint, wenn irgendwo „nicht“ stand, auch in einem
+Bedingungssatz („verlängert sich um 12 Monate, wenn er nicht rechtzeitig gekündigt wird“). Bedingungssätze mit
+wenn/falls/sofern werden vor der Verneinungsprüfung entfernt; alle Läufe wurden neu bewertet. Bekannter Sollwertfehler,
+nicht korrigiert, weil der Satz versiegelt ist: `heldout2`/N08 erwartet „Überweisung“, „überwiesen“ ist ebenso richtig.

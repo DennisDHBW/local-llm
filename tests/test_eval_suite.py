@@ -196,3 +196,8 @@ def test_selection_rules():
            "rewriters": [{"model": "a", "ms_p50": 900, "ms_p95": 1500, "format_ok": 20, "n": 20}],
            "vision": [{"model": "g", "values_found": 10}]}
     assert choose(out) == {"agent": "a", "extraction": "b", "rewriter": None, "vision": "g"}
+
+
+def test_condition_clause_is_not_a_negation():
+    assert asserted("12 Monate", "Der Vertrag verlängert sich um 12 Monate, wenn er nicht rechtzeitig gekündigt wird [4].")
+    assert not asserted("ConnectNet", "Für ConnectNet gibt es keine Preisgarantie.")

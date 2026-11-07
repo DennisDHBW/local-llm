@@ -8,6 +8,9 @@
     get_key_facts(document)                   Kerndaten eines Dokuments + verknüpfte Dokumente über Kunden- bzw.
                                               Vertragsnummer. Begründung: Multi-Hop Rechnung <-> Vertrag (Fragetyp c)
                                               braucht beide Dokumente; zwei getrennte Suchen fanden oft nur eines.
+    list_invoices()                           alle Rechnungen mit Aussteller, Kunde, Datum, Fälligkeit, Gesamtbetrag,
+                                              Nachzahlung/Guthaben (aus den Kerndaten). Begründung wie list_contracts:
+                                              Listenfragen über Rechnungen (R11).
     list_contracts(notice_date, customer)     alle Verträge als Tabelle mit in Python berechneten Fristen,
                                               Preisgarantie und Abschlag je Monat. Begründung: Listenfragen über viele
                                               Dokumente (Fragetyp d); Top-k schneidet Listen ab, 7B-Modelle rechnen
@@ -73,6 +76,9 @@ TOOL_SCHEMAS = [
           {"notice_date": {"type": "string", "description": "Stichtag der Kündigung TT.MM.JJJJ (Standard: heute)"},
            "customer": {"type": "string", "description": "optional: nur Verträge, deren Kunde, Anbieter oder Vertragsart dieses Wort enthält"}}, []),
 ]
+TOOL_SCHEMAS.append(_tool(
+    "list_invoices", "Alle Rechnungen als Liste mit Aussteller, Kunde, Rechnungsdatum, Fälligkeit, Gesamtbetrag und "
+    "Nachzahlung/Guthaben. Für Fragen über mehrere Rechnungen.", {}, []))
 TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
@@ -259,6 +265,7 @@ class AgentTools:
             monthly = monthly_advance(facts)
             parts = [f"Vertrag: {facts.get('provider') or name}", f"Kunde: {facts.get('customer_name') or '-'}",
                      f"Vertragsnummer: {facts.get('contract_number') or '-'}",
+                     f"Vertragsschluss: {de_date(facts.get('doc_date'))}",
                      f"Beginn: {de_date(facts.get('contract_start'))}",
                      f"Mindest-/Erstlaufzeit bis: {de_date(facts.get('term_end'))}",
                      f"Kündigung: {deadline.reason}"]
@@ -282,6 +289,22 @@ class AgentTools:
             evidence.append(Evidence(" | ".join(parts), filename=name, folder=rec.get("folder", ""), kind="contract"))
         return ToolResult(evidence, note if evidence else "Keine Verträge gefunden.")
 
+    def list_invoices(self) -> ToolResult:
+        evidence = []
+        for name, rec in sorted(self.facts().items()):
+            facts = rec.get("facts") or {}
+            if facts.get("doc_type") != "Rechnung" and rec.get("folder") != "Rechnungen":
+                continue
+            parts = [f"Rechnung: {facts.get('provider') or name}", f"Kunde: {facts.get('customer_name') or '-'}",
+                     f"Rechnungsdatum: {de_date(facts.get('doc_date'))}", f"fällig: {de_date(facts.get('due_date'))}"]
+            if facts.get("total_gross_eur") is not None:
+                parts.append(f"Gesamtbetrag: {de_number(float(facts['total_gross_eur']))} €")
+            if facts.get("amount_due_eur") is not None:
+                amount = float(facts["amount_due_eur"])
+                parts.append(f"{'Nachzahlung' if amount > 0 else 'Guthaben'}: {de_number(abs(amount))} €")
+            evidence.append(Evidence(" | ".join(parts), filename=name, folder=rec.get("folder", ""), kind="invoice"))
+        return ToolResult(evidence, "" if evidence else "Keine Rechnungen gefunden.")
+
     # --- Ausführung -------------------------------------------------------------------------------------------------
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
         args = dict(arguments or {})
@@ -295,6 +318,7 @@ class AgentTools:
                 str(args.get("filename_filter") or args.get("filename") or "")),
             "calculate": lambda: self.calculate(str(args.get("expression", ""))),
             "get_key_facts": lambda: self.get_key_facts(str(args.get("document") or args.get("filename") or "")),
+            "list_invoices": lambda: self.list_invoices(),
             "list_contracts": lambda: self.list_contracts(str(args.get("notice_date") or ""),
                                                           str(args.get("customer") or "")),
         }

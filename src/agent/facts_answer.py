@@ -7,6 +7,8 @@
 (B) Bestandsprüfung: Nennt die Frage eine zusammengesetzte Dokumentart ("Leasingrate", "Gasvertrag",
     "Hausratversicherung"), deren Bestimmungswort in keinem Dokument als Wortanfang vorkommt, lautet die Antwort
     "nicht belegt". Keine feste Liste von Vertragsarten: nur die Wortbildung und der Bestand entscheiden.
+    Zweiter Fall (R11): Die Frage fragt nach einem Vertrag (Vertrag, Abo, Kündigung, Laufzeit ...) eines genannten
+    Anbieters, von dem es nur Rechnungen gibt ("Kündigungsfrist meines Vertrags mit LuminaStyle").
 
 Passt keine Komponente, gibt `answer()` None zurück und die Frage geht an die Weiche (src/agent/router.py).
 """
@@ -65,6 +67,10 @@ COMPLEX = _r(r"\bum wie viel|\binsgesamt\b|\bzusammen\b|\bdurchschnitt|\bpro mon
              r"|\bnetto\b|\bdifferenz|\bunterschied|\bentsprich|\bstimm\w*\b.*\bueberein|\bwelche[nm]?\b\s+\w*\s*"
              r"(?:vertraege|rechnungen|dokumente)|\balle\b|\bheute\b|\bwenn ich\b|\bspaetestens\b|\bwie viele\b")
 
+# Fragen, die einen Vertrag voraussetzen (auf fold()).
+_CONTRACT_Q = re.compile(r"vertrag|vertraeg|\babo\b|abonnement|kuendig|laufzeit|preisgarantie|verlaenger")
+_GENERIC = {"gmbh", "stadtwerke", "online", "shop", "service", "versicherung", "telecom", "energie", "media",
+            "praxis", "zweckverband", "wasserversorgung", "store", "concept", "auto"}
 # Bestimmungswort + Grundwort einer Dokumentart (Wortbildung, keine Liste von Arten).
 _HEADS = ("vertrag", "vertrags", "vertrages", "vertraege", "versicherung", "rechnung", "abrechnung", "bescheid",
           "bescheids", "rate", "raten", "preis", "beitrag", "beitrags", "abo", "police", "gebuehr")
@@ -123,6 +129,26 @@ class FactsAnswerer:
                 return m.group(1)
         return None
 
+    def provider_without_contract(self, question: str) -> str | None:
+        """Genannter Anbieter, zu dem es nur Rechnungen gibt, bei einer Frage, die einen Vertrag voraussetzt."""
+        text = fold(question)
+        if not _CONTRACT_Q.search(text):
+            return None
+        by_provider: dict[str, set[str]] = {}
+        for rec in self.tools.facts().values():
+            facts = rec.get("facts") or {}
+            for word in re.findall(r"[a-z]{4,}", fold(str(facts.get("provider") or ""))):
+                if word not in _GENERIC:
+                    by_provider.setdefault(word, set()).add(str(facts.get("doc_type") or rec.get("folder") or ""))
+        named = [w for w in by_provider if re.search(rf"\b{w}", text)]
+        if named and all("Vertrag" not in by_provider[w] and "Vertraege" not in by_provider[w] for w in named):
+            return named[0]
+        return None
+
+    def inventory_gap(self, question: str) -> str | None:
+        """Bestandsprüfung (B), beide Fälle; liefert das fehlende Wort oder None."""
+        return self.missing_kind(question) or self.provider_without_contract(question)
+
     # --- (K) Kerndaten-Antwort -------------------------------------------------------------------------------------
     def field_answer(self, question: str) -> AgentAnswer | None:
         text = fold(question)
@@ -156,7 +182,7 @@ class FactsAnswerer:
     def answer(self, question: str) -> tuple[AgentAnswer | None, str]:
         """(Antwort, Komponente) oder (None, Weiche-Regel), wenn die Frage an P1/P2 geht."""
         if self.use_inventory:
-            kind = self.missing_kind(question)
+            kind = self.inventory_gap(question)
             if kind:
                 return (AgentAnswer(question=question, answer=NOT_FOUND,
                                     trajectory=[{"step": 1, "thought": f"keine Dokumente zu '{kind}' im Bestand",

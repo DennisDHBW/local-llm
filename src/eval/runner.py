@@ -31,6 +31,7 @@ from src.config import (
     PROCESSED_DIR,
     REWRITE_MODEL,
     SYNTH_MODEL,
+    VERIFY_MODEL,
     USE_BM25,
     USE_RERANKER,
     USE_REWRITER,
@@ -72,7 +73,7 @@ def wait_for_ollama(limit_s: float = 300.0) -> bool:
 
 def fresh_models(model: str = AGENT_MODEL) -> None:
     """Modelle entladen und außerhalb der Zeitmessung neu laden (Speicher freigeben, Latenz ohne Ladezeit)."""
-    llm.release(sorted({AGENT_MODEL, SYNTH_MODEL, EMBED_MODEL}))
+    llm.release(sorted({AGENT_MODEL, SYNTH_MODEL, VERIFY_MODEL, EMBED_MODEL}))
     try:
         llm.generate(model, "ok", num_predict=1)
         llm.embed(EMBED_MODEL, ["search_query: ok"])
@@ -81,10 +82,18 @@ def fresh_models(model: str = AGENT_MODEL) -> None:
     llm.take_calls()
 
 
-def run_once(system: str, question: str, p1: EvidenceFirstPipeline, p2: ReActAgent) -> tuple[dict[str, Any], float]:
+def build_systems(retriever: Retriever, tools: AgentTools) -> dict[str, EvidenceFirstPipeline | ReActAgent]:
+    """P1/P2 im aktuellen Stand; P1alt/P2alt ohne die R11-Komponenten (Vergleich nach R11)."""
+    return {"P1": EvidenceFirstPipeline(retriever=retriever, tools=tools), "P2": ReActAgent(tools=tools),
+            "P1alt": EvidenceFirstPipeline(retriever=retriever, tools=tools, verify_answer=False,
+                                           context_facts=False, inventory=False),
+            "P2alt": ReActAgent(tools=tools, inventory=False, check=False)}
+
+
+def run_once(system: EvidenceFirstPipeline | ReActAgent, question: str) -> tuple[dict[str, Any], float]:
     started = time.perf_counter()
     try:
-        answer = (p1.answer(question) if system == "P1" else p2.run(question))
+        answer = system.answer(question) if isinstance(system, EvidenceFirstPipeline) else system.run(question)
         record = answer.record()
         if record["status"] == "ok" and not str(record["answer"]).strip():
             record["status"], record["error"] = "error", "leere Antwort"
@@ -100,7 +109,7 @@ def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int
     bleibt im Datensatz vermerkt (outage_retried), zählt aber nur als Ausfall, wenn auch die Wiederholung scheitert."""
     retriever = Retriever()
     tools = AgentTools(retriever=retriever)
-    p1, p2 = EvidenceFirstPipeline(retriever=retriever), ReActAgent(tools=tools)
+    pipelines = build_systems(retriever, tools)
     done = {(r["system"], r["set"], r["qid"], r["rep"]) for r in load_jsonl(raw_path) if r.get("status") == "ok"}
     asked, last_model = 0, ""
     for index, q in enumerate(questions, 1):
@@ -109,7 +118,7 @@ def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int
             for system in systems:
                 if (system, q["set"], q["id"], rep) in done:
                     continue
-                model = SYNTH_MODEL if system == "P1" else AGENT_MODEL
+                model = pipelines[system].model
                 if asked % RELEASE_EVERY == 0 or model != last_model:
                     fresh_models(model)
                 last_model = model
@@ -124,15 +133,15 @@ def run_questions(questions: list[dict[str, Any]], systems: list[str], reps: int
                 print(f"[{index}/{len(questions)}] {system} {q['set']}/{q['id']} #{rep}: {q['question']}", flush=True)
                 retried = False
                 with PeakMonitor() as monitor:
-                    record, latency = run_once(system, q["question"], p1, p2)
+                    record, latency = run_once(pipelines[system], q["question"])
                     if record["status"] == "outage" and wait_for_ollama():
                         print("   Ollama-Ausfall, Wiederholung", flush=True)
                         retried = True
                         fresh_models(model)
-                        record, latency = run_once(system, q["question"], p1, p2)
+                        record, latency = run_once(pipelines[system], q["question"])
                 calls = llm.take_calls()
                 record.update({"variant": "v2", "system": system, "set": q["set"], "qid": q["id"], "rep": rep,
-                               "question": q["question"], "model": SYNTH_MODEL if system == "P1" else AGENT_MODEL, "retrieved": retrieved,
+                               "question": q["question"], "model": model, "retrieved": retrieved,
                                "latency_s": round(latency, 2), "llm_calls": calls, "outage_retried": retried,
                                "tokens_per_s": tokens_per_second(calls), "peak_ram_gb": round(monitor.peak_gb, 2)})
                 record.pop("evidence", None)

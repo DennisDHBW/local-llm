@@ -10,6 +10,7 @@ import pytest
 import src.llm as llm
 from src.agent.contracts import add_months, earliest_end, guarantee_active, monthly_advance
 from src.agent.evidence import Evidence, build_context, build_evidence, relevance, source_list
+from src.agent.answer import NOT_FOUND
 from src.agent.evidence_first import EvidenceFirstPipeline
 from src.agent.react_agent import ReActAgent, parse_tool_calls
 from src.agent.tools import TOOL_NAMES, TOOL_SCHEMAS, AgentTools, safe_eval
@@ -192,12 +193,78 @@ def test_react_reports_outage(tools, monkeypatch):
 def test_evidence_first_synthesis_only_on_request(monkeypatch):
     prompts = []
     monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: prompts.append(prompt) or "130,00 € [1].")
-    p1 = EvidenceFirstPipeline(retriever=FakeRetriever())
+    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), verify_answer=False, context_facts=False, inventory=False)
     evidence = p1.retrieve("Abschlag Strom?")
     assert not prompts and p1.panel(evidence)[0]["chapters"]["§ 5 Abschlagszahlungen"][0]["level"] == "hoch"
     answer = p1.synthesize("Abschlag Strom?", evidence)
     assert len(prompts) == 1 and "[1] Datei: Vertrag_Strom_NeckarStrom.pdf" in prompts[0]
     assert answer.answer.endswith("[1] Vertrag_Strom_NeckarStrom.pdf, S. 1, § 5 Abschlagszahlungen")
+
+
+def test_evidence_first_verified_answer_computes_in_code(monkeypatch, tools):
+    drafts = [json.dumps({"werte": [{"bezeichnung": "Abschlag", "wert": "130,00 €", "beleg": 1}], "rechnung": "w1 * 12",
+                          "antwort": "Pro Jahr sind es {ergebnis} € [1].", "belegt": True})]
+    prompts = []
+    monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: prompts.append(kw) or drafts[0])
+    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), context_facts=False, tools=tools)
+    answer = p1.answer("Wie viel Abschlag zahle ich pro Jahr für Strom?")
+    assert len(prompts) == 1 and prompts[0].get("schema") is not None
+    assert "1.560,00 €" in answer.answer and "[1] Vertrag_Strom_NeckarStrom.pdf" in answer.answer
+
+
+def test_evidence_first_corrects_once_then_falls_back(monkeypatch, tools):
+    bad = json.dumps({"werte": [{"bezeichnung": "Abschlag", "wert": "140,00 €", "beleg": 1}], "rechnung": "",
+                      "antwort": "Der Abschlag beträgt 140,00 € [1].", "belegt": True})
+    calls = []
+    monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: calls.append(prompt) or bad)
+    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), context_facts=False, tools=tools)
+    answer = p1.answer("Wie hoch ist der Abschlag für Strom?")
+    assert len(calls) == 2 and "140,00" in calls[1] and "Fehler" in calls[1]
+    assert answer.answer == NOT_FOUND
+
+
+def test_evidence_first_inventory_check_skips_model(monkeypatch, tools):
+    monkeypatch.setattr(llm, "generate", lambda *a, **kw: pytest.fail("kein Modellaufruf erwartet"))
+    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), context_facts=False, tools=tools)
+    answer = p1.answer("Wie hoch ist meine Leasingrate?")
+    assert answer.answer == NOT_FOUND and answer.trajectory[-1]["action"] == "inventory_check"
+
+
+def test_mentioned_documents_resolves_each_side_of_a_comparison(tools):
+    from src.agent.evidence_first import mentioned_documents
+
+    assert mentioned_documents(tools, "Stimmt die Heizstrom-Rechnung 2024 mit dem Heizstromvertrag überein?") == [
+        "Rechnung_Heizstrom_VoltWaerme_2024.pdf", "Vertrag_Heizstrom_VoltWaerme.docx"]
+    assert mentioned_documents(tools, "Welche Verträge haben eine Preisgarantie?") == []
+
+
+def test_list_invoices_lists_amounts(tools):
+    result = tools.list_invoices()
+    assert [e.filename for e in result.evidence] == ["Rechnung_Heizstrom_VoltWaerme_2024.pdf"]
+    assert "2.540,06" in result.evidence[0].text
+
+
+def _recording_chat(replies, seen):
+    def chat(model, messages, tools=None, **kw):
+        seen.append(messages[-1]["content"])
+        return replies.pop(0)
+    return chat
+
+
+def test_react_final_answer_with_unsupported_number_is_checked_once(monkeypatch, tools):
+    seen = []
+    call = {"message": {"content": "", "tool_calls": [{"function": {"name": "list_contracts", "arguments": {}}}]}}
+    wrong = {"message": {"content": "Die Kündigungsfrist beträgt 47,11 € [1]."}}
+    monkeypatch.setattr(llm, "chat", _recording_chat([call, wrong, wrong], seen))
+    answer = ReActAgent(tools=tools).run("Kündigungsfrist Strom?")
+    assert "Zahlen ohne Beleg: 47,11" in seen[-1]
+    assert answer.answer == NOT_FOUND and [t["action"] for t in answer.trajectory][-2:] == ["check", "final_answer"]
+
+
+def test_react_inventory_check_skips_model(monkeypatch, tools):
+    monkeypatch.setattr(llm, "chat", lambda *a, **kw: pytest.fail("kein Modellaufruf erwartet"))
+    answer = ReActAgent(tools=tools).run("Wie hoch ist meine Leasingrate?")
+    assert answer.answer == NOT_FOUND and answer.trajectory[0]["action"] == "inventory_check"
 
 
 def test_disabled_tools_are_removed_from_schema_and_prompt(tools, monkeypatch):
