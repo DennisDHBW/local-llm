@@ -74,7 +74,7 @@ SCORE_LOW = 0.4
 VERIFY = _flag("VERIFY", True)                         # P1: Werte als JSON, Prüfung gegen Belege, Rechnen per Code
 CONTEXT_FACTS = _flag("CONTEXT_FACTS", True)           # P1: Kerndaten und Vertrags-/Rechnungsliste als Belege
 INVENTORY_CHECK = _flag("INVENTORY_CHECK", True)       # P1/P2: Bestandsprüfung vor der Antwort
-VERIFY_MODEL = _env("VERIFY_MODEL", "qwen2.5:7b")      # R11: höhere Korrektheit auf dev als llama3.1:8b       # Modell für den JSON-Entwurf (R11: llama3.1:8b oder qwen2.5:7b)
+VERIFY_MODEL = _env("VERIFY_MODEL", "qwen2.5:7b")      # JSON-Entwurf; R11: auf dev besser als llama3.1:8b
 # --- Agent (ReAct, Prototyp 2) ------------------------------------------------------------------------------------
 MAX_STEPS = int(_env("MAX_STEPS", "6"))
 # Werkzeuge abschalten, z. B. für die GraphRAG-Messung: DOKAGENT_DISABLED_TOOLS=get_key_facts
