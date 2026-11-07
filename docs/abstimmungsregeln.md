@@ -64,6 +64,33 @@ Einschränkung: `heldout2` wurde vom Entwickler der Schicht geschrieben.
 |---|---|---|
 | R11 | Verifizierte Antwort (P1 und P2) | Festgelegt am 07.11.2026, vor dem Bau, nach dem Versiegeln von `heldout3`. Komponenten: (V1) Kerndaten und, bei Listen- und Fristfragen, die Vertrags- bzw. Rechnungsliste als zusätzliche Belege im Kontext von P1; (V2) strukturierte Antwort per JSON-Schema (Werte mit Belegnummer, optional eine Rechnung), Code prüft jeden Wert gegen den zitierten Beleg und rechnet selbst, bei Fehlern eine Korrekturrunde, danach werden unbelegte Werte verworfen; (V3) Bestandsprüfung vor P1 und P2; (V4) in P2 Prüfung der Endantwort gegen die Beobachtungen mit einer Korrekturrunde. Modell für V2: llama3.1:8b oder qwen2.5:7b, höhere Korrektheit auf dem Entwicklungssatz, bei Gleichstand geringere Latenz. Übernahme je Prototyp, wenn auf dem Entwicklungssatz (eine Wiederholung) die Korrektheit gegenüber dem alten Stand steigt und die Halluzinationsrate nicht steigt. Danach einmal auf `heldout3`, zwei Wiederholungen: P1 alt, P1 neu, P2 neu. Bericht wie es ausfällt, gepaarte Differenz P1 neu gegen P1 alt. |
 
+**Ergebnis R11 (08.11.2026).** Entwicklungssatz, eine Wiederholung (Bewertung mit Korrektur):
+
+| System | richtig | Halluzination | falsche Ablehnung | Latenz p50 |
+|---|---|---|---|---|
+| P1 alt (`p1_neu_dev`) | 44/54 | 2 | 6 | 40 s |
+| P1 neu, llama3.1:8b (`r11_p1_llama`) | 41/54 | 4 | 0 | 77 s |
+| P1 neu, qwen2.5:7b (`r11_p1_qwen`) | 46/54 | 4 | 0 | 71 s |
+| P1 neu, qwen2.5:7b, nach Fehleranalyse (`r11_p1_qwen2`) | 46/54 | 2 | 0 | 71 s |
+| P2 alt (`p2_dev`) | 23/54 | 5 | 18 | 73 s |
+| P2 neu (`r11_p2`) | 28/54 | 1 | 19 | 77 s |
+
+Modell für V2: qwen2.5:7b. P2 neu übernommen. P1 neu im ersten Lauf nicht übernommen (Halluzination 2 → 4); Ursache in
+drei von vier Fällen: Code hängte das Ergebnis einer unnötigen Rechnung an eine fertige Antwort. Korrektur (Rechnung
+zählt nur mit Platzhalter `{ergebnis}` im Antwortsatz), zweiter Lauf auf dem Entwicklungssatz: 46/54, Halluzination 2;
+P1 neu übernommen. Danach einmal `heldout3`, zwei Wiederholungen (`schlussmessung4`):
+
+| System | richtig | Wilson 95 % | Halluzination | falsche Ablehnung | Latenz p50 |
+|---|---|---|---|---|---|
+| P1 alt | 26/48 (54 %) | [40; 67] | 4 | 12 | 50 s |
+| P1 neu | 28/48 (58 %) | [44; 71] | 4 | 4 | 104 s |
+| P2 neu | 14/48 (29 %) | [18; 43] | 0 | 18 | 129 s |
+
+Gepaarte Differenz P1 neu gegen P1 alt: +4 pp [−12,5; +18,8] (Bootstrap je Frage), also nicht gesichert. Gewinn bei
+den Standardfragen (18 gegen 16), Grenz- und Negativfragen unverändert. Falsche Ablehnungen 12 → 4, die Latenz
+verdoppelt sich. Verbleibende Fehler: Listenfragen (T18, T19) trotz Liste im Kontext falsch gefiltert, Dauer statt
+Datumsspanne (T07), Wert aus dem falschen Dokument (T10, T24). `heldout3` ist damit verbraucht.
+
 **Bewertungskorrektur (07.11.2026, vor R11):** Ein Satz galt als verneint, wenn irgendwo „nicht“ stand, auch in einem
 Bedingungssatz („verlängert sich um 12 Monate, wenn er nicht rechtzeitig gekündigt wird“). Bedingungssätze mit
 wenn/falls/sofern werden vor der Verneinungsprüfung entfernt; alle Läufe wurden neu bewertet. Bekannter Sollwertfehler,
