@@ -176,7 +176,7 @@ def main() -> None:
     parser.add_argument("--report-only", action="store_true")
     parser.add_argument("--types", default="", help="nur diese Fragetypen, z. B. c,d (GraphRAG-Messung)")
     args = parser.parse_args()
-    for sealed in ("heldout", "heldout2"):
+    for sealed in ("heldout", "heldout2", "heldout3"):
         if sealed in args.sets.split(",") and not heldout_checksum_ok(sealed):
             raise SystemExit(f"Zurückgehaltener Testsatz {sealed} verändert (Prüfsumme) - Abbruch.")
     questions = load_sets(args.sets)
