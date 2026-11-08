@@ -248,6 +248,8 @@ Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `rout
 | `ablation.py`, `models.py` | Retrieval-Ablation (gepaarter Bootstrap); Modellauswahl |
 | `baseline.py`, `adapters/v1_driver.py` | Ausgangsmessung von Version1 in deren Umgebung, gleiche Bewertung |
 | `router_eval.py` | Weiche P1/P2 aus vorhandenen Antworten zusammensetzen (Varianten Regel, Kaskade, beides, Kerndaten-Schicht), gepaarter Bootstrap gegen P1 und P2 |
+| `ragas_eval.py` | RAGAS 0.4 (Faithfulness, Context Recall) auf vorhandenen Antworten eines Laufs; Richter qwen2.5:7b über Ollamas OpenAI-Schnittstelle, Temperatur 0. Faithfulness nur für nicht abgelehnte Antworten ohne Quellenblock, Context Recall nur für Typ a–c mit Sollantwort "Laut Dokument: <Beleg>.". Gibt vor dem Start alle anderen Modelle frei (16 GB), nimmt nach Abbruch wieder auf, gleicht Faithfulness < 1 mit der Zahlprüfung aus `scoring.py` ab |
+| `stichprobe.py` | drei frei formulierte Fragen S1–S3 an P1/P2; Soll und Kriterien K1–K3 stehen vorher in `docs/stichprobe.md` |
 | `latex.py` | KPI-Tabelle für die Ausarbeitung aus `ausgangsmessung` und `schlussmessung2` |
 
 ### Messergebnisse (`src/eval/results/`)
@@ -268,6 +270,8 @@ Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `rout
 | `schicht_schluss/` | Weiche und Schicht+Weiche einmal aus `schlussmessung3` zusammengesetzt: P1 26/40 (65 %), P2 4/40 (10 %, Halluzination 33 %), Weiche und Schicht+Weiche je 22/40 (55 %); gegen P1 −10 pp [−20; −2,5]. Die Schicht greift nur bei N18/N19 (Bestand), die P1 schon richtig hatte |
 | `r11_p1_llama/`, `r11_p1_qwen/`, `r11_p1_qwen2/`, `r11_p2/` | R11 auf dem Entwicklungssatz: P1 neu 46/54 (qwen2.5, nach Fehleranalyse, Halluzination 2 wie vorher; alt 44), P2 neu 28/54 (alt 23, Halluzination 5 → 1); beide übernommen |
 | `schlussmessung4/` | R11 einmal auf `heldout3`, zwei Wiederholungen: P1 alt 26/48 (54 %), P1 neu 28/48 (58 %), P2 neu 14/48 (29 %, keine Halluzination); P1 neu gegen alt +4 pp [−12,5; +18,8] |
+| `ragas_heldout3/` | RAGAS auf `schlussmessung4` (Wiederholung 0, beide Wiederholungen waren gleich) |
+| `stichprobe/` | Antworten auf S1–S3, Bewertung in `docs/stichprobe.md` |
 
 Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
 Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet. Weiche (src/agent/router.py): 59 %, gegen P1 +10 pp [0; +21], gegen P2 +7 pp [−7; +22].

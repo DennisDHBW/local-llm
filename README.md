@@ -44,6 +44,9 @@ uv run python compare_prototypes.py   # P1 gegen P2 auf dem Kernsatz (9 Pflichtf
 uv run python -m src.eval.runner --sets kern,dev,synthetic,heldout --reps 2 --name schlussmessung
 uv run python -m src.eval.ablation    # Boost 1,0/1,25/1,5/2,0, BM25, Reranker, Rewriting (nur dev + synthetic)
 uv run python -m src.eval.models      # Modellauswahl nach den Kriterien aus Allgemein.md
+uv sync --extra ragas                 # einmalig: RAGAS (Richter qwen2.5:7b lokal über Ollama)
+uv run python -m src.eval.ragas_eval --run schlussmessung4 --sets heldout3 --systems P1,P1alt,P2 --name ragas_heldout3
+uv run python -m src.eval.stichprobe  # drei frei formulierte Fragen, Kriterien vorher in docs/stichprobe.md
 ```
 
 Berichte (Markdown) und Rohdaten mit Trajektorie je Antwort (JSONL) liegen unter `src/eval/results/<lauf>/`.
