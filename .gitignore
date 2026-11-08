@@ -1,0 +1,42 @@
+.venv/
+.cache/
+.aider*
+project_content.txt
+*.xml
+# *.toml entfernt (Claude, 2026-10-15): pyproject.toml muss versioniert sein (Abhängigkeiten, Test-/Ruff-Konfiguration)
+*.db
+# --- Ergänzung (Claude, 2026-10-14) -----------------------------------------
+# Python / Werkzeuge
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.testmondata*
+.mypy_cache/
+.ruff_cache/
+
+# IDE und Assistenten
+.idea/
+.vscode/
+
+# Laufzeit-Caches (werden aus den Dokumenten neu erzeugt)
+
+# Daten: echte Dokumente, Ableitungen, Indizes (personenbezogen, groß, reproduzierbar)
+data/raw/*
+!data/raw/Vertraege/
+data/processed/
+data/vectors/
+data/graph/
+*.tmp
+*.corrupt
+
+# Projekt-Dumps und Ausgaben von Evaluationsläufen
+output*.txt
+eval_*.txt
+evaluation/results/
+data/outputs/
+
+# Lokales Archiv (alte Dumps, Logs) und Regressions-Snapshots von evaluation.snapshot
+archiv/
+snapshot_*.json
+# Projekt-Export von export_project.sh (enthält auch data/processed, also personenbezogene Daten)
+projekt_export*.txt

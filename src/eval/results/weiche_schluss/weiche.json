@@ -1,0 +1,33 @@
+{
+ "sets": [
+  "kern",
+  "heldout"
+ ],
+ "p1": "src/eval/results/schlussmessung2",
+ "p2": "src/eval/results/schlussmessung2",
+ "variants": {
+  "Weiche": {
+   "n": 58,
+   "correct": 34.0,
+   "p1_correct": 28.0,
+   "p2_correct": 30.0,
+   "an_p2": 24,
+   "diff_vs_p1": [
+    0.10344827586206896,
+    0.0,
+    0.20689655172413793
+   ],
+   "diff_vs_p2": [
+    0.06896551724137931,
+    -0.0693965517241379,
+    0.22413793103448276
+   ],
+   "rules": {
+    "frist": 20,
+    "liste": 2,
+    "standard": 34,
+    "vergleich": 2
+   }
+  }
+ }
+}

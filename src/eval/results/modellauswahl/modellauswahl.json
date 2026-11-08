@@ -1,0 +1,448 @@
+{
+ "agents": [
+  {
+   "model": "qwen2.5:7b",
+   "n": 14,
+   "native": 12,
+   "correct": 9,
+   "args_ok": 12,
+   "latency_p50": 7.074667794000106,
+   "tokens_per_s": 5.820573988420273,
+   "ram_gb": 5.46,
+   "rows": [
+    {
+     "question": "Welche Verträge kann ich zum 30.06.2027 beenden, wenn ich heute kündige?",
+     "native": true,
+     "tool": "list_contracts",
+     "correct": true,
+     "args_ok": true,
+     "s": 77.92367043000013
+    },
+    {
+     "question": "Für welche Verträge gilt noch eine Preisgarantie?",
+     "native": true,
+     "tool": "list_contracts",
+     "correct": true,
+     "args_ok": true,
+     "s": 7.549302849999549
+    },
+    {
+     "question": "Wie hoch sind alle meine Abschläge zusammen pro Monat?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": false,
+     "args_ok": true,
+     "s": 6.970824748000268
+    },
+    {
+     "question": "Berechne 1.574,37 minus 1.430,00.",
+     "native": true,
+     "tool": "calculate",
+     "correct": true,
+     "args_ok": true,
+     "s": 8.35952021599951
+    },
+    {
+     "question": "Was ist 12 mal 14,00?",
+     "native": true,
+     "tool": "calculate",
+     "correct": true,
+     "args_ok": true,
+     "s": 6.078146593999918
+    },
+    {
+     "question": "Zeige mir die Gliederung des Stromvertrags.",
+     "native": true,
+     "tool": "get_document_outline",
+     "correct": true,
+     "args_ok": true,
+     "s": 5.855218996999611
+    },
+    {
+     "question": "Welche Kapitel hat der Abovertrag von StreamPulse?",
+     "native": true,
+     "tool": "get_document_outline",
+     "correct": true,
+     "args_ok": true,
+     "s": 6.40084664799997
+    },
+    {
+     "question": "Was zeigt das Diagramm in der Verbrauchsübersicht 2025?",
+     "native": true,
+     "tool": "search_images",
+     "correct": true,
+     "args_ok": true,
+     "s": 8.289166460999695
+    },
+    {
+     "question": "Welcher Arbeitspreis für den Niedertarif steht in der Heizstromrechnung?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": false,
+     "args_ok": true,
+     "s": 7.6211917059999905
+    },
+    {
+     "question": "Welche Positionen stehen auf der Werkstattrechnung?",
+     "native": true,
+     "tool": "search_tables",
+     "correct": true,
+     "args_ok": true,
+     "s": 6.83878555299998
+    },
+    {
+     "question": "Passt der Abschlag in der Stromrechnung zum Stromvertrag?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": true,
+     "args_ok": true,
+     "s": 7.178510839999944
+    },
+    {
+     "question": "Welche Vertragsnummer gehört zur Wasserrechnung?",
+     "native": false,
+     "tool": null,
+     "correct": false,
+     "args_ok": false,
+     "s": 8.726637316000051
+    },
+    {
+     "question": "Was steht im Stromvertrag zu den Schlussbestimmungen?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": false,
+     "args_ok": true,
+     "s": 5.865706704999866
+    },
+    {
+     "question": "Welche Zahlungsweise gilt für die Kfz-Versicherung?",
+     "native": false,
+     "tool": null,
+     "correct": false,
+     "args_ok": false,
+     "s": 2.919766408999749
+    }
+   ]
+  },
+  {
+   "model": "llama3.1:8b",
+   "n": 14,
+   "native": 14,
+   "correct": 12,
+   "args_ok": 14,
+   "latency_p50": 8.1581891084993,
+   "tokens_per_s": 5.125654182648364,
+   "ram_gb": 6.25,
+   "rows": [
+    {
+     "question": "Welche Verträge kann ich zum 30.06.2027 beenden, wenn ich heute kündige?",
+     "native": true,
+     "tool": "list_contracts",
+     "correct": true,
+     "args_ok": true,
+     "s": 84.33840857499945
+    },
+    {
+     "question": "Für welche Verträge gilt noch eine Preisgarantie?",
+     "native": true,
+     "tool": "list_contracts",
+     "correct": true,
+     "args_ok": true,
+     "s": 7.597966866000206
+    },
+    {
+     "question": "Wie hoch sind alle meine Abschläge zusammen pro Monat?",
+     "native": true,
+     "tool": "search_tables",
+     "correct": false,
+     "args_ok": true,
+     "s": 8.4195028919994
+    },
+    {
+     "question": "Berechne 1.574,37 minus 1.430,00.",
+     "native": true,
+     "tool": "calculate",
+     "correct": true,
+     "args_ok": true,
+     "s": 7.8968753249992005
+    },
+    {
+     "question": "Was ist 12 mal 14,00?",
+     "native": true,
+     "tool": "calculate",
+     "correct": true,
+     "args_ok": true,
+     "s": 5.666236982000555
+    },
+    {
+     "question": "Zeige mir die Gliederung des Stromvertrags.",
+     "native": true,
+     "tool": "get_document_outline",
+     "correct": true,
+     "args_ok": true,
+     "s": 6.609901357999661
+    },
+    {
+     "question": "Welche Kapitel hat der Abovertrag von StreamPulse?",
+     "native": true,
+     "tool": "get_document_outline",
+     "correct": true,
+     "args_ok": true,
+     "s": 7.291091955999946
+    },
+    {
+     "question": "Was zeigt das Diagramm in der Verbrauchsübersicht 2025?",
+     "native": true,
+     "tool": "search_images",
+     "correct": true,
+     "args_ok": true,
+     "s": 9.198585577999438
+    },
+    {
+     "question": "Welcher Arbeitspreis für den Niedertarif steht in der Heizstromrechnung?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": false,
+     "args_ok": true,
+     "s": 8.669368421999934
+    },
+    {
+     "question": "Welche Positionen stehen auf der Werkstattrechnung?",
+     "native": true,
+     "tool": "search_tables",
+     "correct": true,
+     "args_ok": true,
+     "s": 9.44150351799999
+    },
+    {
+     "question": "Passt der Abschlag in der Stromrechnung zum Stromvertrag?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": true,
+     "args_ok": true,
+     "s": 7.75282789799985
+    },
+    {
+     "question": "Welche Vertragsnummer gehört zur Wasserrechnung?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": true,
+     "args_ok": true,
+     "s": 6.5418361980000554
+    },
+    {
+     "question": "Was steht im Stromvertrag zu den Schlussbestimmungen?",
+     "native": true,
+     "tool": "search_documents",
+     "correct": true,
+     "args_ok": true,
+     "s": 9.696823188000053
+    },
+    {
+     "question": "Welche Zahlungsweise gilt für die Kfz-Versicherung?",
+     "native": true,
+     "tool": "search_documents",
+     "correct": true,
+     "args_ok": true,
+     "s": 9.941747435999787
+    }
+   ]
+  },
+  {
+   "model": "llama3.2",
+   "n": 14,
+   "native": 13,
+   "correct": 10,
+   "args_ok": 13,
+   "latency_p50": 3.3329352139999173,
+   "tokens_per_s": 10.47658282397348,
+   "ram_gb": 3.12,
+   "rows": [
+    {
+     "question": "Welche Verträge kann ich zum 30.06.2027 beenden, wenn ich heute kündige?",
+     "native": true,
+     "tool": "list_contracts",
+     "correct": true,
+     "args_ok": true,
+     "s": 37.173107331999745
+    },
+    {
+     "question": "Für welche Verträge gilt noch eine Preisgarantie?",
+     "native": true,
+     "tool": "list_contracts",
+     "correct": true,
+     "args_ok": true,
+     "s": 3.120330190000459
+    },
+    {
+     "question": "Wie hoch sind alle meine Abschläge zusammen pro Monat?",
+     "native": true,
+     "tool": "calculate",
+     "correct": false,
+     "args_ok": true,
+     "s": 3.83136209300028
+    },
+    {
+     "question": "Berechne 1.574,37 minus 1.430,00.",
+     "native": true,
+     "tool": "calculate",
+     "correct": true,
+     "args_ok": true,
+     "s": 3.470383910000237
+    },
+    {
+     "question": "Was ist 12 mal 14,00?",
+     "native": true,
+     "tool": "calculate",
+     "correct": true,
+     "args_ok": true,
+     "s": 2.5147067810003136
+    },
+    {
+     "question": "Zeige mir die Gliederung des Stromvertrags.",
+     "native": true,
+     "tool": "get_document_outline",
+     "correct": true,
+     "args_ok": true,
+     "s": 2.7814134109994484
+    },
+    {
+     "question": "Welche Kapitel hat der Abovertrag von StreamPulse?",
+     "native": true,
+     "tool": "get_document_outline",
+     "correct": true,
+     "args_ok": true,
+     "s": 3.213282610000533
+    },
+    {
+     "question": "Was zeigt das Diagramm in der Verbrauchsübersicht 2025?",
+     "native": true,
+     "tool": "search_images",
+     "correct": true,
+     "args_ok": true,
+     "s": 3.3408259569996517
+    },
+    {
+     "question": "Welcher Arbeitspreis für den Niedertarif steht in der Heizstromrechnung?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": false,
+     "args_ok": true,
+     "s": 3.792984910999621
+    },
+    {
+     "question": "Welche Positionen stehen auf der Werkstattrechnung?",
+     "native": false,
+     "tool": null,
+     "correct": false,
+     "args_ok": false,
+     "s": 3.5727145860000746
+    },
+    {
+     "question": "Passt der Abschlag in der Stromrechnung zum Stromvertrag?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": true,
+     "args_ok": true,
+     "s": 3.325044471000183
+    },
+    {
+     "question": "Welche Vertragsnummer gehört zur Wasserrechnung?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": true,
+     "args_ok": true,
+     "s": 2.9466426940007295
+    },
+    {
+     "question": "Was steht im Stromvertrag zu den Schlussbestimmungen?",
+     "native": true,
+     "tool": "get_key_facts",
+     "correct": false,
+     "args_ok": true,
+     "s": 2.9880670980001014
+    },
+    {
+     "question": "Welche Zahlungsweise gilt für die Kfz-Versicherung?",
+     "native": true,
+     "tool": "search_documents",
+     "correct": true,
+     "args_ok": true,
+     "s": 3.891797604999738
+    }
+   ]
+  }
+ ],
+ "facts": [
+  {
+   "model": "qwen2.5:7b",
+   "json_valid": 3,
+   "docs": 3,
+   "field_accuracy": 1.0,
+   "fields": 29,
+   "latency_p50": 90.94423718899998
+  },
+  {
+   "model": "llama3.1:8b",
+   "json_valid": 3,
+   "docs": 3,
+   "field_accuracy": 1.0,
+   "fields": 29,
+   "latency_p50": 99.61908860200037
+  },
+  {
+   "model": "llama3.2",
+   "json_valid": 3,
+   "docs": 3,
+   "field_accuracy": 0.9655172413793104,
+   "fields": 29,
+   "latency_p50": 46.632927826000014
+  }
+ ],
+ "rewriters": [
+  {
+   "model": "llama3.2",
+   "n": 20,
+   "format_ok": 8,
+   "ms_p50": 2668.1170595002186,
+   "ms_p95": 3217.1158873498375,
+   "under_500ms": 0,
+   "ram_gb": 3.12
+  },
+  {
+   "model": "qwen2.5:7b",
+   "n": 20,
+   "format_ok": 20,
+   "ms_p50": 4368.804214500415,
+   "ms_p95": 6274.076965350014,
+   "under_500ms": 0,
+   "ram_gb": 5.46
+  },
+  {
+   "model": "gemma3:4b",
+   "n": 20,
+   "format_ok": 20,
+   "ms_p50": 3244.149626500075,
+   "ms_p95": 4500.76531930049,
+   "under_500ms": 0,
+   "ram_gb": 3.04
+  }
+ ],
+ "vision": [
+  {
+   "model": "gemma3:4b",
+   "values_found": 14,
+   "values": 14,
+   "latency_p50": 71.03722537650037,
+   "ram_gb": 3.04,
+   "captions": {
+    "Rechnungen/Verbrauchsuebersicht_Strom_2025.pdf": "Das Bild zeigt ein Diagramm mit dem Titel „Monatlicher Stromverbrauch 2025“.\n\n**Diagramm-Elemente:**\n\n*   **Titel:** Monatlicher Stromverbrauch 2025\n*   **X-Achse:** Monat 2025 (Jan, Feb, Mär, Apr, Mai, Jun, Jul, Aug, Sep, Okt, Nov, Dez)\n*   **Y-Achse:** Verbrauch in kWh (0 bis 400 kWh)\n\n**Ablesbare Werte:**\n\nBeschriftung: Wert Einheit\n*   Jan: 380 kWh\n*   Feb: 340 kWh\n*   Mär: 300 kWh\n*   Apr: 250 kWh\n*   Mai: 210 kWh\n*   Jun: 180 kWh\n*   Jul: 150 kWh\n*   Aug: 170 kWh\n*   Sep: 220 kWh\n*   Okt: 270 kWh\n*   Nov: 330 kWh\n*   Dez: 360 kWh\n\n**Verlauf:**\n\n*   Höchster Wert: 380 kWh (Januar)\n*   Niedrigster Wert: 150 kWh (Juli)",
+    "Vertraege/Vertrag_Heizstrom_VoltWaerme.docx": "Hier ist die sachliche Beschreibung des Bildes:\n\n**Diagrammtyp:** Balkendiagramm\n\n**Titel:** Prognose Jahresverbrauch Heizstrom\n\n**Achsenbeschriftungen:**\n\n*   **X-Achse:** HT (Tag)\n*   **Y-Achse:** kWh pro Jahr\n\n**Beschriftung: Wert Einheit**\n\n*   HT (Tag): 2.800 kWh\n*   NT (Nacht): 5.200 kWh\n\n**Verlauf:**\n\n*   Höchster Wert: 5.200 kWh (NT (Nacht))\n*   Niedrigster Wert: 2.800 kWh (HT (Tag))"
+   }
+  }
+ ],
+ "embedding": {
+  "model": "nomic-embed-text",
+  "dimension": 768
+ }
+}

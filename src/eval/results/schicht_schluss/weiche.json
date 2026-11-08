@@ -1,0 +1,56 @@
+{
+ "sets": [
+  "heldout2"
+ ],
+ "p1": "src/eval/results/schlussmessung3",
+ "p2": "src/eval/results/schlussmessung3",
+ "variants": {
+  "Weiche": {
+   "n": 40,
+   "correct": 22.0,
+   "p1_correct": 26.0,
+   "p2_correct": 4.0,
+   "an_p2": 14,
+   "diff_vs_p1": [
+    -0.1,
+    -0.2,
+    -0.025
+   ],
+   "diff_vs_p2": [
+    0.45,
+    0.3,
+    0.6
+   ],
+   "rules": {
+    "frist": 6,
+    "liste": 6,
+    "standard": 26,
+    "vergleich": 2
+   }
+  },
+  "Schicht+Weiche": {
+   "n": 40,
+   "correct": 22.0,
+   "p1_correct": 26.0,
+   "p2_correct": 4.0,
+   "an_p2": 14,
+   "diff_vs_p1": [
+    -0.1,
+    -0.2,
+    -0.025
+   ],
+   "diff_vs_p2": [
+    0.45,
+    0.3,
+    0.6
+   ],
+   "rules": {
+    "bestand": 4,
+    "frist": 6,
+    "liste": 6,
+    "standard": 22,
+    "vergleich": 2
+   }
+  }
+ }
+}

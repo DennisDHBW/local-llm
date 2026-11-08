@@ -1,156 +1,102 @@
+"""Ebene 3 der Zwischenspeicher: ChromaDB in data/vectors (Kosinus, 768 Dimensionen, Metadatenfilter).
+
+- Jeder Chunk wird mit Hierarchie-Präfix eingebettet (src/retrieval/prefix.py).
+- Unveränderte Chunks werden übersprungen (embedding_hash = SHA-256 über Modell, Präfix und Text).
+- Nach dem Indexieren steht die Signatur (Modell, Präfixe) in data/vectors/embedding_index.json. Jede Abfrage prüft
+  sie: wurde der Index mit einem anderen Modell gebaut, bricht die Suche mit klarer Meldung ab, statt sinnlose
+  Treffer zu liefern.
+"""
+
+from __future__ import annotations
+
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List
+from typing import Any
 
 import chromadb
 
-from src.config import EMBED_MODEL, PROCESSED_DIR, VECTOR_DIR
-from src.embeddings import document_prefix, embed_document
-from src.retrieval.search import invalidate_bm25_cache
+from src.config import COLLECTION_NAME, EMBED_MODEL, VECTOR_DIR
+from src.retrieval import embeddings
+from src.retrieval.prefix import chapter, indexed_text
 
-# Erhöhen, wenn sich die Art der Embeddings ändert -> alle Chunks werden neu eingebettet.
-EMBED_SCHEMA_VERSION = "v2-nomic-prefix"
+INDEX_INFO = "embedding_index.json"
+META_KEYS = ("filename", "folder", "rel_path", "doc_format", "role", "table_id")
+
+
+class EmbeddingMismatch(RuntimeError):
+    """Index und Abfrage nutzen verschiedene Embedding-Modelle oder Präfixe."""
+
+
+def open_collection(vector_dir: Path = VECTOR_DIR, name: str = COLLECTION_NAME) -> Any:
+    Path(vector_dir).mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(vector_dir))
+    return client.get_or_create_collection(name=name, metadata={"hnsw:space": "cosine"})
+
+
+def check_signature(vector_dir: Path, model: str) -> None:
+    path = Path(vector_dir) / INDEX_INFO
+    if not path.exists():
+        return
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    if stored != embeddings.signature(model):
+        raise EmbeddingMismatch(f"Index gebaut mit {stored}, Abfrage nutzt {embeddings.signature(model)}. "
+                                "Import neu starten: uv run python -m src.ingestion.pipeline --rebuild")
 
 
 class VectorStore:
-    def __init__(
-            self,
-            processed_dir: Path = PROCESSED_DIR,
-            vector_dir: Path = VECTOR_DIR,
-            embed_model: str = EMBED_MODEL,
-            collection_name: str = "energy_docs"
-    ):
-        self.processed_dir = Path(processed_dir)
+    def __init__(self, vector_dir: Path = VECTOR_DIR, model: str = EMBED_MODEL, collection: Any = None):
         self.vector_dir = Path(vector_dir)
-        self.vector_dir.mkdir(parents=True, exist_ok=True)
-        self.embed_model = embed_model
+        self.model = model
+        self.collection = collection if collection is not None else open_collection(self.vector_dir)
 
-        self.client = chromadb.PersistentClient(path=str(self.vector_dir))
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"}
-        )
+    def _hash(self, text: str) -> str:
+        sig = embeddings.signature(self.model)
+        return hashlib.sha256(f"{sig['embed_model']}\0{sig['document_prefix']}\0{text}".encode()).hexdigest()
 
-    def _get_embedding(self, text: str) -> List[float]:
-        return embed_document(text, self.embed_model)
-
-    def _embedding_hash(self, text: str) -> str:
-        """Identifiziert Embedding-Eingabe, Modell, Prefix und Schema-Version eines Chunks."""
-        prefix = document_prefix(self.embed_model)
-        payload = f"{EMBED_SCHEMA_VERSION}\0{self.embed_model}\0{prefix}\0{text}".encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
-
-    def index_documents(self, rebuild: bool = False) -> int:
-        """Liest Chunks und speichert sie samt ALLEN Metadaten in ChromaDB."""
-        json_files = sorted(self.processed_dir.glob("*_chunks.json"))
-
-        if not json_files:
-            print("Keine JSON-Dateien zum Vektorisieren gefunden.")
+    def index_file(self, chunks: Sequence[dict[str, Any]]) -> int:
+        """Indexiert die Chunks EINER Datei; entfernt Chunks dieser Datei, die es nicht mehr gibt. Rückgabe: neu
+        eingebettete Chunks."""
+        if not chunks:
             return 0
+        filename = chunks[0]["metadata"]["filename"]
+        ids = [c["chunk_id"] for c in chunks]
+        existing = self.collection.get(where={"filename": filename}, include=["metadatas"])
+        known = {i: (m or {}).get("embedding_hash") for i, m in zip(existing["ids"], existing["metadatas"], strict=True)}
+        obsolete = sorted(set(known) - set(ids))
+        if obsolete:
+            self.collection.delete(ids=obsolete)
+        todo = []
+        for chunk in chunks:
+            text = indexed_text(chunk)
+            digest = self._hash(text)
+            if known.get(chunk["chunk_id"]) != digest:
+                todo.append((chunk, text, digest))
+        if todo:
+            vectors = embeddings.embed_documents([t for _, t, _ in todo], self.model)
+            self.collection.upsert(
+                ids=[c["chunk_id"] for c, _, _ in todo], embeddings=vectors, documents=[t for _, t, _ in todo],
+                metadatas=[self._metadata(c, d) for c, _, d in todo])
+        self.write_signature()
+        return len(todo)
 
-        # Rebuild löscht den alten Index erst NACH erfolgreichem Einbetten aller Chunks. Bricht Ollama
-        # unterwegs ab, bleibt der bisherige Index unverändert nutzbar.
-        stale_candidates: set[str] = set()
-        if rebuild:
-            stale_candidates = set(self.collection.get(include=[])["ids"])
-        seen_ids: set[str] = set()
+    @staticmethod
+    def _metadata(chunk: dict[str, Any], digest: str) -> dict[str, Any]:
+        meta = chunk.get("metadata") or {}
+        out = {k: str(meta[k]) for k in META_KEYS if meta.get(k) not in (None, "")}
+        out.update({"chunk_type": chunk["chunk_type"], "page_number": int(chunk.get("page_number") or 1),
+                    "heading_stack_str": chapter(chunk.get("heading_stack") or []), "embedding_hash": digest})
+        return out
 
-        indexed_count = 0
-        skipped_count = 0
-        for json_file in json_files:
-            print(f"\nStarte Vektorisierung für: {json_file.name}...")
-            with open(json_file, "r", encoding="utf-8") as f:
-                chunks = json.load(f)
+    def remove_file(self, filename: str) -> None:
+        self.collection.delete(where={"filename": filename})
 
-            chunk_ids = [chunk["chunk_id"] for chunk in chunks]
-            seen_ids.update(chunk_ids)
-            existing = {}
-            if not rebuild and chunk_ids:
-                existing_result = self.collection.get(
-                    ids=chunk_ids,
-                    include=["metadatas"],
-                )
-                existing = dict(
-                    zip(
-                        existing_result.get("ids", []),
-                        existing_result.get("metadatas", []),
-                    )
-                )
+    def filenames(self) -> set[str]:
+        metas = self.collection.get(include=["metadatas"])["metadatas"] or []
+        return {m.get("filename") for m in metas if m}
 
-            batch_ids = []
-            batch_embeddings = []
-            batch_metadatas = []
-            batch_documents = []
-
-            for chunk in chunks:
-                chunk_id = chunk["chunk_id"]
-                content = chunk["content"]
-                heading_stack = chunk.get("heading_stack", [])
-                meta = chunk.get("metadata", {})
-                filename = meta.get("filename", "Unbekannt")
-
-                path_str = " > ".join(heading_stack)
-                prefix = f"[{filename} | {path_str}]" if path_str else f"[{filename}]"
-                # Gespeicherter Text (für BM25/Anzeige) ohne nomic-Task-Prefix;
-                # der Task-Prefix wird nur beim Einbetten vorangestellt.
-                embed_text = f"{prefix} {content}"
-                embedding_hash = self._embedding_hash(embed_text)
-
-                if existing.get(chunk_id, {}).get("embedding_hash") == embedding_hash:
-                    skipped_count += 1
-                    continue
-
-                safe_metadata = {
-                    "filename": str(filename),
-                    "chunk_type": str(chunk.get("chunk_type", "unknown")),
-                    "page_number": int(chunk.get("page_number") or 0),
-                    "heading_stack_str": str(path_str),
-                    "doc_type": str(meta.get("doc_type") or "Unbekannt"),
-                    "provider": str(meta.get("provider") or "Unbekannt"),
-                    "customer_name": str(meta.get("customer_name") or "Unbekannt"),
-                    "doc_date": str(meta.get("doc_date") or "Unbekannt"),
-                    "contract_number": str(meta.get("contract_number") or ""),
-                    "invoice_number": str(meta.get("invoice_number") or ""),
-                    "embedding_hash": embedding_hash,
-                }
-
-                if "table_id" in meta:
-                    safe_metadata["table_id"] = str(meta["table_id"])
-
-                embedding = self._get_embedding(embed_text)
-
-                batch_ids.append(chunk_id)
-                batch_embeddings.append(embedding)
-                batch_metadatas.append(safe_metadata)
-                batch_documents.append(embed_text)
-
-            if batch_ids:
-                print(f"  Füge {len(batch_ids)} Chunks in ChromaDB ein...")
-                self.collection.upsert(
-                    ids=batch_ids,
-                    embeddings=batch_embeddings,
-                    metadatas=batch_metadatas,
-                    documents=batch_documents
-                )
-                indexed_count += len(batch_ids)
-                print("  Erfolgreich abgeschlossen.")
-
-        if rebuild:
-            stale = sorted(stale_candidates - seen_ids)
-            for start in range(0, len(stale), 500):
-                self.collection.delete(ids=stale[start:start + 500])
-            if stale:
-                print(f"  {len(stale)} veraltete Chunks entfernt.")
-
-        invalidate_bm25_cache()
-        print(
-            f"\nIndizierung abgeschlossen: {indexed_count} aktualisiert, "
-            f"{skipped_count} unverändert übersprungen."
-        )
-        return indexed_count
-
-
-if __name__ == "__main__":
-    store = VectorStore()
-    store.index_documents(rebuild=True)
+    def write_signature(self) -> None:
+        self.vector_dir.mkdir(parents=True, exist_ok=True)
+        (self.vector_dir / INDEX_INFO).write_text(json.dumps(embeddings.signature(self.model), indent=1),
+                                                  encoding="utf-8")

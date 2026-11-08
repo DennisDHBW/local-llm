@@ -1,0 +1,92 @@
+{
+ "run": "schlussmessung4",
+ "sets": "heldout3",
+ "systems": {
+  "P1": {
+   "faithfulness": {
+    "n": 19,
+    "ausfall": 0,
+    "mean": 0.7456140350877193,
+    "ci": [
+     0.5789473684210527,
+     0.9035087719298246
+    ],
+    "voll": 12
+   },
+   "context_recall": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.8,
+    "ci": [
+     0.6,
+     1.0
+    ],
+    "voll": 12
+   },
+   "abgleich": {
+    "beide_auffaellig": 1,
+    "nur_ragas": 6,
+    "nur_zahlpruefung": 0,
+    "beide_unauffaellig": 12
+   }
+  },
+  "P1alt": {
+   "faithfulness": {
+    "n": 14,
+    "ausfall": 0,
+    "mean": 0.7321428571428571,
+    "ci": [
+     0.5,
+     0.9107142857142857
+    ],
+    "voll": 9
+   },
+   "context_recall": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.7,
+    "ci": [
+     0.4666666666666667,
+     0.9
+    ],
+    "voll": 10
+   },
+   "abgleich": {
+    "beide_auffaellig": 1,
+    "nur_ragas": 4,
+    "nur_zahlpruefung": 0,
+    "beide_unauffaellig": 9
+   }
+  },
+  "P2": {
+   "faithfulness": {
+    "n": 11,
+    "ausfall": 0,
+    "mean": 0.6818181818181818,
+    "ci": [
+     0.4090909090909091,
+     0.9090909090909091
+    ],
+    "voll": 7
+   },
+   "context_recall": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.4666666666666667,
+    "ci": [
+     0.23333333333333334,
+     0.7
+    ],
+    "voll": 6
+   },
+   "abgleich": {
+    "beide_auffaellig": 0,
+    "nur_ragas": 4,
+    "nur_zahlpruefung": 0,
+    "beide_unauffaellig": 7
+   }
+  }
+ },
+ "rep": 0,
+ "judge": "qwen2.5:7b"
+}

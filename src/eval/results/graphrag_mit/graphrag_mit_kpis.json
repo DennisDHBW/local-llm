@@ -1,0 +1,182 @@
+{
+ "meta": {
+  "title": "GraphRAG-Frage: P2 mit Kerndaten-Join",
+  "started": "05.11.2026 23:12",
+  "variant": "Version2",
+  "models": "Agent/Synthese llama3.1:8b, Kerndaten qwen2.5:7b, Embedding nomic-embed-text, Rewriter llama3.2",
+  "sets": "dev,kern",
+  "reps": 1,
+  "note": "Retrieval: Top-20 Kandidaten, Boost 1.5, BM25 aus, Reranker aus, Rewriting aus; Stichtag 2026-11-05; abgeschaltete Werkzeuge: keine"
+ },
+ "kpis": {
+  "P2": {
+   "correct": {
+    "value": 0.5,
+    "interval": [
+     0.21521606221387757,
+     0.7847839377861224
+    ],
+    "n": 8
+   },
+   "faithfulness": {
+    "value": 1.0,
+    "interval": [
+     1.0,
+     1.0
+    ],
+    "n": 5
+   },
+   "hallucinated": {
+    "value": 0.0,
+    "interval": [
+     0.0,
+     0.32440756488388023
+    ],
+    "n": 8
+   },
+   "cited": {
+    "value": 0.6666666666666666,
+    "interval": [
+     0.299993315138392,
+     0.9032285888942195
+    ],
+    "n": 6
+   },
+   "citation_correct": {
+    "value": 0.75,
+    "interval": [
+     0.30064184258240184,
+     0.9544127391902995
+    ],
+    "n": 4
+   },
+   "abstain": {
+    "value": null,
+    "interval": null,
+    "n": 0
+   },
+   "false_abstention": {
+    "value": 0.25,
+    "interval": [
+     0.071479212752109,
+     0.5907245696898311
+    ],
+    "n": 8
+   },
+   "recall@5": {
+    "value": 1.0,
+    "interval": [
+     1.0,
+     1.0
+    ],
+    "n": 5
+   },
+   "precision@5": {
+    "value": 0.72,
+    "interval": [
+     0.4800000000000001,
+     0.96
+    ],
+    "n": 5
+   },
+   "rr": {
+    "value": 1.0,
+    "interval": [
+     1.0,
+     1.0
+    ],
+    "n": 5
+   },
+   "beleg@5": {
+    "value": 1.0,
+    "interval": [
+     0.5101091635454027,
+     1.0
+    ],
+    "n": 4
+   },
+   "tool_selection": {
+    "value": 1.0,
+    "interval": [
+     0.34238022750665303,
+     1.0
+    ],
+    "n": 2
+   },
+   "steps": {
+    "value": 1.0,
+    "interval": [
+     1.0,
+     1.0
+    ],
+    "n": 8
+   },
+   "latency_p50": {
+    "value": 89.13,
+    "interval": [
+     54.83,
+     98.8
+    ],
+    "n": 8
+   },
+   "latency_p95": {
+    "value": 99.8985,
+    "interval": [
+     94.568,
+     100.49
+    ],
+    "n": 8
+   },
+   "tokens_per_s": {
+    "value": 5.091448080252615,
+    "interval": [
+     4.929716413464854,
+     5.246350482432966
+    ],
+    "n": 8
+   },
+   "peak_ram_gb": {
+    "value": 7.29,
+    "interval": null,
+    "n": 8
+   },
+   "error_rate": {
+    "value": 0.0,
+    "interval": [
+     0.0,
+     0.32440756488388023
+    ],
+    "n": 8
+   },
+   "outage_rate": {
+    "value": 0.0,
+    "interval": [
+     0.0,
+     0.32440756488388023
+    ],
+    "n": 8
+   },
+   "field_accuracy": {
+    "value": 0.9552238805970149,
+    "interval": [
+     0.9057552772644654,
+     0.9793195111466114
+    ],
+    "n": 134
+   },
+   "ingest_s_per_doc": {
+    "value": 153.85,
+    "interval": [
+     139.618125,
+     170.57171875
+    ],
+    "n": 16
+   },
+   "consistency": {
+    "value": null,
+    "interval": null,
+    "n": 0
+   }
+  }
+ }
+}

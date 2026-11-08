@@ -1,189 +1,78 @@
-LocalLLM/
-├── data/
-│   ├── raw/                 # Originale PDFs & Dokumente
-│   ├── processed/           # Strukturierte Chunks (*_chunks.json)
-│   └── vectors/             # Persistenter ChromaDB-Vektorspeicher
-├── .cache/                  # DiskCache für Bild-Captions & Tabellen-Summaries
-├── src/
-│   ├── __init__.py
-│   ├── ingestion/           # Layout-bewusstes Parsen (find_tables, Font-Heuristik)
-│   │   ├── __init__.py
-│   │   └── parser.py
-│   ├── enrichment/          # Multimodale Anreicherung via Ollama (gemma3:4b)
-│   │   ├── __init__.py
-│   │   ├── captioner.py
-│   │   └── summarizer.py
-│   ├── retrieval/           # Vektorisierung & Hybrid-Suche mit Hierarchie-Boost
-│   │   ├── __init__.py
-│   │   ├── vector_store.py
-│   │   └── search.py
-│   └── agent/               # Agentic RAG (ReAct-Loop & Tool-Definitionen)
-│       ├── __init__.py
-│       ├── tools.py         # search_documents, search_tables, calculate etc.
-│       └── react_agent.py
-├── app.py                   # Streamlit-Interface (Evidence-First & Chat-UI)
-├── compare_prototypes.py    # Benchmark: Modulare Pipeline vs. Agentic RAG
-├── test_ollama.py           # Bestehender Funktionstest
-├── pyproject.toml           # Projektkonfiguration & Abhängigkeiten
-└── README.md                # Dokumentation & Konzeptnotizen
+# DokAgent – lokaler Agent für private Rechnungen und Verträge
 
-# Local Energy Auditor
+Beantwortet Fragen zu Rechnungen (inkl. Strom-, Heizstrom-, Wasserabrechnungen) und Verträgen als PDF und DOCX:
+Werte aus Tabellen, Textstellen und Gliederung, Diagramme, Abgleich Rechnung ↔ Vertrag, Listen über alle Verträge
+(Kündigungsfristen, Preisgarantien, Abschläge) – mit Quellenangabe [n] und ausdrücklicher Enthaltung, wenn nichts
+belegt ist. Alles läuft lokal (Ollama, ChromaDB), ohne Cloud-Aufruf.
 
-Lokaler Agentic-RAG-Prototyp zur Prüfung privater Energieabrechnungen. PDFs
-werden lokal geparst, mit Ollama multimodal angereichert und in ChromaDB
-gespeichert. Es findet keine Cloud-Anfrage statt; Ollama muss lokal laufen.
+- Prototyp 1 **Evidence-First**: Suche → farbcodiertes Evidenz-Panel → Antwort erst per Klick; das Modell füllt ein
+  JSON-Schema (Werte mit Belegnummer), Code prüft jeden Wert gegen den Beleg und rechnet selbst
+- Prototyp 2 **ReAct-Agent**: Thought → Action (8 Werkzeuge) → Observation → Final Answer;
+  die Endantwort wird gegen die Beobachtungen geprüft
 
-## Schnellstart
+Aufbau und jedes Modul erklärt: [`docs/reverse_engineering.md`](docs/reverse_engineering.md);
+Ausgangslage und Paketplan: [`docs/bestandsaufnahme.md`](docs/bestandsaufnahme.md).
+
+## Start
 
 ```bash
-uv sync
-ollama serve
-ollama pull nomic-embed-text
-ollama pull gemma3:4b
-ollama pull llama3.1:latest
-streamlit run app.py
+uv sync                                   # Abhängigkeiten (Python 3.11+)
+ollama pull llama3.1:8b                   # Agent (P2) und Synthese (P1)
+ollama pull qwen2.5:7b                    # Kerndaten und geprüfte Antwort von P1 (JSON-Schema)
+ollama pull gemma3:4b                     # Bildbeschreibung, Tabellen-Summary
+ollama pull nomic-embed-text              # Embeddings
+ollama pull llama3.2                      # optionales Query-Rewriting
+uv run python -m src.ingestion.pipeline   # Import aller Dateien unter data/raw/{Rechnungen,Vertraege}
+uv run streamlit run app.py
 ```
 
-Danach in der UI die Pipeline in der Reihenfolge **Parsen**, **Enrichment** und
-**Vektorisieren** ausführen. Eine detailliertere Befehlsübersicht steht in
-[`Commands.md`](Commands.md), das fachliche Konzept in [`README2.md`](README2.md).
+Standard in der App ist P1, weil es auf den versiegelten Testsätzen am besten abschnitt (`heldout2`: 65 % gegen
+55 % für die Weiche; `heldout3`: 58 % mit geprüfter Antwort, 54 % ohne, P2 29 %). Wahlweise beantwortet der Modus „Automatisch (Weiche)“ Einzelwerte direkt aus den Kerndaten und lehnt Fragen zu
+Dokumentarten ab, die im Bestand fehlen (`src/agent/facts_answer.py`); alle anderen Fragen gehen je nach Art an P1
+oder P2 (`src/agent/router.py`). P1 und P2 sind einzeln wählbar.
 
-## Aktueller Implementierungsstand
+Die sechs Verträge in `data/raw/Vertraege` sind synthetisch und versioniert; neu erzeugen mit
+`uv run python -m src.eval.make_contracts` (braucht LibreOffice für die PDF-Fassungen).
 
-Enthalten sind PDF-Text-, Tabellen- und Bild-Extraktion, DiskCache-basiertes
-Enrichment, hierarchisches Retrieval mit Score-Boost, sichere Berechnungstools
-und ein einfacher ReAct-Agent. Query-Rewriting, ein Wissensgraph und eine
-automatisierte 9-Fragen-Evaluation sind im Konzept beschrieben, aber noch
-nicht vollständig implementiert. Die generierten Verzeichnisse `data/`,
-`.cache/` und `.venv/` sollten nicht versioniert werden.
+## Tests und Messung
 
-# Anforderungskatalog & Spezifikation: Konzeptentwurf "Local Agentic AI"
+```bash
+uv run pytest                         # schnelle Tests ohne Sprachmodell
+uv run pytest -m ollama               # Tests gegen laufendes Ollama
+uv run ruff check .
+uv run python compare_prototypes.py   # P1 gegen P2 auf dem Kernsatz (9 Pflichtfragen)
+uv run python -m src.eval.runner --sets kern,dev,synthetic,heldout --reps 2 --name schlussmessung
+uv run python -m src.eval.ablation    # Boost 1,0/1,25/1,5/2,0, BM25, Reranker, Rewriting (nur dev + synthetic)
+uv run python -m src.eval.models      # Modellauswahl nach den Kriterien aus Allgemein.md
+uv sync --extra ragas                 # einmalig: RAGAS (Richter qwen2.5:7b lokal über Ollama)
+uv run python -m src.eval.ragas_eval --run schlussmessung4 --sets heldout3 --systems P1,P1alt,P2 --name ragas_heldout3
+uv run python -m src.eval.stichprobe  # drei frei formulierte Fragen, Kriterien vorher in docs/stichprobe.md
+```
 
----
+Berichte (Markdown) und Rohdaten mit Trajektorie je Antwort (JSONL) liegen unter `src/eval/results/<lauf>/`.
 
-## 1. Rahmenbedingungen & Prüfungsleistung
-* **Gegenstand**: Technisch fundierter Konzeptentwurf für einen eigenen domänenspezifischen KI-Agenten-Prototyp.
-* **Format & Umfang**: ca. 5–8 Seiten (oder äquivalente Dokumentation in Markdown bzw. als Jupyter Notebook).
-* **Inhaltlicher Fokus**: Systemarchitektur, multimodale Datenvorverarbeitung, Tool-Calling-Strategie, GraphRAG-Entscheidung und Testkonzept.
-* **Optionaler Zusatz**: Lauffähiger Code-Prototyp oder UI-Mockup (z. B. auf Basis von Streamlit).
-* **Bewertungskriterien & Gewichtung**:
-  1. Problemverständnis & Use Case (**15 %**)
-  2. Architekturentwurf des Agenten (**25 %**)
-  3. RAG- & Retrieval-Konzept (**20 %**)
-  4. Vorverarbeitung & Datenstrukturen (**15 %**)
-  5. Test- & Evaluationsstrategie (**15 %**)
-  6. Literaturbezug & Reflexion (**10 %**)
-* **Meilensteine & Coaching-Phasen**:
-  * *Vorbereitung*: Formulierung von 3 konkreten Agenten-Ideen und Sichtung relevanter Fachliteratur.
-  * *Coaching 1 (15 min)*: Validierung von Use Case und Datenbasis, Festlegung der Systemkomponenten und des Zwischenformats, Risikoanalyse.
-  * *Coaching 2 (15 min)*: Review der Parsing-, Chunking- und Retrieval-Strategie, Definition der Testfragen und Evaluationskriterien, Feedback zur Ausarbeitung.
+## Einstellungen
 
----
+Alle Werte in [`src/config.py`](src/config.py), überschreibbar per `DOKAGENT_<NAME>`, z. B.
+`DOKAGENT_AGENT_MODEL=llama3.1:8b`, `DOKAGENT_HIERARCHY_BOOST=1.25`, `DOKAGENT_USE_BM25=1`,
+`DOKAGENT_TODAY=2026-11-05` (Stichtag für Fristen), `DOKAGENT_DISABLED_TOOLS=get_key_facts`.
 
-## 2. Kernparadigma: Local Agentic AI
-* **Vollständige Datensouveränität (DSGVO-Konform)**: Private bzw. vertrauliche Unternehmens-, Prozess- oder Prüfungsdaten dürfen das lokale System zu keinem Zeitpunkt verlassen (kein unkontrollierter Cloud-Abfluss).
-* **Rein lokale Systemarchitektur**: Gesamte Pipeline (Parser, Embeddings, Vektor-DB, Vision-Modell, Reasoning-LLM) läuft lokal auf eigener Standard-Hardware (z. B. via Ollama).
-* **Wirtschaftlichkeit**: 0 € laufende API-Kosten; unbegrenzte Test-, Entwicklungs- und Ausführungszyklen ohne Token-Limits.
-* **Architektur schlägt Modellgröße**: Durch strukturierte Datenaufbereitung, typisierte Chunks, Hierarchie-Prefixing und ReAct-Tools erzielen kompakte lokale Modelle (3B–8B Parameter) eine höhere Faktentreue als unstrukturierte Cloud-Riesen.
-* **Hybrider Vergleich (Optional)**: Primär lokaler Betrieb; für hochkomplexe Multi-Hop-Synthesen oder Benchmarks kann optional ein umschaltbarer Cloud-Vergleich (z. B. via Claude 3.5 Sonnet / GPT-4o per Knopfdruck) integriert werden.
+Auf 16 GB RAM ohne GPU empfiehlt sich `OLLAMA_MAX_LOADED_MODELS=2` und `OLLAMA_NUM_PARALLEL=1`.
 
----
+## Struktur
 
-## 3. Datenbasis, Vorverarbeitung & Multimodale Ingestion
-* **Dokumenttypen**: Verarbeitung semistrukturierter Rohdokumente (PDF, DOCX) mit Fließtext, Tabellen und Abbildungen/Diagrammen.
-* **Ingestion-Pipeline (DocumentParser)**:
-  1. *Tabellenerkennung zuerst (`page.find_tables()`)*: Tabellenkoordinaten (Bounding Boxes) lokalisieren, Tabellenflächen strikt aus dem Fließtext ausschließen (verhindert Daten-Duplikate).
-  2. *Hierarchie-Erkennung via Font-Heuristik*: Erkennung von Überschriften über Schriftgröße (`font_size`) und Schriftschnitt (`is_bold`); dynamische Führung eines Pfad-Stapels (`heading_stack`, z. B. `["Kapitel 1", "Abschnitt 1.2"]`).
-  3. *Absatz-Aggregation*: Zusammenfassung zusammengehöriger Spans zu Sinnabsätzen mit Längenbegrenzung (`min_chars = 20`, `max_block_chars = 1500`) und aktivem Überschriften-Prefix.
-  4. *Bildextraktion*: Extraktion von Bild-Bytes inklusive Verknüpfung mit Seitenzahl und Dokumentkoordinaten.
-* **Vier typisierte Chunk-Formate**:
-  * `text`: Fließtext-Absatz mit vorangestelltem `heading_stack`.
-  * `heading`: Überschriftenanker zur Steuerung des hierarchischen Dokumentpfads.
-  * `table_row`: Semantisch serialisierte Zeile (`Spalte1: Wert1 | Spalte2: Wert2`) mit Spaltenkopf-Injektion je Zeile sowie Erzeugung eines übergeordneten Zusammenfassungs-Chunks (`is_table_summary = True`).
-  * `image`: PNG/JPEG-Bytes, angereichert durch ein lokales Vision-Modell (z. B. Gemma 3 Vision) mit generierter Bildbeschreibung (Caption).
-* **Drei-Ebenen-Speicherarchitektur**:
-  1. *JSON-Zwischenformat (`data/processed/<datei>_chunks.json`)*: Speichert alle typisierten Chunks mit Metadaten (`chunk_id`, `chunk_type`, `content`, `heading_stack`, `page_number`, `metadata`) zur schnellen Inspektion, Reproduzierbarkeit und Fehleranalyse.
-  2. *Enrichment-DiskCache (`.cache/` via diskcache)*: SHA-256 Hash-basierter Cache für Bild-Captions und Tabellen-Summaries, um langwierige LLM-Neuberechnungen zu vermeiden.
-  3. *Lokaler Vektor-Store (`data/vectors/` via ChromaDB)*: Persistente HNSW-Kosinus-Vektor-Datenbank mit Metadaten-Filtern.
-
----
-
-## 4. Modellauswahl & Komponenten im lokalen Stack
-* **Embeddings**: `nomic-embed-text` (768 Dimensionen, 8k Kontextfenster, stabil bei Kosinus-Ähnlichkeit, hoher MTEB-Rang).
-* **Vision / Multimodal**: `gemma3:4b` (oder LLaVA / MiniCPM-V) für OCR in Diagrammen, Strukturverständnis und Captioning bei geringem VRAM-Bedarf.
-* **Query-Rewriting & Klassifikation**: `phi3:medium` oder `qwen2.5:7b` (sehr geringe Latenz < 500 ms, präzises Befolgen von Formatvorgaben).
-* **Agentic Reasoning & Tool-Calling**: `llama3.1:8b` (oder Qwen 2.5 / Qwen-Coder) für zuverlässiges JSON-Format, ReAct-Steuerung und strenge Evidenztreue.
-* **Vektor-Datenbank**: ChromaDB (lokal auf Disk).
-* **Parsing & Algorithmen**: PyMuPDF (`fitz`), Python.
-
----
-
-## 5. Retrieval, Hierarchie-Boost & Rekomposition
-* **Hierarchie-Prefixing**: Jedem Chunk wird vor der Vektorisierung der semantische Pfad vorangestellt (z. B. `[Ordner | Datei | Kapitel] Inhalt...`), damit Pfadinformationen direkt in den Vektorraum eingehen.
-* **Query-Rewriting**: Nutzeranfragen werden vorab durch ein schlankes Modell in optimierte Suchphrasen transformiert.
-* **Hybrid Retrieval & Boosting-Algorithmus**:
-  * Abruf der Top-20 Kandidaten via ChromaDB:  
-    $$\text{base\_score} = 1 - \text{cosine\_distance}$$
-  * Hierarchie-Boost ($\times 1.5$), wenn Suchbegriffe im Dateinamen, Ordner oder `heading_stack` vorkommen.
-  * Finaler Score:  
-    $$\text{final\_score} = \text{base\_score} \times \text{hierarchy\_boost}$$
-* **Evidence-First Rekomposition**:
-  * *Stufe 1 (UI-Darstellung via `build_evidence()`)*: Visuelle Rekonstruktion nach Dokument, Kapitel, Tabellen und Bildern mit Farbcodierung:
-    * Score $> 0.7$: Hohe Relevanz
-    * Score $0.4 - 0.7$: Mittlere Relevanz
-    * Score $< 0.4$: Niedrige Relevanz
-  * *Stufe 2 (Kontextaufbau via `build_context()`)*: Synthese-LLM erhält ausschließlich geprüfte, durchnummerierte Quellen `[1], [2]` mit Dokumentenname, Kapitel und Seitenzahl.
-  * *Strikter System-Prompt*: Das LLM darf nur Fakten aus den übergebenen Belegen nennen und muss genaue Zitationen anfügen, um Halluzinationen auszuschließen.
-
----
-
-## 6. Agenten-Architektur & Tool-Strategie
-* **ReAct-Muster**: Zyklische Steuerung aus Denken, Handeln und Beobachten:
-  $$\text{Nutzerfrage} \rightarrow \text{Thought (Überlegung)} \rightarrow \text{Action (Tool-Aufruf)} \rightarrow \text{Observation (Ergebnis)} \rightarrow \text{Final Answer}$$
-* **Die 5 Kern-Werkzeuge (Tools)**:
-  1. `search_documents(query, top_k)`: Semantische Suche über Fließtext und Absätze.
-  2. `search_tables(query, top_k)`: Gezielte Suche in serialisierten Tabellenzeilen und Summaries.
-  3. `search_images(query, top_k)`: Suche über Bild-, Diagramm- und Screenshot-Beschreibungen.
-  4. `get_document_outline(filename_filter)`: Struktur- und Gliederungsabfrage des Dokuments.
-  5. `calculate(expression)`: Sichere Ausführung arithmetischer Berechnungen (z. B. Summen, Durchschnitte) ohne LLM-Rechenfehler.
-
----
-
-## 7. GraphRAG-Entscheidung (Verpflichtender Konzeptteil)
-* **Status**: Keine vollständige Implementierungspflicht, jedoch zwingend eine fundierte, schriftliche Begründung im Konzept.
-* **Erforderliche Analyseaspekte**:
-  * *Entitäten & Relationen*: Welche Entitäten (z. B. Personen, Module, Normen, Richtlinien) und Beziehungen (z. B. "setzt voraus", "verweist auf", "gehört zu") existieren in den Dokumenten?
-  * *Anwendungsfälle*: Welche Multi-Hop-Fragen, Querverweise oder Themencluster könnten durch GraphRAG signifikant besser beantwortet werden?
-  * *Gegenüberstellung*: Warum reicht Standard-/Vektor-RAG für den gewählten Use Case aus, bzw. wo stößt es an Grenzen?
-  * *Aufwand & Kosten*: Diskussion der Komplexität und des Rechenaufwands beim Aufbau und der Pflege des Wissensgraphen.
-
----
-
-## 8. Test-, Evaluations- & Vergleichsstrategie
-* **Testkatalog (mindestens 9 definierte Testfragen)**:
-  * **5 Standardfragen**: Direkte Fakten- und Wissensfragen aus Fließtext und Tabellen.
-  * **2 komplexe Grenzfälle**: Multi-Hop-Recherchen, Verknüpfung mehrerer Dokumentstellen, Bild-/Screenshot-Analysen oder Berechnungsaufgaben (`search_tables` kombiniert mit `calculate`).
-  * **2 Negativfragen**: Abfragen von Informationen, die im Datenbestand *nicht* vorkommen (Überprüfung von Halluzinationsschutz und Quellentreue).
-* **Architekturvergleich**: Gegenüberstellung der Ergebnisse einer deterministischen modularen Pipeline (statisches Hybrid-Retrieval, Evidence-First) gegenüber einem dynamischen Agentic RAG (Tool-Calling-Loop).
-
----
-
-## 9. Wissenschaftliche Fundierung & Literaturarbeit
-* **Quellenumfang**: Einbindung von mindestens **3 Grundlagen-Papern** und mindestens **3 aktuellen Forschungs-Papern**.
-* **Zentrale Referenzarbeiten**:
-  * *ReAct*: Synergizing Reasoning and Acting in Language Models (Yao et al., 2022)
-  * *Toolformer*: Language Models Can Teach Themselves to Use Tools (Schick et al., 2023)
-  * *RAG-Grundlagen*: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks (Lewis et al., 2020)
-  * *Modular RAG*: Retrieval-Augmented Generation for Large Language Models: A Survey (Gao et al., 2023)
-  * *Self-RAG*: Learning to Retrieve, Generate, and Critique through Self-Reflection (Asai et al., 2023)
-* **Recherche-Plattformen**: arXiv.org, Papers with Code, ACL Anthology, NeurIPS, ICLR, Google Scholar.
-
----
-
-## 10. Leitfragen für die Konzepterstellung (Checkliste)
-1. **Use Case & Problem**: Welches konkrete, praxisrelevante Problem löst der Agent?
-2. **Datenbasis**: Welche semistrukturierten Dokumente liegen vor (Formate, Tabellenanteil, Diagramme, visuelle Qualität, Vertraulichkeit)?
-3. **Ingestion & Chunking**: Wie werden Tabellen isoliert, Überschriftenhierarchien bewahrt und Bildinhalte erschlossen?
-4. **Tools & Aktionen**: Welche konkreten Tools benötigt das LLM für den ReAct-Loop?
-5. **GraphRAG-Bewertung**: Gibt es vernetzte Entitäten und Multi-Hop-Pfade, die einen Wissensgraphen rechtfertigen?
-6. **Evaluation**: Wie schneidet der Agent bei den 5 Standard-, 2 Grenzfall- und 2 Negativfragen ab?
+```
+app.py                  Streamlit: P1 und P2, Vertragsübersicht, Dokumente
+compare_prototypes.py   P1 gegen P2 über die KPI-Suite
+src/config.py           Einstellungen          src/llm.py   Ollama-Zugang mit Messung     src/textutil.py  Zahlen/Daten
+src/ingestion/          parser.py (PDF/DOCX -> Chunks), pipeline.py (Import, drei Speicherebenen)
+src/enrichment/         captioner.py, summarizer.py (DiskCache SHA-256), facts.py (Kerndaten mit Textprüfung)
+src/retrieval/          embeddings.py, prefix.py, vector_store.py (ChromaDB), rewriter.py, search.py (Boost)
+src/agent/              evidence.py, evidence_first.py (P1), react_agent.py (P2), tools.py, contracts.py (Fristen),
+                        router.py (Weiche), facts_answer.py (Kerndaten-Schicht, Bestandsprüfung),
+                        verify.py (geprüfte Antwort)
+src/eval/               Testsätze, Sollwerte, Bewertung, KPIs, Berichte, Ablation, Modellauswahl, Ausgangsmessung
+tests/                  pytest je Modul
+docs/                   Bestandsaufnahme, Reverse Engineering (mit Messergebnissen), Auswahlregeln R1–R11
+data/                   raw/ (Eingang), processed/ (JSON), vectors/ (ChromaDB) – nur raw/Vertraege versioniert
+```

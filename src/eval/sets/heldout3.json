@@ -1,0 +1,536 @@
+{
+ "_hinweis": "Dritter zurückgehaltener Testsatz H3. Geschrieben am 07.11.2026 VOR dem Umbau zur verifizierten Antwort (Regel R11), nachdem heldout und heldout2 durch Fehleranalysen verbraucht waren. Keine Frage aus kern, dev, synthetic, heldout oder heldout2 wiederholt; Listenkriterien neu (monatliche Abschläge, Laufzeitende 2027, Abschluss 2025, Betrag > 500 €, jährliche Zahlung). Sollwerte aus dem Rohtext der Originaldateien (pdftotext, python-docx). Geschrieben vom Entwickler; das ist eine Einschränkung. Wird genau einmal gemessen. Feldformat wie heldout.json.",
+ "set": "heldout3",
+ "written": "2026-11-07",
+ "questions": [
+  {
+   "id": "T01",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viel Umsatzsteuer weist die Rechnung von LuminaStyle aus?",
+   "expected": [
+    "43,83|43.83"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "43,83 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "T02",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch ist die Versicherungssteuer auf der Beitragsrechnung 2027 der NordStern?",
+   "expected": [
+    "110,20|110.20"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "110,20"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "T03",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viel kostete der Nachtstrom (Arbeitspreis NT) in der Heizstromabrechnung 2024 netto insgesamt?",
+   "expected": [
+    "1.182,50|1182,50|1182.50"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+   ],
+   "evidence": [
+    "1.182,50"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "T04",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was wurde auf der Arztrechnung von Dr. Weber für die Blutentnahme berechnet?",
+   "expected": [
+    "4,19|4.19"
+   ],
+   "expected_sources": [
+    "Rechnung_Arzt_DrWeber_2026-10.pdf"
+   ],
+   "evidence": [
+    "4,19 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "T05",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was kostete das Räderwechseln mit Auswuchten bei Auto & Service Müller netto?",
+   "expected": [
+    "47,50|47.50|47,5"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "47,50 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "T06",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie viel kosten die beiden Premium-Ladekabel von LuminaStyle zusammen brutto, also inklusive 19 % Umsatzsteuer?",
+   "expected": [
+    "29,80|29.80|29,8"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "25,04 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "search_documents",
+     "get_key_facts",
+     "calculate"
+    ]
+   ]
+  },
+  {
+   "id": "T07",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie lange dauert die erste Laufzeit des Heizstromvertrags von Volt & Wärme?",
+   "expected": [
+    "24 Monate|vierundzwanzig Monate|zwei Jahre|2 Jahre"
+   ],
+   "expected_sources": [
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "24 Monate"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "list_contracts"
+    ]
+   ]
+  },
+  {
+   "id": "T08",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Zahlungsweise ist im Stromvertrag der Stadtwerke Neckar-Strom vereinbart?",
+   "expected": [
+    "Lastschrift"
+   ],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf"
+   ],
+   "evidence": [
+    "SEPA-Lastschrift"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "list_contracts"
+    ]
+   ]
+  },
+  {
+   "id": "T09",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Innerhalb welcher Frist kann ich Artikel bei LuminaStyle kostenlos zurücksenden?",
+   "expected": [
+    "30 Tage|dreißig Tage"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "innerhalb von 30 Tagen"
+   ],
+   "expected_tools": [
+    [
+     "search_documents"
+    ]
+   ]
+  },
+  {
+   "id": "T10",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wann wurde der Heizstromvertrag mit Volt & Wärme abgeschlossen?",
+   "expected": [
+    "10.02.2022|10. Februar 2022"
+   ],
+   "expected_sources": [
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "10.02.2022"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "list_contracts"
+    ]
+   ]
+  },
+  {
+   "id": "T11",
+   "type": "b",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie kann der ConnectNet-Vertrag nach dem Ende der Mindestvertragslaufzeit gekündigt werden?",
+   "expected": [
+    "jederzeit",
+    "Monat"
+   ],
+   "expected_sources": [
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [
+    "jederzeit mit einer Frist von einem Monat"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts",
+     "list_contracts"
+    ]
+   ]
+  },
+  {
+   "id": "T12",
+   "type": "c",
+   "category": "standard",
+   "answerable": true,
+   "question": "Entspricht der monatliche Grundpreis in der Stromrechnung 2024 dem Grundpreis aus dem Stromvertrag der Stadtwerke Neckar-Strom?",
+   "expected": [
+    "12,50|12.50|12,5"
+   ],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf",
+    "Vertrag_Strom_NeckarStrom.pdf"
+   ],
+   "evidence": [
+    "12,500 €/Monat",
+    "12,50 €/Monat"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_tables",
+     "search_documents"
+    ]
+   ]
+  },
+  {
+   "id": "T13",
+   "type": "c",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Um wie viel Euro liegt der Nettobetrag der StreamPulse-Rechnung unter dem Brutto-Monatspreis aus dem StreamPulse-Abovertrag?",
+   "expected": [
+    "3,99|3.99"
+   ],
+   "expected_sources": [
+    "Rechnung_Abo_StreamPulse_2026-10.pdf",
+    "Vertrag_Abo_StreamPulse.docx"
+   ],
+   "evidence": [
+    "20,99 €",
+    "24,98 €/Monat"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_tables",
+     "calculate"
+    ]
+   ]
+  },
+  {
+   "id": "T14",
+   "type": "c",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wurde die Schmutzwassergebühr in der Wasserabrechnung 2024 zu dem Satz berechnet, der im Wasservertrag steht?",
+   "expected": [
+    "2,80|2.80|2,8"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf",
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "2,80 €/m³"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_tables",
+     "search_documents"
+    ]
+   ]
+  },
+  {
+   "id": "T15",
+   "type": "c",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wann wurde der Vertrag geschlossen, zu dem die Wasserabrechnung 2024 gehört?",
+   "expected": [
+    "15.03.2021|15. März 2021"
+   ],
+   "expected_sources": [
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "15.03.2021"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts"
+    ]
+   ]
+  },
+  {
+   "id": "T16",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Für welche Verträge zahle ich monatliche Abschläge?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag|Strom ",
+    "Volt & Wärme|Heizstrom"
+   ],
+   "excluded_items": [
+    "Zweckverband|Wasser",
+    "StreamPulse",
+    "ConnectNet"
+   ]
+  },
+  {
+   "id": "T17",
+   "type": "d",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Bei welchen Verträgen endet die Mindest- oder Erstlaufzeit erst im Jahr 2027?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "ConnectNet"
+   ],
+   "excluded_items": [
+    "Volt & Wärme|Heizstrom",
+    "NordStern|Kfz",
+    "Neckar-Strom|Stromvertrag"
+   ]
+  },
+  {
+   "id": "T18",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Verträge wurden im Jahr 2025 abgeschlossen?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts",
+     "get_key_facts"
+    ]
+   ],
+   "expected_items": [
+    "ConnectNet"
+   ],
+   "excluded_items": [
+    "NordStern|Kfz",
+    "StreamPulse",
+    "Volt & Wärme|Heizstrom"
+   ]
+  },
+  {
+   "id": "T19",
+   "type": "d",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Welche Rechnungen haben einen Gesamtbetrag von mehr als 500 €?",
+   "expected": [],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf",
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+    "Rechnung_Wasser_Zweckverband_2024.pdf",
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "get_key_facts"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Stromrechnung|Strom ",
+    "Volt & Wärme|Heizstrom",
+    "Zweckverband|Wasser",
+    "NordStern|Kfz",
+    "Auto & Service|Werkstatt"
+   ],
+   "excluded_items": [
+    "ConnectNet",
+    "LuminaStyle",
+    "StreamPulse",
+    "Weber|Arzt"
+   ]
+  },
+  {
+   "id": "T20",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Verträge werden jährlich bezahlt?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Kfz_Versicherung_NordStern.pdf"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "NordStern|Kfz"
+   ],
+   "excluded_items": [
+    "Zweckverband|Wasser",
+    "Neckar-Strom|Stromvertrag",
+    "Volt & Wärme|Heizstrom"
+   ]
+  },
+  {
+   "id": "T21",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist mein Rundfunkbeitrag laut Beitragsbescheid?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  },
+  {
+   "id": "T22",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie viel kostet mein Zeitungsabo im Monat?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  },
+  {
+   "id": "T23",
+   "type": "e",
+   "category": "grenzfall",
+   "answerable": false,
+   "question": "Welche Kündigungsfrist hat mein Servicevertrag mit Auto & Service Müller?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  },
+  {
+   "id": "T24",
+   "type": "e",
+   "category": "grenzfall",
+   "answerable": false,
+   "question": "Wie hoch ist die Jahresabrechnung Strom 2025 der Stadtwerke Neckar-Strom?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": []
+  }
+ ]
+}

@@ -1,450 +1,330 @@
+"""Werkzeuge des ReAct-Agenten (Prototyp 2). Fünf aus Allgemein.md, zwei begründet ergänzt:
+
+    search_documents(query, top_k, filename)  Fließtext und Überschriften (inkl. Tabellen-Zusammenfassungen)
+    search_tables(query, top_k, filename)     serialisierte Tabellenzeilen "Spalte: Wert | ..."
+    search_images(query, top_k)               Bild- und Diagrammbeschreibungen
+    get_document_outline(filename_filter)     Gliederung (heading_stack) eines oder mehrerer Dokumente
+    calculate(expression)                     sichere Arithmetik (AST, nur Zahlen und + - * / ** % Klammern)
+    get_key_facts(document)                   Kerndaten eines Dokuments + verknüpfte Dokumente über Kunden- bzw.
+                                              Vertragsnummer. Begründung: Multi-Hop Rechnung <-> Vertrag (Fragetyp c)
+                                              braucht beide Dokumente; zwei getrennte Suchen fanden oft nur eines.
+    list_invoices()                           alle Rechnungen mit Aussteller, Kunde, Datum, Fälligkeit, Gesamtbetrag,
+                                              Nachzahlung/Guthaben (aus den Kerndaten). Begründung wie list_contracts:
+                                              Listenfragen über Rechnungen (R11).
+    list_contracts(notice_date, customer)     alle Verträge als Tabelle mit in Python berechneten Fristen,
+                                              Preisgarantie und Abschlag je Monat. Begründung: Listenfragen über viele
+                                              Dokumente (Fragetyp d); Top-k schneidet Listen ab, 7B-Modelle rechnen
+                                              Fristen unzuverlässig.
+
+Jedes Werkzeug liefert Belege (src/agent/evidence.py), die der Agent fortlaufend nummeriert, damit die Antwort sie mit
+[n] zitieren kann.
+"""
+
+from __future__ import annotations
+
 import ast
+import json
 import operator
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
-import chromadb
-
-from src.config import EMBED_MODEL, GRAPH_PATH, PROCESSED_DIR, USE_QUERY_REWRITER, VECTOR_DIR
-from src.embeddings import embed_query
-from src.enrichment.facts import format_facts, load_facts
-from src.graph.graph_store import DocumentGraph
-from src.retrieval.search import search_collection
-
-KIND_TO_CHUNK_TYPES = {
-    "all": ["text", "table_row", "image"],
-    "text": ["text"],
-    "table": ["table_row"],
-    "image": ["image"],
-}
-LEGACY_SEARCH_TOOLS = {"search_documents": "text", "search_tables": "table", "search_images": "image"}
-SNIPPET_CHARS = 900
-EVIDENCE_CHARS = 1200
-DEFAULT_TOP_K = 5
-_PREFIX_RE = re.compile(r"^\[[^\]\n]{0,200}\]\s*")
-
-
-def _tool(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": {"type": "object", "properties": properties, "required": required or []},
-        },
-    }
-
-
-TOOL_SCHEMAS: list[dict] = [
-    _tool(
-        "get_document_inventory",
-        "Vollübersicht aller indizierten Dokumente mit Dateiname, Typ, Datum, Anbieter, Vertrags- und "
-        "Rechnungsnummer. Nutze das bei Fragen zu Anzahl, Art oder Metadaten der Dokumente.",
-        {},
-    ),
-    _tool(
-        "get_document_facts",
-        "Strukturierte Kerndaten pro Dokument (Zeitraum, Verbrauch, Arbeitspreis, Grundpreis, Abschlag, "
-        "Gesamtbetrag, Zählernummer, Laufzeit, Kündigungsfrist). Erste Wahl bei Fragen nach Preisen, "
-        "Beträgen, Verbrauch oder Fristen. Ohne Dateiname: alle Dokumente.",
-        {"filename": {"type": "string", "description": "Dateiname, z. B. 'ZEAG_25.pdf' (optional)."}},
-    ),
-    _tool(
-        "search",
-        "Durchsucht Textabsätze, Tabellenzeilen und Bildbeschreibungen der Dokumente (hybrid: semantisch + "
-        "Stichwort). Gib den Dateinamen an, sobald ein bestimmtes Dokument gemeint ist.",
-        {
-            "query": {"type": "string", "description": "Suchtext mit konkreten Begriffen, z. B. 'Arbeitspreis ct/kWh'."},
-            "filename": {"type": "string", "description": "Nur in dieser Datei suchen (optional)."},
-            "kind": {
-                "type": "string",
-                "enum": ["all", "text", "table", "image"],
-                "description": "all (Standard), text = Klauseln, table = Preise/Positionen, image = Diagramme/Zählerfotos.",
-            },
-            "top_k": {"type": "integer", "description": "Anzahl Treffer (Standard 5, max 10)."},
-        },
-        ["query"],
-    ),
-    _tool(
-        "get_document_outline",
-        "Zeigt die Kapitel-/Überschriftenstruktur eines Dokuments.",
-        {"filename": {"type": "string", "description": "Dateiname (optional)."}},
-    ),
-    _tool(
-        "graph_lookup",
-        "Dokumentgraph: zeigt, welche Dokumente über denselben Vertrag, Zähler, Tarif, Anbieter oder Kunden "
-        "zusammenhängen. Nutze das für dokumentübergreifende Fragen. Eingabe: Vertragsnummer, Zählernummer, "
-        "Anbietername, Kundenname oder Dateiname.",
-        {"entity": {"type": "string", "description": "Name oder Nummer der Entität."}},
-        ["entity"],
-    ),
-    _tool(
-        "calculate",
-        "Rechnet exakt. NUR Zahlen und Operatoren + - * / ** und Klammern, z. B. '15.41 + 4.89'. "
-        "Keine Einheiten, Wörter oder Paragraphenzeichen.",
-        {"expression": {"type": "string", "description": "Rechenausdruck."}},
-        ["expression"],
-    ),
-]
+from src.agent.contracts import earliest_end, guarantee_active, monthly_advance
+from src.agent.evidence import Evidence, from_hit
+from src.config import PROCESSED_DIR, today
+from src.enrichment.facts import load_all_facts
+from src.retrieval.search import Retriever, fold, path_terms, term_match, terms
+from src.textutil import de_date, de_number, parse_number, to_iso
 
 
 @dataclass
 class ToolResult:
-    text: str
-    evidence: list[dict] = field(default_factory=list)
+    evidence: list[Evidence] = field(default_factory=list)
+    note: str = ""                       # Text ohne eigene Quelle (Hinweis, Fehlermeldung)
 
 
-def resolve_name(names: list[str], wanted: str) -> tuple[str | None, str | None]:
-    wanted = (wanted or "").strip().strip("'\" ")
-    if not wanted:
-        return None, None
-    low = wanted.casefold()
-    low_stem = low.removesuffix(".pdf")
-    exact = [n for n in names if low in (n.casefold(), n.casefold().removesuffix(".pdf"))]
-    if len(exact) == 1:
-        return exact[0], None
-    partial = [n for n in names if low_stem in n.casefold()]
-    if len(partial) == 1:
-        return partial[0], None
-    if len(partial) > 1:
-        return None, f"Dateiname '{wanted}' ist mehrdeutig. Kandidaten: {', '.join(partial)}. Bitte genauer angeben."
-    return None, f"Unbekannte Datei '{wanted}'. Verfügbar: {', '.join(names) or 'keine'}."
+def _tool(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
+    return {"type": "function", "function": {"name": name, "description": description,
+                                             "parameters": {"type": "object", "properties": properties,
+                                                            "required": required}}}
 
 
-def _tool_evidence(tool: str, label: str, text: str, key: str = "") -> dict:
-    return {
-        "id": f"tool:{tool}:{key}" if key else f"tool:{tool}",
-        "content": text,
-        "page_number": None,
-        "metadata": {"filename": label, "heading_stack_str": ""},
-    }
+_Q = {"type": "string", "description": "Suchanfrage in Stichworten"}
+_K = {"type": "integer", "description": "Anzahl Treffer (Standard 5)"}
+_F = {"type": "string", "description": "optional: Dateiname oder Dokumentbeschreibung, um die Suche einzugrenzen"}
+TOOL_SCHEMAS = [
+    _tool("search_documents", "Semantische Suche in Fließtext und Überschriften aller Rechnungen und Verträge.",
+          {"query": _Q, "top_k": _K, "filename": _F}, ["query"]),
+    _tool("search_tables", "Suche in Tabellenzeilen (Positionen, Preise, Mengen, Verbräuche, Beträge).",
+          {"query": _Q, "top_k": _K, "filename": _F}, ["query"]),
+    _tool("search_images", "Suche in Beschreibungen von Bildern und Diagrammen (z. B. Verbrauchsdiagramme).",
+          {"query": _Q, "top_k": _K}, ["query"]),
+    _tool("get_document_outline", "Gliederung (Kapitel/Überschriften) eines Dokuments.",
+          {"filename_filter": {"type": "string", "description": "Dateiname oder Beschreibung, z. B. 'Heizstromvertrag'"}},
+          ["filename_filter"]),
+    _tool("calculate", "Berechnet einen arithmetischen Ausdruck exakt, z. B. '82.43 - 79.87' oder '(130+225)*12'.",
+          {"expression": {"type": "string", "description": "nur Zahlen, + - * / ** % und Klammern"}}, ["expression"]),
+    _tool("get_key_facts", "Kerndaten eines Dokuments (Nummern, Beträge, Laufzeit, Kündigungsfrist, Preisgarantie, "
+          "Abschlag) und die über Kunden- oder Vertragsnummer verknüpften Dokumente (Rechnung <-> Vertrag).",
+          {"document": {"type": "string", "description": "Dateiname oder Beschreibung, z. B. 'Stromrechnung 2024'"}},
+          ["document"]),
+    _tool("list_contracts", "Alle Verträge als Liste mit Vertragspartner, Kunde, Laufzeit, Kündigungsfrist, "
+          "frühestem Vertragsende bei Kündigung am Stichtag, Preisgarantie und Abschlag je Monat. Für Fragen über "
+          "mehrere Verträge.",
+          {"notice_date": {"type": "string", "description": "Stichtag der Kündigung TT.MM.JJJJ (Standard: heute)"},
+           "customer": {"type": "string", "description": "optional: nur Verträge, deren Kunde, Anbieter oder Vertragsart dieses Wort enthält"}}, []),
+]
+TOOL_SCHEMAS.append(_tool(
+    "list_invoices", "Alle Rechnungen als Liste mit Aussteller, Kunde, Rechnungsdatum, Fälligkeit, Gesamtbetrag und "
+    "Nachzahlung/Guthaben. Für Fragen über mehrere Rechnungen.", {}, []))
+TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
+
+_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+        ast.Pow: operator.pow, ast.Mod: operator.mod, ast.USub: operator.neg, ast.UAdd: operator.pos}
 
 
-def _strip_prefix(text: str) -> str:
-    return _PREFIX_RE.sub("", text, count=1)
+def safe_eval(expression: str) -> float:
+    """Arithmetik ohne eval(): nur Zahlen, Grundrechenarten, Potenz, Modulo, Klammern. Deutsche Zahlen erlaubt."""
+    expr = re.sub(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+,\d+",
+                  lambda m: repr(parse_number(m.group(0))), str(expression)).replace("€", "").replace("x", "*")
+
+    def ev(node: ast.AST) -> float:
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+            if isinstance(node.op, ast.Pow) and abs(ev(node.right)) > 10:
+                raise ValueError("Exponent zu groß")
+            return _OPS[type(node.op)](ev(node.left), ev(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
+            return _OPS[type(node.op)](ev(node.operand))
+        raise ValueError(f"nicht erlaubt: {type(node).__name__}")
+
+    return ev(ast.parse(expr, mode="eval"))
 
 
 class AgentTools:
-    def __init__(
-        self,
-        embed_model: str = EMBED_MODEL,
-        use_rewriter: bool = USE_QUERY_REWRITER,
-        vector_dir: Path = VECTOR_DIR,
-        processed_dir: Path = PROCESSED_DIR,
-        graph_path: Path = GRAPH_PATH,
-    ):
-        self.embed_model = embed_model
+    def __init__(self, retriever: Retriever | None = None, processed_dir: Path = PROCESSED_DIR):
+        self._retriever = retriever
         self.processed_dir = Path(processed_dir)
-        self.graph_path = Path(graph_path)
-        self.rewriter = None
-        if use_rewriter:
-            from src.retrieval.query_rewriter import QueryRewriter
-            self.rewriter = QueryRewriter()
-        self.client = chromadb.PersistentClient(path=str(vector_dir))
-        self.collection = self.client.get_or_create_collection(
-            name="energy_docs",
-            metadata={"hnsw:space": "cosine"}
-        )
-        self._filename_cache: tuple[int, list[str]] = (-1, [])
-        self._graph: DocumentGraph | None = None
 
-    def _get_query_embedding(self, query: str) -> list[float]:
-        return embed_query(query, self.embed_model)
+    @property
+    def retriever(self) -> Retriever:
+        if self._retriever is None:
+            self._retriever = Retriever()
+        return self._retriever
 
-    def known_filenames(self) -> list[str]:
-        count = self.collection.count()
-        if self._filename_cache[0] != count:
-            metas = self.collection.get(include=["metadatas"]).get("metadatas") or []
-            names = sorted({m.get("filename") for m in metas if m and m.get("filename")})
-            self._filename_cache = (count, names)
-        return self._filename_cache[1]
+    # --- Hilfen -----------------------------------------------------------------------------------------------------
+    def facts(self) -> dict[str, dict[str, Any]]:
+        return load_all_facts(self.processed_dir)
 
-    def resolve_filename(self, name: str) -> tuple[str | None, str | None]:
-        return resolve_name(self.known_filenames(), name)
+    def resolve(self, description: str, limit: int = 2) -> list[str]:
+        """Dateinamen, die zu einer Beschreibung passen ('Heizstromvertrag', 'Rechnung ConnectNet', Dateiname)."""
+        records = self.facts()
+        names = sorted(records) or sorted({p.name.removesuffix("_chunks.json")
+                                           for p in self.processed_dir.glob("*_chunks.json")})
+        wanted = str(description or "").strip()
+        if not wanted:
+            return []
+        exact = [n for n in names if fold(n) == fold(wanted) or fold(Path(n).stem) == fold(wanted)]
+        if exact:
+            return exact[:1]
+        q = terms(wanted.replace("_", " "))
+        scored = []
+        for name in names:
+            rec = records.get(name, {})
+            facts = rec.get("facts") or {}
+            meta = {"folder": rec.get("folder", ""), "filename": name,
+                    "heading_stack_str": " ".join(str(facts.get(k) or "") for k in ("provider", "doc_type"))}
+            # Zuordnung zählt passende Wortteile: 'heizstromvertrag' trifft 'heizstrom' UND 'vertrag' im Vertrag,
+            # in der Rechnung nur 'heizstrom'. Längere Treffer zählen mehr ('heizstrom' vor 'strom'). Der Such-Boost
+            # ist strenger, siehe search.term_match.
+            p = path_terms(meta)
+            score = sum(len(x) for x in p if any(term_match(t, x) or (len(x) >= 5 and x in t) for t in q))
+            years = set(re.findall(r"\b20\d\d\b", wanted))
+            score += sum(4 for y in years if y in name)
+            if score:
+                scored.append((score, name))
+        scored.sort(key=lambda s: (-s[0], s[1]))
+        best = scored[0][0] if scored else 0
+        return [n for s, n in scored if s == best][:limit]
 
-    def _extract_filename_from_query(self, query: str) -> tuple[str | None, str]:
-        """Sucht im Query-Text nach bekannten Dateinamen oder eindeutigen Stämmen."""
-        known = self.known_filenames()
-        if not known:
-            return None, query
+    # --- Werkzeuge --------------------------------------------------------------------------------------------------
+    def _search(self, query: str, kinds: list[str], top_k: Any, filename: str = "") -> ToolResult:
+        k = max(1, min(int(top_k or 5), 10))
+        target = None
+        if filename:
+            found = self.resolve(filename, limit=1)
+            target = found[0] if found else None
+        hits = self.retriever.search(query, top_k=k, chunk_types=kinds, filename=target)
+        if not hits and target:
+            hits = self.retriever.search(query, top_k=k, chunk_types=kinds)
+        return ToolResult([from_hit(h) for h in hits], "" if hits else "Keine Treffer.")
 
-        low_query = query.casefold()
+    def search_documents(self, query: str, top_k: int = 5, filename: str = "") -> ToolResult:
+        return self._search(query, ["text", "heading"], top_k, filename)
 
-        # 1. Exakter Treffer auf vollen Dateinamen oder Stem (z. B. Berlin1_25.pdf)
-        for fname in known:
-            stem = fname.casefold().removesuffix(".pdf")
-            if fname.casefold() in low_query or stem in low_query:
-                return fname, query
+    def search_tables(self, query: str, top_k: int = 5, filename: str = "") -> ToolResult:
+        return self._search(query, ["table_row"], top_k, filename)
 
-        # 2. Eindeutiger Teiltreffer auf Dateinamen-Bestandteile (z. B. Berlin1, ZEAG, Simply)
-        matches = []
-        for fname in known:
-            stem = fname.casefold().removesuffix(".pdf")
-            parts = [p for p in re.split(r"[_\s.-]", stem) if p and p != "25"]
-            for part in parts:
-                if len(part) >= 3 and re.search(r"\b" + re.escape(part) + r"\b", low_query):
-                    matches.append(fname)
-                    break
+    def search_images(self, query: str, top_k: int = 3) -> ToolResult:
+        return self._search(query, ["image"], top_k or 3)
 
-        unique_matches = list(dict.fromkeys(matches))
-        if len(unique_matches) == 1:
-            return unique_matches[0], query
+    def get_document_outline(self, filename_filter: str = "") -> ToolResult:
+        names = self.resolve(filename_filter, limit=3) if filename_filter else []
+        files = [self.processed_dir / f"{Path(n).stem}_chunks.json" for n in names] if names else []
+        out = []
+        for path in files:
+            if not path.exists():
+                continue
+            chunks = json.loads(path.read_text(encoding="utf-8"))
+            lines = [f"{'  ' * (len(c['heading_stack']) - 1)}- {c['content']} (S. {c['page_number']})"
+                     for c in chunks if c["chunk_type"] == "heading"]
+            meta = chunks[0]["metadata"] if chunks else {}
+            out.append(Evidence(text="Gliederung:\n" + "\n".join(lines), filename=meta.get("filename", path.name),
+                                folder=meta.get("folder", ""), kind="outline"))
+        return ToolResult(out, "" if out else f"Kein Dokument passt zu '{filename_filter}'.")
 
-        return None, query
-
-    def _clean_query_input(self, query: str) -> str:
-        clean = re.sub(r'(?i)\s+und\s+top_k\s*=\s*\d+', '', query)
-        clean = re.sub(r'(?i)\s*top_k\s*=\s*\d+', '', clean)
-        return clean.strip('\'" ')
+    def calculate(self, expression: str) -> ToolResult:
+        try:
+            value = safe_eval(expression)
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError) as exc:
+            return ToolResult(note=f"Rechenfehler: {exc}")
+        text = f"Ergebnis: {expression} = {round(value, 4):g} (deutsch: {de_number(value)})"
+        return ToolResult([Evidence(text=text, kind="calculation")])
 
     @staticmethod
-    def _build_where(chunk_types: list[str], filename: str | None) -> dict[str, Any]:
-        conditions: list[dict[str, Any]] = [{"chunk_type": {"$in": chunk_types}}]
-        if filename:
-            conditions.append({"filename": filename})
-        return conditions[0] if len(conditions) == 1 else {"$and": conditions}
+    def _facts_text(name: str, facts: dict[str, Any]) -> str:
+        labels = {"doc_type": "Dokumentart", "provider": "Aussteller/Vertragspartner", "customer_name": "Kunde",
+                  "customer_number": "Kundennummer", "contract_number": "Vertragsnummer",
+                  "invoice_number": "Rechnungsnummer", "doc_date": "Datum", "due_date": "fällig",
+                  "total_gross_eur": "Gesamtbetrag brutto €", "amount_due_eur": "Nachzahlung(+)/Guthaben(-) €",
+                  "contract_start": "Vertragsbeginn", "term_end": "Ende Mindest-/Erstlaufzeit",
+                  "extension_months": "Verlängerung (Monate)", "notice_period_months": "Kündigungsfrist (Monate)",
+                  "notice_mode": "Kündigungsart", "price_guarantee_until": "Preisgarantie bis",
+                  "advance_payment_eur": "Abschlag/Vorauszahlung €", "advance_interval": "Turnus",
+                  "monthly_price_eur": "Monatspreis brutto €"}
+        lines = [f"Kerndaten {name}:"]
+        for key, label in labels.items():
+            value = facts.get(key)
+            if value in (None, ""):
+                continue
+            if isinstance(value, float):
+                value = de_number(value)
+            elif isinstance(value, str) and to_iso(value) == value:
+                value = de_date(value)
+            lines.append(f"- {label}: {value}")
+        return "\n".join(lines)
 
-    def search(self, query: str, filename: str = "", kind: str = "all", top_k: int = DEFAULT_TOP_K) -> ToolResult:
-        query = self._clean_query_input(query or "")
-        if not query.strip():
-            return ToolResult("Fehler: Die Suchanfrage darf nicht leer sein.")
-        kind = (kind or "all").strip().lower()
-        if kind not in KIND_TO_CHUNK_TYPES:
-            return ToolResult(f"Fehler: Unbekannter Typ '{kind}'. Erlaubt: {', '.join(KIND_TO_CHUNK_TYPES)}.")
-        top_k = max(1, min(int(top_k), 10))
+    def get_key_facts(self, document: str) -> ToolResult:
+        records = self.facts()
+        names = self.resolve(document, limit=2)
+        if not names:
+            return ToolResult(note=f"Kein Dokument passt zu '{document}'. Verfügbar: {', '.join(sorted(records))}")
+        evidence = []
+        keys = set()
+        for name in names:
+            rec = records.get(name, {})
+            facts = rec.get("facts") or {}
+            evidence.append(Evidence(self._facts_text(name, facts), filename=name, folder=rec.get("folder", ""),
+                                     kind="facts"))
+            keys |= {facts.get("contract_number"), facts.get("customer_number")} - {None, ""}
+        related = [n for n, r in records.items() if n not in names and keys &
+                   {(r.get("facts") or {}).get("contract_number"), (r.get("facts") or {}).get("customer_number")}]
+        own_contracts = {(records[n].get("facts") or {}).get("contract_number") for n in names} - {None}
+        # zuerst Dokumente mit derselben Vertragsnummer (enger als Kundennummer)
+        related.sort(key=lambda n: ((records[n].get("facts") or {}).get("contract_number") not in own_contracts, n))
+        for name in related[:3]:
+            rec = records[name]
+            evidence.append(Evidence(self._facts_text(name, rec.get("facts") or {}), filename=name,
+                                     folder=rec.get("folder", ""), kind="facts"))
+        note = f"Verknüpft über Kunden-/Vertragsnummer: {', '.join(related[:3])}" if related else ""
+        return ToolResult(evidence, note)
 
-        # Automatische Erkennung des Dateinamens im Anfrage-Text, falls filename leer ist
-        if not filename.strip():
-            extracted_file, query = self._extract_filename_from_query(query)
-            if extracted_file:
-                filename = extracted_file
+    def list_contracts(self, notice_date: str = "", customer: str = "") -> ToolResult:
+        when = date.fromisoformat(to_iso(notice_date)) if to_iso(notice_date) else today()
+        contracts = [(name, rec) for name, rec in sorted(self.facts().items())
+                     if (rec.get("facts") or {}).get("doc_type") == "Vertrag" or rec.get("folder") == "Vertraege"]
+        note = ""
+        if customer:     # Modelle setzen hier oft die Vertragsart ("Heizstrom") statt eines Namens
+            key = fold(customer)
+            chosen = [(n, r) for n, r in contracts if key in fold(" ".join(
+                [n, str((r.get("facts") or {}).get("customer_name") or ""), str((r.get("facts") or {}).get("provider") or "")]))]
+            if chosen:
+                contracts = chosen
+            else:
+                note = f"Kein Vertrag passt zu '{customer}', daher alle Verträge:\n"
+        evidence = []
+        for name, rec in contracts:
+            facts = rec.get("facts") or {}
+            deadline = earliest_end(facts, when)
+            active = guarantee_active(facts, when)
+            monthly = monthly_advance(facts)
+            parts = [f"Vertrag: {facts.get('provider') or name}", f"Kunde: {facts.get('customer_name') or '-'}",
+                     f"Vertragsnummer: {facts.get('contract_number') or '-'}",
+                     f"Vertragsschluss: {de_date(facts.get('doc_date'))}",
+                     f"Beginn: {de_date(facts.get('contract_start'))}",
+                     f"Mindest-/Erstlaufzeit bis: {de_date(facts.get('term_end'))}",
+                     f"Kündigung: {deadline.reason}"]
+            if deadline.end:
+                parts.append(f"bei Kündigung am {de_date(when.isoformat())}: frühestes Ende {de_date(deadline.end.isoformat())}"
+                             f", Kündigung muss bis {de_date(deadline.notice_by.isoformat())} zugehen")
+            else:
+                parts.append("frühestes Ende: nicht bestimmbar")
+            if facts.get("extension_months"):
+                parts.append(f"verlängert sich um {facts['extension_months']} Monate")
+            if active is not None:
+                parts.append(f"Preisgarantie bis {de_date(facts.get('price_guarantee_until'))} "
+                             f"({'aktiv' if active else 'abgelaufen'} am {de_date(when.isoformat())})")
+            else:
+                parts.append("keine Preisgarantie")
+            if facts.get("advance_payment_eur") is not None:
+                parts.append(f"Abschlag {de_number(float(facts['advance_payment_eur']))} € "
+                             f"{facts.get('advance_interval') or ''} (= {de_number(monthly)} € je Monat)".replace("  ", " "))
+            if facts.get("monthly_price_eur") is not None:
+                parts.append(f"Monatspreis {de_number(float(facts['monthly_price_eur']))} €")
+            evidence.append(Evidence(" | ".join(parts), filename=name, folder=rec.get("folder", ""), kind="contract"))
+        return ToolResult(evidence, note if evidence else "Keine Verträge gefunden.")
 
-        resolved, error = self.resolve_filename(filename)
-        if error:
-            return ToolResult(error)
+    def list_invoices(self) -> ToolResult:
+        evidence = []
+        for name, rec in sorted(self.facts().items()):
+            facts = rec.get("facts") or {}
+            if facts.get("doc_type") != "Rechnung" and rec.get("folder") != "Rechnungen":
+                continue
+            parts = [f"Rechnung: {facts.get('provider') or name}", f"Kunde: {facts.get('customer_name') or '-'}",
+                     f"Rechnungsdatum: {de_date(facts.get('doc_date'))}", f"fällig: {de_date(facts.get('due_date'))}"]
+            if facts.get("total_gross_eur") is not None:
+                parts.append(f"Gesamtbetrag: {de_number(float(facts['total_gross_eur']))} €")
+            if facts.get("amount_due_eur") is not None:
+                amount = float(facts["amount_due_eur"])
+                parts.append(f"{'Nachzahlung' if amount > 0 else 'Guthaben'}: {de_number(abs(amount))} €")
+            evidence.append(Evidence(" | ".join(parts), filename=name, folder=rec.get("folder", ""), kind="invoice"))
+        return ToolResult(evidence, "" if evidence else "Keine Rechnungen gefunden.")
 
-        search_phrase = query
-        if self.rewriter is not None:
-            try:
-                optimized = self.rewriter.rewrite(query)
-                search_phrase = query if optimized == query else f"{query} {optimized}"
-            except Exception:
-                search_phrase = query
-
-        where = self._build_where(KIND_TO_CHUNK_TYPES[kind], resolved)
-        hits = search_collection(
-            self.collection, self._get_query_embedding(search_phrase), search_phrase, top_k, where=where
-        )
-        scope = f" in '{resolved}'" if resolved else ""
-        if not hits:
-            return ToolResult(f"Keine Ergebnisse vom Typ '{kind}'{scope} gefunden.")
-
-        blocks, evidence = [], []
-        for i, hit in enumerate(hits, start=1):
-            page = hit.metadata.get("page_number", "?")
-            fname = hit.metadata.get("filename", "Unbekannte Datei")
-            ctype = hit.metadata.get("chunk_type", "?")
-            snippet = hit.document
-            if len(snippet) > SNIPPET_CHARS:
-                snippet = snippet[:SNIPPET_CHARS] + "... [gekürzt]"
-            blocks.append(f"[Treffer {i} | {fname} | Seite {page} | {ctype} | Score {hit.score:.2f}]\n{snippet}")
-            evidence.append({
-                "id": hit.chunk_id or f"{fname}:{page}:{i}",
-                "content": hit.document[:EVIDENCE_CHARS],
-                "page_number": page,
-                "metadata": {
-                    "filename": fname,
-                    "heading_stack_str": hit.metadata.get("heading_stack_str", ""),
-                    "chunk_type": ctype,
-                },
-                "score": hit.score,
-            })
-        return ToolResult("\n\n".join(blocks), evidence)
-
-    def search_documents(self, query: str, filename: str = "", top_k: int = 5) -> str:
-        return self.search(query, filename=filename, kind="text", top_k=top_k).text
-
-    def search_tables(self, query: str, filename: str = "", top_k: int = 5) -> str:
-        return self.search(query, filename=filename, kind="table", top_k=top_k).text
-
-    def search_images(self, query: str, filename: str = "", top_k: int = 2) -> str:
-        return self.search(query, filename=filename, kind="image", top_k=top_k).text
-
-    def get_document_outline(self, filename_filter: str = "") -> str:
-        resolved, error = self.resolve_filename(filename_filter)
-        if error:
-            return error
-        where = self._build_where(["heading"], resolved)
-        results = self.collection.get(where=where, include=["metadatas", "documents"])
-        if not results or not results.get("documents"):
-            return "Keine Gliederung gefunden."
-
-        rows = sorted(
-            zip(results["metadatas"], results["documents"]),
-            key=lambda pair: (pair[0].get("filename", ""), pair[0].get("page_number", 0)),
-        )
-        out = [f"[{m.get('filename', '')} | S.{m.get('page_number', '?')}] {_strip_prefix(doc)}" for m, doc in rows]
-        return "\n".join(out[:40])
-
-    def calculate(self, expression: str) -> str:
-        clean_expr = re.sub(r"^\s*expression\s*=\s*", "", expression or "", flags=re.IGNORECASE)
-        clean_expr = clean_expr.strip("'\" ")
-        if "," in clean_expr and "." in clean_expr:
-            clean_expr = re.sub(r"(?<=\d)\.(?=\d{3}(?!\d))", "", clean_expr)
-        clean_expr = clean_expr.replace(",", ".")
-        if not clean_expr or len(clean_expr) > 200:
-            return "Fehler: Ungültiger oder zu langer Rechenausdruck."
-
-        ops = {
-            ast.Add: operator.add,
-            ast.Sub: operator.sub,
-            ast.Mult: operator.mul,
-            ast.Div: operator.truediv,
-            ast.Pow: operator.pow,
-            ast.USub: operator.neg,
-            ast.UAdd: operator.pos,
-        }
-
-        def eval_node(node: ast.AST) -> float:
-            if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, (int, float))
-                and not isinstance(node.value, bool)
-            ):
-                return float(node.value)
-            if isinstance(node, ast.BinOp) and type(node.op) in ops:
-                left, right = eval_node(node.left), eval_node(node.right)
-                if isinstance(node.op, ast.Pow) and abs(right) > 100:
-                    raise ValueError("Exponent zu groß.")
-                return ops[type(node.op)](left, right)
-            if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
-                return ops[type(node.op)](eval_node(node.operand))
-            raise ValueError("Nur Zahlen, Klammern und +, -, *, /, ** sind erlaubt.")
-
-        try:
-            result = eval_node(ast.parse(clean_expr, mode="eval").body)
-            if not result == result or result in (float("inf"), float("-inf")):
-                raise ValueError("Das Ergebnis ist nicht endlich.")
-            return str(round(result, 4))
-        except (ArithmeticError, SyntaxError, TypeError, ValueError) as exc:
-            return f"Fehler bei der Berechnung: {exc}"
-
-    def get_document_inventory(self) -> str:
-        try:
-            results = self.collection.get(include=["metadatas"])
-            if not results or not results.get("metadatas"):
-                return "Keine Dokumente in der Datenbank gefunden."
-
-            docs_summary: dict[str, dict[str, Any]] = {}
-            for meta in results["metadatas"]:
-                filename = meta.get("filename", "Unbekannte Datei")
-                info = docs_summary.setdefault(filename, {
-                    "provider": "Unbekannt", "doc_type": "Unbekannt", "doc_date": "Unbekannt",
-                    "contract_number": "", "invoice_number": "", "chunks": 0,
-                })
-                for key in ("provider", "doc_type", "doc_date", "contract_number", "invoice_number"):
-                    value = meta.get(key)
-                    if value and value != "Unbekannt" and info[key] in ("", "Unbekannt"):
-                        info[key] = value
-                info["chunks"] += 1
-
-            output = [f"Gesamtzahl indizierter Dokumente: {len(docs_summary)}\n"]
-            for fname, info in sorted(docs_summary.items()):
-                details = (
-                    f"- Datei: {fname} | Typ: {info['doc_type']} | Datum: {info['doc_date']} "
-                    f"| Anbieter: {info['provider']}"
-                )
-                if info["contract_number"]:
-                    details += f" | Vertragsnr: {info['contract_number']}"
-                if info["invoice_number"]:
-                    details += f" | Rechnungsnr: {info['invoice_number']}"
-                output.append(details)
-            return "\n".join(output)
-        except Exception as exc:
-            return f"Fehler beim Abrufen des Dokumenteninventars: {exc}"
-
-    def get_document_facts(self, filename: str = "") -> ToolResult:
-        records = load_facts(self.processed_dir)
-        if not records:
-            return ToolResult(
-                "Keine strukturierten Fakten vorhanden. Bitte `python -m src.enrichment.facts` ausführen "
-                "oder stattdessen `search` verwenden."
-            )
-        selected = sorted(records)
-        if filename and filename.strip():
-            resolved, error = resolve_name(selected, filename)
-            if error:
-                return ToolResult(error)
-            selected = [resolved]
-
-        blocks, evidence = [], []
-        for name in selected:
-            block = format_facts(records[name])
-            blocks.append(block)
-            evidence.append(_tool_evidence("get_document_facts", f"{name} (extrahierte Kerndaten)", block, name))
-        text = "\n\n".join(blocks) + (
-            "\n\nHinweis: automatisch extrahierte Kerndaten. Bei Zweifeln mit `search` im Dokument gegenprüfen."
-        )
-        return ToolResult(text, evidence)
-
-    def _get_graph(self) -> DocumentGraph:
-        if self._graph is None:
-            self._graph = DocumentGraph.load_or_build(self.graph_path, self.processed_dir)
-        return self._graph
-
-    def graph_lookup(self, entity: str) -> ToolResult:
-        if not entity or not entity.strip():
-            return ToolResult("Fehler: Bitte eine Entität (Vertragsnummer, Zähler, Anbieter, Dateiname) angeben.")
-        text = self._get_graph().lookup(entity)
-        evidence = [_tool_evidence("graph_lookup", "Dokumentgraph", text, entity.strip().casefold())]
-        return ToolResult(text, evidence)
-
+    # --- Ausführung -------------------------------------------------------------------------------------------------
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
-        clean = re.sub(r"\(.*?\)$", "", (name or "").strip().strip("`'\"")).strip()
-        args = arguments if isinstance(arguments, dict) else {}
-
-        def as_int(value: Any, default: int) -> int:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return default
-
+        args = dict(arguments or {})
+        handlers = {
+            "search_documents": lambda: self.search_documents(str(args.get("query", "")), args.get("top_k", 5),
+                                                              str(args.get("filename") or "")),
+            "search_tables": lambda: self.search_tables(str(args.get("query", "")), args.get("top_k", 5),
+                                                        str(args.get("filename") or "")),
+            "search_images": lambda: self.search_images(str(args.get("query", "")), args.get("top_k", 3)),
+            "get_document_outline": lambda: self.get_document_outline(
+                str(args.get("filename_filter") or args.get("filename") or "")),
+            "calculate": lambda: self.calculate(str(args.get("expression", ""))),
+            "get_key_facts": lambda: self.get_key_facts(str(args.get("document") or args.get("filename") or "")),
+            "list_invoices": lambda: self.list_invoices(),
+            "list_contracts": lambda: self.list_contracts(str(args.get("notice_date") or ""),
+                                                          str(args.get("customer") or "")),
+        }
+        if name not in handlers:
+            return ToolResult(note=f"Unbekanntes Werkzeug '{name}'. Verfügbar: {', '.join(TOOL_NAMES)}")
         try:
-            if clean == "get_document_inventory":
-                text = self.get_document_inventory()
-                return ToolResult(text, [_tool_evidence(clean, "Dokumentinventar", text)])
-            if clean == "get_document_facts":
-                return self.get_document_facts(str(args.get("filename") or ""))
-            if clean == "search":
-                return self.search(
-                    str(args.get("query") or ""),
-                    filename=str(args.get("filename") or ""),
-                    kind=str(args.get("kind") or "all"),
-                    top_k=as_int(args.get("top_k"), DEFAULT_TOP_K),
-                )
-            if clean in LEGACY_SEARCH_TOOLS:
-                return self.search(
-                    str(args.get("query") or ""),
-                    filename=str(args.get("filename") or ""),
-                    kind=LEGACY_SEARCH_TOOLS[clean],
-                    top_k=as_int(args.get("top_k"), DEFAULT_TOP_K),
-                )
-            if clean == "get_document_outline":
-                text = self.get_document_outline(str(args.get("filename") or args.get("filename_filter") or ""))
-                ok = not text.startswith(("Keine", "Unbekannte", "Dateiname"))
-                return ToolResult(text, [_tool_evidence(clean, "Dokumentgliederung", text, text[:40])] if ok else [])
-            if clean == "graph_lookup":
-                return self.graph_lookup(str(args.get("entity") or args.get("query") or ""))
-            if clean == "calculate":
-                expression = str(args.get("expression") or args.get("query") or "")
-                text = self.calculate(expression)
-                ok = not text.startswith("Fehler")
-                return ToolResult(
-                    text,
-                    [_tool_evidence(clean, "Rechner", f"Berechnung {expression.strip()} = {text}", expression)] if ok else [],
-                )
-        except Exception as exc:
-            return ToolResult(f"Fehler beim Werkzeug '{name}': {exc}")
-        return ToolResult(f"Fehler: Unbekanntes Werkzeug '{name}'.")
+            return handlers[name]()
+        except (ValueError, TypeError) as exc:
+            return ToolResult(note=f"Fehler in {name}: {exc}")

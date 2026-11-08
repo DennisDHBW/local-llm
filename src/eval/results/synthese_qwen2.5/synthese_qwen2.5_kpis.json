@@ -1,0 +1,182 @@
+{
+ "meta": {
+  "title": "R8: P1-Synthese mit qwen2.5 (Entwicklungssatz)",
+  "started": "06.11.2026 00:26",
+  "variant": "Version2",
+  "models": "Agent llama3.1:8b, Synthese P1 llama3.1:8b, Kerndaten qwen2.5:7b, Embedding nomic-embed-text, Rewriter llama3.2",
+  "sets": "dev",
+  "reps": 1,
+  "note": "Retrieval: Top-20 Kandidaten, Boost 1.5, BM25 aus, Reranker aus, Rewriting aus; Stichtag 2026-11-05; abgeschaltete Werkzeuge: keine"
+ },
+ "kpis": {
+  "P1": {
+   "correct": {
+    "value": 0.5,
+    "interval": [
+     0.3711458304022563,
+     0.6288541695977437
+    ],
+    "n": 54
+   },
+   "faithfulness": {
+    "value": 0.8421052631578947,
+    "interval": [
+     0.6842105263157895,
+     1.0
+    ],
+    "n": 19
+   },
+   "hallucinated": {
+    "value": 0.07407407407407407,
+    "interval": [
+     0.02918152776550481,
+     0.1755411583859995
+    ],
+    "n": 54
+   },
+   "cited": {
+    "value": 0.9534883720930233,
+    "interval": [
+     0.8454450199593603,
+     0.9871507399056197
+    ],
+    "n": 43
+   },
+   "citation_correct": {
+    "value": 0.95,
+    "interval": [
+     0.8349612263085903,
+     0.9861793326138516
+    ],
+    "n": 40
+   },
+   "abstain": {
+    "value": 0.8888888888888888,
+    "interval": [
+     0.5650002944233439,
+     0.9801091123614551
+    ],
+    "n": 9
+   },
+   "false_abstention": {
+    "value": 0.044444444444444446,
+    "interval": [
+     0.012274126706719846,
+     0.14827510769435623
+    ],
+    "n": 45
+   },
+   "recall@5": {
+    "value": 1.0,
+    "interval": [
+     1.0,
+     1.0
+    ],
+    "n": 42
+   },
+   "precision@5": {
+    "value": 0.7619047619047619,
+    "interval": [
+     0.680952380952381,
+     0.8428571428571429
+    ],
+    "n": 42
+   },
+   "rr": {
+    "value": 0.9333333333333333,
+    "interval": [
+     0.8666666666666666,
+     0.9880952380952381
+    ],
+    "n": 42
+   },
+   "beleg@5": {
+    "value": 0.926829268292683,
+    "interval": [
+     0.8057255146228096,
+     0.9748021693660901
+    ],
+    "n": 41
+   },
+   "tool_selection": {
+    "value": null,
+    "interval": null,
+    "n": 0
+   },
+   "steps": {
+    "value": 0.0,
+    "interval": [
+     0.0,
+     0.0
+    ],
+    "n": 54
+   },
+   "latency_p50": {
+    "value": 36.114999999999995,
+    "interval": [
+     32.06,
+     37.269999999999996
+    ],
+    "n": 54
+   },
+   "latency_p95": {
+    "value": 46.722500000000004,
+    "interval": [
+     43.13,
+     51.8915
+    ],
+    "n": 54
+   },
+   "tokens_per_s": {
+    "value": 7.0988241682536275,
+    "interval": [
+     6.8486025648989415,
+     7.420260629249747
+    ],
+    "n": 54
+   },
+   "peak_ram_gb": {
+    "value": 7.13,
+    "interval": null,
+    "n": 54
+   },
+   "error_rate": {
+    "value": 0.0,
+    "interval": [
+     0.0,
+     0.0664135880908964
+    ],
+    "n": 54
+   },
+   "outage_rate": {
+    "value": 0.0,
+    "interval": [
+     0.0,
+     0.0664135880908964
+    ],
+    "n": 54
+   },
+   "field_accuracy": {
+    "value": 0.9552238805970149,
+    "interval": [
+     0.9057552772644654,
+     0.9793195111466114
+    ],
+    "n": 134
+   },
+   "ingest_s_per_doc": {
+    "value": 153.85,
+    "interval": [
+     139.618125,
+     170.57171875
+    ],
+    "n": 16
+   },
+   "consistency": {
+    "value": null,
+    "interval": null,
+    "n": 0
+   }
+  }
+ }
+}

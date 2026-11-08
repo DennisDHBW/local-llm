@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dokagent"
+version = "2.0.0"
+description = "Lokaler Agent für private Rechnungen und Verträge: modulares RAG, Evidence-First und ReAct (Ollama, ChromaDB)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb>=0.5.0",
+    "diskcache>=5.6.3",
+    "ollama>=0.3.0",
+    "pydantic>=2.0",
+    "pymupdf>=1.23.0",
+    "python-docx>=1.2.0",
+    "streamlit>=1.65.0",
+]
+
+[project.optional-dependencies]
+# Cross-Encoder-Reranker: nur für die Ablation (src/eval/ablation.py); Standard aus, weil nicht messbar besser
+rerank = ["sentence-transformers>=3.0.0"]
+ragas = [
+    "langchain-community>=0.3,<0.4",
+    "langchain-ollama>=1.1.0",
+    "ragas>=0.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.9",     # nur für das Diagramm im synthetischen Heizstromvertrag (src/eval/make_contracts.py)
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
+
+# ---------------------------------------------------------------------------------------------------------------
+# Werkzeuge
+# ---------------------------------------------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Standard: schnelle Tests ohne Sprachmodell. Tests gegen ein laufendes Ollama: uv run pytest -m ollama
+addopts = "-m 'not ollama'"
+markers = [
+    "ollama: braucht ein laufendes Ollama mit den konfigurierten Modellen (langsam, viel RAM)",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM"]
+ignore = [
+    "E501",    # Zeilenlänge: lange deutsche Kommentare und Prompts; Formatierung über line-length = 120
+    "SIM105",  # try/except/pass ist hier bewusst explizit (Kommentar am except)
+    "SIM108",  # if/else-Block statt Einzeiler: bei langen Ausdrücken lesbarer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"app.py" = ["E402"]   # Importe nach dem Ergänzen von sys.path (Start über `streamlit run app.py`)

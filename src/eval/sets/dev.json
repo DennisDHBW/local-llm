@@ -1,0 +1,956 @@
+{
+ "_hinweis": "Entwicklungssatz D: darf zur Fehleranalyse und zum Einstellen der Pipeline genutzt werden. Enthält die Version1-Fragen (Testsätze A, C, D, E) ohne Kassenbon- und Sammeldokument-Fragen, auf die neuen Dateinamen umgestellt, sowie neue Vertragsfragen.",
+ "set": "dev",
+ "written": "2026-11-05",
+ "questions": [
+  {
+   "id": "D-werkstatt_betrag",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch ist der Rechnungsbetrag der Werkstattrechnung von Auto & Service Müller?",
+   "expected": [
+    "784,21|784.21"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "784,21"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-versicherung_faellig",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Bis wann muss der Beitrag der NordStern Kfz-Versicherung bezahlt werden?",
+   "expected": [
+    "01.11.2026|1. November 2026"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "01.11.2026"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-telekom_kundennummer",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Kundennummer hat Thomas Kramer bei ConnectNet?",
+   "expected": [
+    "KD-849201"
+   ],
+   "expected_sources": [
+    "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf"
+   ],
+   "evidence": [
+    "KD-849201"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-strom_verbrauch",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch war der Stromverbrauch 2024 laut der Rechnung der Stadtwerke Neckar-Strom?",
+   "expected": [
+    "3.400|3400"
+   ],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf"
+   ],
+   "evidence": [
+    "3.400"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-graph_mustermann",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Dokumente gehören zur Kundennummer KD-7409218?",
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json",
+   "expected_items": [
+    "Neckar|generatedinvoicesStromrechnung2024",
+    "Heizstrom|Volt",
+    "Wasser"
+   ],
+   "expected": []
+  },
+  {
+   "id": "D-diagramm_hoechster_monat",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "In welchem Monat 2025 war der Stromverbrauch laut dem Diagramm in der Verbrauchsübersicht der Stadtwerke Neckar-Strom am höchsten?",
+   "expected": [
+    "Januar|Jan"
+   ],
+   "expected_sources": [
+    "Verbrauchsuebersicht_Strom_2025.pdf"
+   ],
+   "evidence": [
+    "Januar|Jan"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-wasser_nachzahlung",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie hoch ist die Nachzahlung laut der Wasserabrechnung 2024?",
+   "expected": [
+    "42,95|42.95"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [
+    "42,95"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-negativ_gas",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist mein Gaspreis pro kWh?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-negativ_miete",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist die monatliche Kaltmiete laut meinem Mietvertrag?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_belege.json"
+  },
+  {
+   "id": "D-c_lumina_ladekabel",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was kostete ein Premium Ladekabel USB-C bei LuminaStyle netto pro Stück?",
+   "expected": [
+    "12,52|12.52"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "12,52"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_volt_grundpreis",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch ist der monatliche Grundpreis für den Heizstrom bei Volt & Wärme?",
+   "expected": [
+    "14,00|14.00|14 €|14 EUR|14,000"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+   ],
+   "evidence": [
+    "14,000"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_streampulse_zeitraum",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welchen Abrechnungszeitraum hat die Rechnung von StreamPulse?",
+   "expected": [
+    "05.10.2026|5. Oktober 2026",
+    "04.11.2026|4. November 2026"
+   ],
+   "expected_sources": [
+    "Rechnung_Abo_StreamPulse_2026-10.pdf"
+   ],
+   "evidence": [
+    "04.11.2026"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_waermepumpe_zaehler",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Zählernummer hat der Heizstromzähler der Wärmepumpe von Max Mustermann?",
+   "expected": [
+    "2HTNT-7710293"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+   ],
+   "evidence": [
+    "2HTNT-7710293"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_lumina_paypal",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche PayPal-Transaktions-ID steht auf der Rechnung von LuminaStyle?",
+   "expected": [
+    "9X82019481A39201L"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "9X82019481A39201L"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_volt_arbeitspreis",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie hoch ist der Arbeitspreis bei Volt & Wärme?",
+   "expected": [
+    "28,0|28.0|28 ct",
+    "21,5|21.5"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+   ],
+   "evidence": [
+    "21,500"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_strom_abschlaege",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie viele Abschläge hat Max Mustermann 2024 an die Stadtwerke Neckar-Strom gezahlt?",
+   "expected": [
+    "11 Abschl|11 Mal|11-mal|elf|11 Zahlungen|11 monatliche|11 x|11x"
+   ],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf"
+   ],
+   "evidence": [
+    "11 Abschläge"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_strom_abbuchung",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "An welchem Tag wird die Nachzahlung für die Stromrechnung 2024 abgebucht?",
+   "expected": [
+    "02.02.2025|2. Februar 2025"
+   ],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf"
+   ],
+   "evidence": [
+    "02.02.2025"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_diagramm_tiefster_monat",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "In welchem Monat 2025 war mein Stromverbrauch laut Verbrauchsdiagramm am niedrigsten?",
+   "expected": [
+    "Juli|Jul"
+   ],
+   "expected_sources": [
+    "Verbrauchsuebersicht_Strom_2025.pdf"
+   ],
+   "evidence": [
+    "Juli|Jul"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_negativ_kfzsteuer",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist meine Kfz-Steuer laut Steuerbescheid?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-c_negativ_handwerker",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie viel hat der Handwerker für die Badsanierung berechnet?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout.json"
+  },
+  {
+   "id": "D-d_nordstern_kennzeichen",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welches Kennzeichen hat das bei NordStern versicherte Fahrzeug?",
+   "expected": [
+    "M-MS 8420"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "M-MS 8420"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_nordstern_vollkasko",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch ist der Nettobeitrag für die Vollkaskoversicherung bei NordStern?",
+   "expected": [
+    "310,00|310.00|310 €|310 EUR"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "310,00"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_werkstatt_kmstand",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welchen Kilometerstand hatte der VW Golf bei der Reparatur durch Auto & Service Müller?",
+   "expected": [
+    "64.250|64250"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "64.250"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_werkstatt_stundensatz",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welchen Stundensatz berechnet die Werkstatt Auto & Service Müller?",
+   "expected": [
+    "95,00|95.00|95 €|95 EUR"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "95,00"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_wasser_verbrauch",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viel Trinkwasser hat Max Mustermann 2024 verbraucht?",
+   "expected": [
+    "125"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [
+    "125,0 m³"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_mustermann_dokumente",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Dokumente sind an Max Mustermann adressiert?",
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json",
+   "expected_items": [
+    "Neckar",
+    "Volt|Heizstrom",
+    "Wasser|Zweckverband"
+   ],
+   "expected": []
+  },
+  {
+   "id": "D-d_wasser_niederschlag",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie hoch ist die Niederschlagswassergebühr in der Wasserabrechnung 2024?",
+   "expected": [
+    "108,00|108.00|108 €|108 EUR"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [
+    "108,00"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_wasser_neuer_abschlag",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie hoch sind die neuen quartalsweisen Abschläge für Wasser ab Februar 2025?",
+   "expected": [
+    "225,00|225.00|225 €|225 EUR"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [
+    "225,00"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_diagramm_maerz",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie hoch war mein Stromverbrauch im März 2025 laut Verbrauchsdiagramm?",
+   "expected": [
+    "300"
+   ],
+   "expected_sources": [
+    "Verbrauchsuebersicht_Strom_2025.pdf"
+   ],
+   "evidence": [
+    "300"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_negativ_hausrat",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch ist der Beitrag meiner Hausratversicherung?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-d_negativ_zahnarzt",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie viel hat mein letzter Zahnarztbesuch gekostet?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_d.json"
+  },
+  {
+   "id": "D-e_connectnet_rufnummer",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Rufnummer steht auf der Rechnung von ConnectNet?",
+   "expected": [
+    "8920145"
+   ],
+   "expected_sources": [
+    "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf"
+   ],
+   "evidence": [
+    "8920145"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_connectnet_router",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viel kostet das Mietgerät (Router) bei ConnectNet netto?",
+   "expected": [
+    "4,19|4.19"
+   ],
+   "expected_sources": [
+    "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf"
+   ],
+   "evidence": [
+    "4,19"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_nordstern_selbstbeteiligung",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Selbstbeteiligung gilt für die Vollkasko bei NordStern?",
+   "expected": [
+    "300"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "Selbstbeteiligung"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_nordstern_fahrzeug",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welches Fahrzeug ist bei der NordStern Versicherung versichert?",
+   "expected": [
+    "BMW 320i|BMW"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "BMW 320i"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_werkstatt_motoroel",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was hat das Motoröl bei Auto & Service Müller netto insgesamt gekostet?",
+   "expected": [
+    "73,10|73.10|73,1 "
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "73,10"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_arzt_ekg_faktor",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Mit welchem Steigerungsfaktor wurde das Ruhe-EKG auf der Arztrechnung abgerechnet?",
+   "expected": [
+    "1,8|1.8"
+   ],
+   "expected_sources": [
+    "Rechnung_Arzt_DrWeber_2026-10.pdf"
+   ],
+   "evidence": [
+    "Ruhe-EKG"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_faellig_november",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Rechnungen sind im November 2026 fällig?",
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json",
+   "expected_items": [
+    "NordStern",
+    "Weber|Arzt"
+   ],
+   "expected": []
+  },
+  {
+   "id": "D-e_lumina_gutschein",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie viel Rabatt brachte der Aktionsgutschein HERBST10 bei LuminaStyle?",
+   "expected": [
+    "8,40|8.40|10 EUR|10,00|10 €"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "HERBST10"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_heizstrom_guthaben_datum",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Bis wann wird das Guthaben aus der Heizstromabrechnung überwiesen?",
+   "expected": [
+    "05.02.2025|5. Februar 2025"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+   ],
+   "evidence": [
+    "05.02.2025"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_diagramm_ueber_350",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "In welchen Monaten 2025 lag der Stromverbrauch laut Verbrauchsdiagramm über 350 kWh?",
+   "expected": [
+    "Januar|Jan",
+    "Dezember|Dez"
+   ],
+   "expected_sources": [
+    "Verbrauchsuebersicht_Strom_2025.pdf"
+   ],
+   "evidence": [
+    "380"
+   ],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_negativ_strom2023",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Wie hoch war meine Stromrechnung für das Jahr 2023?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-e_negativ_fitness",
+   "type": "e",
+   "category": "negativ",
+   "answerable": false,
+   "question": "Was kostet mein Fitnessstudio-Abo im Monat?",
+   "expected": [
+    "nicht|keine|kein"
+   ],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "origin": "Version1 questions_heldout_e.json"
+  },
+  {
+   "id": "D-V01",
+   "type": "b",
+   "category": "standard",
+   "question": "Welche Kündigungsfrist hat der Heizstromvertrag von Volt & Wärme?",
+   "expected": [
+    "3 Monate|drei Monate|drei Monaten|3 Monaten"
+   ],
+   "expected_sources": [
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "drei Monaten"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V02",
+   "type": "a",
+   "category": "standard",
+   "question": "Wie hoch ist der monatliche Abschlag im Stromvertrag der Stadtwerke Neckar-Strom?",
+   "expected": [
+    "130"
+   ],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf"
+   ],
+   "evidence": [
+    "130,00"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V03",
+   "type": "b",
+   "category": "grenzfall",
+   "allow_negation": true,
+   "question": "Kann ich das Wasserversorgungsverhältnis mit dem Zweckverband ordentlich kündigen?",
+   "expected": [
+    "ausgeschlossen|nicht|Benutzungszwang"
+   ],
+   "expected_sources": [
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "ausgeschlossen"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V04",
+   "type": "d",
+   "category": "grenzfall",
+   "question": "Bei welchen Verträgen ist die Preisgarantie am 05.11.2026 bereits abgelaufen?",
+   "expected": [],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag",
+    "Volt & Wärme|Heizstrom"
+   ],
+   "excluded_items": [
+    "ConnectNet"
+   ],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V05",
+   "type": "c",
+   "category": "standard",
+   "allow_negation": true,
+   "question": "Entspricht der Monatspreis auf der StreamPulse-Rechnung dem Preis im Abovertrag?",
+   "expected": [
+    "24,98"
+   ],
+   "expected_sources": [
+    "Rechnung_Abo_StreamPulse_2026-10.pdf",
+    "Vertrag_Abo_StreamPulse.docx"
+   ],
+   "evidence": [
+    "24,98"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V06",
+   "type": "a",
+   "category": "standard",
+   "question": "Wie viel kostet das Mietgerät SpeedBox laut ConnectNet-Vertrag netto pro Monat?",
+   "expected": [
+    "4,19"
+   ],
+   "expected_sources": [
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [
+    "4,19"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V07",
+   "type": "b",
+   "category": "standard",
+   "question": "Wann wurde der Kfz-Versicherungsvertrag mit NordStern abgeschlossen?",
+   "expected": [
+    "02.12.2024|2. Dezember 2024"
+   ],
+   "expected_sources": [
+    "Vertrag_Kfz_Versicherung_NordStern.pdf"
+   ],
+   "evidence": [
+    "02.12.2024"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V08",
+   "type": "b",
+   "category": "grenzfall",
+   "question": "Bis wann muss ich den Heizstromvertrag spätestens kündigen, um ihn zum nächstmöglichen Termin zu beenden, wenn ich am 05.11.2026 kündigen möchte?",
+   "expected": [
+    "30.09.2027"
+   ],
+   "expected_sources": [
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "drei Monaten"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V09",
+   "type": "d",
+   "category": "standard",
+   "question": "Welche Verträge werden per SEPA-Lastschrift bezahlt?",
+   "expected": [],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag",
+    "Volt & Wärme|Heizstrom",
+    "ConnectNet"
+   ],
+   "excluded_items": [
+    "StreamPulse",
+    "NordStern"
+   ],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx",
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [
+    "SEPA"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V10",
+   "type": "e",
+   "category": "negativ",
+   "question": "Wie hoch ist die monatliche Rate meines Kreditvertrags?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "answerable": false,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  },
+  {
+   "id": "D-V11",
+   "type": "a",
+   "category": "standard",
+   "question": "Welcher Gesamtverbrauch ist im Diagramm des Heizstromvertrags prognostiziert?",
+   "expected": [
+    "8.000|8000"
+   ],
+   "expected_sources": [
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "8000|8.000"
+   ],
+   "answerable": true,
+   "expected_tools": [],
+   "origin": "neu (Version2)"
+  }
+ ]
+}

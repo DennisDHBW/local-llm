@@ -1,71 +1,92 @@
-"""Zentrale Konfiguration. Alles lässt sich per Umgebungsvariable überschreiben.
+"""Zentrale Konfiguration. Jeder Wert lässt sich per Umgebungsvariable DOKAGENT_<NAME> überschreiben.
 
-Beispiel (PowerShell/Bash):
-    ENERGY_AGENT_MODEL=llama3.1:latest   # falls qwen2.5:14b nicht gezogen wurde
-    ENERGY_NUM_CTX=16384
+Beispiel:  DOKAGENT_AGENT_MODEL=llama3.1:8b DOKAGENT_HIERARCHY_BOOST=1.25 uv run streamlit run app.py
+
+Standardwerte, die durch Messung entschieden wurden, nennen die Messung im Kommentar (docs/reverse_engineering.md).
 """
 
+from __future__ import annotations
+
 import os
+from datetime import date
 from pathlib import Path
 
+
+def _env(name: str, default: str) -> str:
+    return os.getenv(f"DOKAGENT_{name}", default)
+
+
+def _flag(name: str, default: bool) -> bool:
+    return _env(name, "1" if default else "0").strip().lower() in ("1", "true", "ja", "yes", "on")
+
+
+# --- Pfade ---------------------------------------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data"
-PROCESSED_DIR = DATA_DIR / "processed"
-VECTOR_DIR = DATA_DIR / "vectors"
-GRAPH_DIR = DATA_DIR / "graph"
-GRAPH_PATH = GRAPH_DIR / "document_graph.json"
+DATA_DIR = Path(_env("DATA_DIR", str(PROJECT_ROOT / "data")))
+RAW_DIR = DATA_DIR / "raw"                     # Eingang: Unterordner (Rechnungen/, Vertraege/) gehen ins Präfix ein
+PROCESSED_DIR = DATA_DIR / "processed"         # Ebene 1: <datei>_chunks.json, <datei>_facts.json, Bilder
+VECTOR_DIR = DATA_DIR / "vectors"              # Ebene 3: ChromaDB
+CACHE_DIR = Path(_env("CACHE_DIR", str(PROJECT_ROOT / ".cache")))   # Ebene 2: Enrichment-DiskCache (SHA-256)
+SOURCE_SUFFIXES = (".pdf", ".docx")
 
-# --- Modelle -----------------------------------------------------------------
-# qwen2.5:7b (~4,7 GB): läuft auch auf Laptops ohne dedizierte GPU und beherrscht Tool-Calling.
-# Mit viel RAM/VRAM (>= 16 GB frei) ist qwen2.5:14b noch zuverlässiger:
-#   ENERGY_AGENT_MODEL=qwen2.5:14b
-# Vorher einmalig:  ollama pull qwen2.5:7b
-AGENT_MODEL = os.getenv("ENERGY_AGENT_MODEL", "qwen2.5:7b")
-SYNTH_MODEL = os.getenv("ENERGY_SYNTH_MODEL", AGENT_MODEL)
-FACTS_MODEL = os.getenv("ENERGY_FACTS_MODEL", AGENT_MODEL)
-SUMMARY_MODEL = os.getenv("ENERGY_SUMMARY_MODEL", AGENT_MODEL)
-EMBED_MODEL = os.getenv("ENERGY_EMBED_MODEL", "nomic-embed-text")
-# Bisher fest im Code verdrahtet; Standardwerte unverändert, jetzt per Umgebungsvariable überschreibbar.
-CAPTION_MODEL = os.getenv("ENERGY_CAPTION_MODEL", "gemma3:4b")            # Bildbeschreibung (Vision)
-PARSER_MODEL = os.getenv("ENERGY_PARSER_MODEL", "llama3.2:latest")        # Metadaten beim PDF-Parsing
-REWRITER_MODEL = os.getenv("ENERGY_REWRITER_MODEL", "llama3.2:latest")    # Query-Rewriter
+# --- Modelle (Auswahl: docs/modellauswahl.md, gemessen auf 16 GB RAM ohne GPU) -------------------------------------
+AGENT_MODEL = _env("AGENT_MODEL", "llama3.1:8b")       # ReAct-Controller (P2) und Synthese (P1); Regel R5, results/modellauswahl
+SYNTH_MODEL = _env("SYNTH_MODEL", AGENT_MODEL)
+FACTS_MODEL = _env("FACTS_MODEL", "qwen2.5:7b")        # Kerndaten-Extraktion (JSON); Regel R4 (gleich gut, schneller)
+SUMMARY_MODEL = _env("SUMMARY_MODEL", "gemma3:4b")     # TableSummarizer (Allgemein.md: gemma3:4b)
+CAPTION_MODEL = _env("CAPTION_MODEL", "gemma3:4b")     # ImageCaptioner (Vision)
+REWRITE_MODEL = _env("REWRITE_MODEL", "llama3.2")      # optionales Query-Rewriting
+EMBED_MODEL = _env("EMBED_MODEL", "nomic-embed-text")  # 768 Dimensionen, 8k Kontext
 
-# --- Kontextfenster ----------------------------------------------------------
-# Ollama schneidet Prompts bei zu kleinem num_ctx STILL ab (Standard: 2048-4096).
-# Genau das zerstört bei langen ReAct-Verläufen Systemprompt und Frage.
-# Der KV-Cache wächst mit num_ctx (14B-Modell: ~0,2 MB pro Token). 8192 reicht für die
-# Agentenschleife; bei viel RAM kann ENERGY_NUM_CTX=16384 gesetzt werden.
-NUM_CTX = int(os.getenv("ENERGY_NUM_CTX", "8192"))
-
-# --- Embedding-Prefixe (nomic-embed-text erwartet sie) -----------------------
+# nomic-embed-text wurde mit Aufgaben-Präfixen trainiert; Ingest und Abfrage nutzen dieselben (src/retrieval/embeddings.py)
 EMBED_DOC_PREFIX = "search_document: "
 EMBED_QUERY_PREFIX = "search_query: "
+EMBED_BATCH_SIZE = int(_env("EMBED_BATCH_SIZE", "32"))
 
-# --- Retrieval ---------------------------------------------------------------
-# Der Query-Rewriter (3B-Modell) hängte Rauschen an die Suchanfrage. Standard: aus.
-USE_QUERY_REWRITER = os.getenv("ENERGY_USE_REWRITER", "0") == "1"
+NUM_CTX = int(_env("NUM_CTX", "8192"))                 # Ollama schneidet zu lange Prompts sonst still ab
+SEED = int(_env("SEED", "42"))                         # zusammen mit temperature 0 für reproduzierbare Antworten
+KEEP_ALIVE = _env("KEEP_ALIVE", "5m")
+LLM_TIMEOUT_S = float(_env("LLM_TIMEOUT_S", "600"))
+
+# --- DocumentParser (Allgemein.md, Abschnitt 4) -------------------------------------------------------------------
+MIN_CHARS = int(_env("MIN_CHARS", "20"))               # kürzere Absätze werden an den vorigen angehängt
+MAX_BLOCK_CHARS = int(_env("MAX_BLOCK_CHARS", "1500"))  # längere werden an Satzgrenzen geteilt
+MIN_IMAGE_PX = int(_env("MIN_IMAGE_PX", "100"))         # kleinere Bilder (Logos, Linien) werden übersprungen
+HEADING_SIZE_FACTOR = float(_env("HEADING_SIZE_FACTOR", "1.25"))   # Überschrift ab 1,25 x Grundschrift ...
+HEADING_BOLD_FACTOR = float(_env("HEADING_BOLD_FACTOR", "1.05"))   # ... oder fett und ab 1,05 x Grundschrift
+
+# --- Retrieval (Allgemein.md, Abschnitt 5) ------------------------------------------------------------------------
+COLLECTION_NAME = _env("COLLECTION", "dokumente")
+CANDIDATE_K = int(_env("CANDIDATE_K", "20"))           # Kandidatensuche in ChromaDB (Kosinus)
+TOP_K = int(_env("TOP_K", "5"))                        # Treffer für Evidenz und Kontext
+HIERARCHY_BOOST = float(_env("HIERARCHY_BOOST", "1.5"))  # final_score = base_score x boost bei Treffer im Pfad
+USE_BM25 = _flag("USE_BM25", False)                    # hybride Suche nur, wenn messbar besser (Ablation)
+USE_RERANKER = _flag("USE_RERANKER", False)            # Cross-Encoder nur, wenn messbar besser (Ablation)
+RERANKER_MODEL = _env("RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+USE_REWRITER = _flag("USE_REWRITER", False)            # Query-Rewriting optional
+REWRITER_MODE = _env("REWRITER_MODE", "rules")         # "rules" (ohne Modell) oder "llm"; LLM-Rewriting war messbar schlechter
+
+# --- Evidence-First (Allgemein.md, Abschnitt 7) -------------------------------------------------------------------
+SCORE_HIGH = 0.7
+SCORE_LOW = 0.4
+
+# --- Verifizierte Antwort (Regel R11, src/agent/verify.py) --------------------------------------------------------
+VERIFY = _flag("VERIFY", True)                         # P1: Werte als JSON, Prüfung gegen Belege, Rechnen per Code
+CONTEXT_FACTS = _flag("CONTEXT_FACTS", True)           # P1: Kerndaten und Vertrags-/Rechnungsliste als Belege
+INVENTORY_CHECK = _flag("INVENTORY_CHECK", True)       # P1/P2: Bestandsprüfung vor der Antwort
+VERIFY_MODEL = _env("VERIFY_MODEL", "qwen2.5:7b")      # JSON-Entwurf; R11: auf dev besser als llama3.1:8b
+# --- Agent (ReAct, Prototyp 2) ------------------------------------------------------------------------------------
+MAX_STEPS = int(_env("MAX_STEPS", "6"))
+# Werkzeuge abschalten, z. B. für die GraphRAG-Messung: DOKAGENT_DISABLED_TOOLS=get_key_facts
+DISABLED_TOOLS = {t.strip() for t in _env("DISABLED_TOOLS", "").split(",") if t.strip()}
+MAX_OBSERVATION_CHARS = int(_env("MAX_OBSERVATION_CHARS", "3000"))
 
 
-# BM25-Index im Speicher: nach dieser Zeit (Sekunden) neu aufbauen, damit ein in einem anderen Prozess
-# neu indizierter Bestand mit gleicher Chunk-Anzahl nicht dauerhaft veraltet bleibt. 0 = kein Ablauf.
-BM25_CACHE_TTL = float(os.getenv("ENERGY_BM25_TTL", "300"))
-
-# Optionale Zahlenprüfung der Antwort gegen die Quellen (Hinweis unter der Antwort). Standard: aus.
-CHECK_NUMBERS = os.getenv("ENERGY_CHECK_NUMBERS", "0") == "1"
+def today() -> date:
+    """Stichtag für Fristberechnungen. DOKAGENT_TODAY=2026-11-05 macht Messungen reproduzierbar."""
+    value = _env("TODAY", "")
+    return date.fromisoformat(value) if value else date.today()
 
 
-def graph_path_for(processed_dir) -> Path:
-    """Pfad des Dokumentgraphen zu einem Verarbeitungsordner.
-
-    Der Standardordner nutzt GRAPH_PATH. Andere Ordner (z. B. in Tests) bekommen einen eigenen Graphen,
-    damit der produktive Graph nicht überschrieben bzw. mit fremden Daten gelesen wird.
-    """
-    processed_dir = Path(processed_dir)
-    if processed_dir.resolve() == PROCESSED_DIR.resolve():
-        return GRAPH_PATH
-    return processed_dir / "graph" / "document_graph.json"
-
-
-def ollama_options(**extra):
-    """Standard-Optionen für jeden Ollama-Aufruf (inkl. ausreichendem Kontext)."""
-    return {"num_ctx": NUM_CTX, **extra}
+def ollama_options(**extra: object) -> dict[str, object]:
+    return {"num_ctx": NUM_CTX, "temperature": 0.0, "seed": SEED, **extra}
