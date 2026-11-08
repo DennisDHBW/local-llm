@@ -22,4 +22,17 @@ Geprüft werden P1 (Standard der App) und P2, je ein Lauf (`src/eval/stichprobe.
 
 ## Ergebnis
 
-(wird nach dem Lauf eingetragen)
+Lauf am 08.11.2026 (Rohdaten: `src/eval/results/stichprobe/stichprobe_raw.jsonl`). ✓ = erfüllt, ✗ = nicht erfüllt.
+
+| | K1 | K2 | K3 | Begründung |
+|---|---|---|---|---|
+| P1 S1 (90 s) | ✗ | ✓ | ✓ | „3.400 kWh … 1.323,00 €“: 1.323,00 € ist die Nettosumme. Der Bruttobetrag 1.574,37 € stand im selben Beleg, das Modell hat die falsche Zeile gelesen (Lesefehler, kein Suchfehler). Beide Zahlen stehen im zitierten Dokument. |
+| P1 S2 (89 s) | ✓ | ✓ | ✓ | „99,94 € zurück“; der neue Abschlag 210 € steht ebenfalls im Beleg und führt nicht in die Irre. |
+| P1 S3 (133 s) | ✗ | ✗ | ✓ | Erfindet „Frist von drei Monaten“ und zitiert den Heizstromvertrag. Die Bestandsprüfung kennt „Fitnessstudio“ nicht als Dokumentart, die Zahlprüfung findet „drei Monate“ im (falschen) Beleg. Form ist direkt, Inhalt falsch. |
+| P2 S1 (714 s) | ✗ | ✗ | ✗ | Keine Antwort: ein einzelner Modellaufruf überschritt das Zeitlimit von 600 s (zweimal wiederholt, beide Male gleich, kein Speicherabbruch). |
+| P2 S2 (43 s) | ✗ | ✓ | ✗ | Lehnt ab, obwohl die Rechnung vorliegt (falsche Ablehnung). Nichts erfunden. |
+| P2 S3 (78 s) | ✓ | ✓ | ✓ | Ruft `list_contracts` auf, findet keinen Fitnessstudio-Vertrag und lehnt ab. |
+
+Summe K1: P1 1/3, P2 1/3. Die Stichprobe bestätigt das Muster der Messung: P1 antwortet öfter, liest aber nicht immer
+die richtige Zeile; P2 lehnt lieber ab. Neu ist der Fall S3: Eine Dokumentart, die die Bestandsprüfung nicht kennt,
+umgeht sie. Ich habe das nicht nachträglich repariert, weil die Stichprobe sonst ihren Zweck verliert.
