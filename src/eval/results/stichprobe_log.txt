@@ -1,0 +1,27 @@
+--- P1 S1 (90 s)
+Im Jahr 2024 hat Herr Mustermann 3.400 kWh Strom verbraucht und diese Menge kostete ihn insgesamt 1.323,00 € [1].
+
+Quellen:
+[1] Rechnung_Strom_NeckarStrom_2024.pdf, S. 1, Stadtwerke Neckar-Strom > Jahresabrechnung Strom 2024 > 2. Kostenberechnung
+
+--- P1 S2 (89 s)
+Sie erhalten bei der Heizstromabrechnung 99,94 € zurück, da Ihr Guthaben zu Ihren Gunsten von -99,94 € beträgt. Ab dem 01.03.2025 beträgt der neue monatliche Abschlag 210,00 € / Monat [4].
+
+Quellen:
+[4] Rechnung_Heizstrom_VoltWaerme_2024.pdf, S. 1, Volt & Wärme AG > Jahresabrechnung Heizstrom 2024 > 3. Verrechnung mit geleisteten Abschlagszahlungen
+
+--- P1 S3 (133 s)
+Sie können Ihr Fitnessstudio zum Laufzeitende mit einer Frist von drei Monaten kündigen, wobei der nächste Termin noch nicht bestimmt ist. [7]
+
+Quellen:
+[7] Vertrag_Heizstrom_VoltWaerme.docx
+
+--- P2 S1 (714 s)
+Das Sprachmodell ist nicht erreichbar: Ollama nicht erreichbar (ReadTimeout: timed out)
+
+--- P2 S2 (43 s)
+Dazu ist in den vorliegenden Dokumenten nichts belegt.
+
+--- P2 S3 (78 s)
+Dazu ist in den vorliegenden Dokumenten nichts belegt.
+

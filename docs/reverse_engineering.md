@@ -22,10 +22,12 @@ data/vectors/ (ChromaDB, Kosinus, 768 Dim.) + embedding_index.json   ◄── E
    │
    │   Kerndaten-Schicht src/agent/facts_answer.py: Einzelfeld aus Kerndaten oder "nicht im Bestand" (ohne LLM)
    │   sonst Weiche src/agent/router.py: Fristen/Listen/Vergleiche → P2, sonst P1 (App-Modus "Automatisch")
-   ├─► Prototyp 1  src/agent/evidence_first.py: Retriever.search → build_evidence (Panel) → Klick → build_context → Synthese
-   └─► Prototyp 2  src/agent/react_agent.py: Thought → Action (tools.py) → Observation → … → Final Answer
+   ├─► Prototyp 1  src/agent/evidence_first.py: Bestandsprüfung → Retriever.search + Kerndaten/Listen → Panel → Klick
+   │                → JSON-Entwurf (qwen2.5:7b) → src/agent/verify.py prüft Werte, rechnet → ggf. 1 Korrektur → Antwort
+   └─► Prototyp 2  src/agent/react_agent.py: Bestandsprüfung → Thought → Action (tools.py) → Observation → …
+                    → Final Answer → Prüfung gegen die Beobachtungen (verify.check_answer) → ggf. 1 Korrektur
                     Werkzeuge: search_documents | search_tables | search_images | get_document_outline | calculate
-                               | get_key_facts | list_contracts (Fristen in src/agent/contracts.py)
+                               | get_key_facts | list_contracts (Fristen in src/agent/contracts.py) | list_invoices
    ▼
 app.py (Streamlit)   compare_prototypes.py / src/eval/runner.py (KPI-Suite)
 ```
@@ -166,15 +168,31 @@ ganze Sätze mit dem Wert und [n] dahinter, bei fehlendem Beleg genau `NOT_FOUND
 Belegnummern (`citation_only`), wird einmal nachgefragt: llama3.1:8b und qwen2.5:7b taten das sonst in rund einem
 Drittel der Antworten. `answer()` = Klick automatisch (Messung).
 
+Seit R11 (Schalter `VERIFY`, `CONTEXT_FACTS`, `INVENTORY_CHECK`; alle aus = Stand davor, in der Messung `P1alt`):
+- `structured_evidence()`: Kerndaten der Dokumente, die die Frage nennt (`mentioned_documents`: bei Vergleichen jede
+  Seite für sich, eine Seite zählt nur bei höchstens zwei gleich guten Treffern); bei Listen- und Fristfragen
+  (`router.route`) zusätzlich `list_contracts` bzw. `list_invoices` mit in Python berechneten Fristen.
+- Bestandsprüfung aus `facts_answer.py` vor jedem Modellaufruf.
+- `_verified()`: Das Modell füllt `verify.SCHEMA` (Werte mit Belegnummer, Rechnung mit w1, w2 …, Antwortsatz mit
+  `{ergebnis}`, `belegt` zuletzt). Danach Prüfung, höchstens eine Korrekturrunde, Rückfall auf geprüfte Werte.
+
+### `src/agent/verify.py` – geprüfte Antwort
+`check_draft()`: jeder Wert muss im zitierten Beleg stehen (`value_in`: Zahlen und Datumsteile, auch ausgeschriebene
+Daten und Zahlwörter; Text als Wortfolge), sonst wird die Belegnummer berichtigt oder der Wert verworfen. Die Rechnung
+läuft über `tools.safe_eval`, kaufmännisch auf Cent gerundet, und zählt nur, wenn der Antwortsatz `{ergebnis}`
+enthält. Jede Zahl im Antwortsatz muss aus einem geprüften Wert, dem Ergebnis, einem zitierten Beleg oder der Frage
+stammen. `check_answer()` prüft die Endantwort von P2 nach derselben Regel. Test: `tests/test_verify.py`.
+
 ### `src/agent/contracts.py`
 `add_months()` (Monatsenden bleiben Monatsenden), `earliest_end(facts, stichtag)` je Kündigungsart (siehe Modulkopf),
 `monthly_advance()` (quartalsweise ÷ 3), `guarantee_active()`. Test: Fristen aller sechs Verträge gegen die Sollwerte.
 
 ### `src/agent/tools.py` – `AgentTools`
-Sieben Werkzeuge mit JSON-Schema (`TOOL_SCHEMAS`). `resolve()` ordnet Beschreibungen wie „Heizstromvertrag“ einer
+Acht Werkzeuge mit JSON-Schema (`TOOL_SCHEMAS`). `resolve()` ordnet Beschreibungen wie „Heizstromvertrag“ einer
 Datei zu (Wortteile aus Ordner, Dateiname, Aussteller, Dokumentart; längere Treffer zählen mehr). `get_key_facts`
 liefert die Kerndaten und die über Vertrags-/Kundennummer verknüpften Dokumente (Multi-Hop). `list_contracts` liefert
-je Vertrag eine Zeile mit berechnetem frühestem Ende, Kündigungsdatum, Preisgarantie-Status und Abschlag je Monat.
+je Vertrag eine Zeile mit berechnetem frühestem Ende, Kündigungsdatum, Preisgarantie-Status, Abschlag je Monat und
+Abschlussdatum; `list_invoices` je Rechnung Aussteller, Kunde, Datum, Fälligkeit, Betrag, Nachzahlung/Guthaben.
 `calculate` nutzt `safe_eval` (AST-Whitelist, deutsche Zahlen, Exponent ≤ 10; kein `eval`).
 
 ### `src/agent/react_agent.py` – Prototyp 2
@@ -183,6 +201,9 @@ je Vertrag eine Zeile mit berechnetem frühestem Ende, Kündigungsdatum, Preisga
 3000 Zeichen → nächste Runde. Ohne Werkzeugaufruf: Final Answer + Quellenliste. Leitplanken: einmaliger Hinweis,
 wenn im ersten Schritt ohne Werkzeug geantwortet wird; identische Aufrufe werden nicht wiederholt; nach `MAX_STEPS`
 Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, Action Input, Observation).
+Seit R11 (Schalter `INVENTORY_CHECK`, `VERIFY`; aus = `P2alt`): Bestandsprüfung vor dem ersten Modellaufruf;
+Endantwort mit unbelegten Zahlen oder bloßer Wiedergabe der Belege geht einmal mit dem Befund zurück; bleiben
+unbelegte Zahlen, lautet die Antwort „nicht belegt“.
 
 ### `src/agent/router.py` – Weiche
 `route(frage)` → `Route(system, rule)`: drei Regex-Muster auf der gefalteten Frage (Umlaute ausgeschrieben):
@@ -195,6 +216,8 @@ Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `s
 - Bestandsprüfung: Zerlegt Wörter wie „Leasingrate“, „Gasvertrag“, „Hausratversicherung“ in Bestimmungs- und
   Grundwort (Grundwörter: Vertrag, Versicherung, Rechnung, Rate, Preis, Beitrag, Police …). Steht das Bestimmungswort
   in keinem Chunk und keinem Dateinamen als Wortanfang, lautet die Antwort „nicht belegt“. Keine Liste von Vertragsarten.
+  Zweiter Fall (R11): Die Frage setzt einen Vertrag voraus (Vertrag, Abo, Kündigung, Laufzeit …) und nennt einen
+  Anbieter, von dem es nur Rechnungen gibt. `inventory_gap()` vereint beide Fälle; P1 und P2 nutzen sie direkt.
 - Kerndaten-Antwort: `FIELD_RULES` ordnen eine Frage genau einem Feld zu (Kündigungsfrist, Preisgarantie, Laufzeitende,
   Beginn, Abschlussdatum, Abschlag, Zahlungsdatum, Nachzahlung/Guthaben, Rechnungs-, Kunden-, Vertragsnummer,
   Rechnungsbetrag). Fragen mit mehreren Werten (`COMPLEX`: „um wie viel“, „insgesamt“, „netto“, „neue“, Listen …)
@@ -225,6 +248,8 @@ Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `rout
 | `ablation.py`, `models.py` | Retrieval-Ablation (gepaarter Bootstrap); Modellauswahl |
 | `baseline.py`, `adapters/v1_driver.py` | Ausgangsmessung von Version1 in deren Umgebung, gleiche Bewertung |
 | `router_eval.py` | Weiche P1/P2 aus vorhandenen Antworten zusammensetzen (Varianten Regel, Kaskade, beides, Kerndaten-Schicht), gepaarter Bootstrap gegen P1 und P2 |
+| `ragas_eval.py` | RAGAS 0.4 (Faithfulness, Context Recall) auf vorhandenen Antworten eines Laufs; Richter qwen2.5:7b über Ollamas OpenAI-Schnittstelle, Temperatur 0. Faithfulness nur für nicht abgelehnte Antworten ohne Quellenblock, Context Recall nur für Typ a–c mit Sollantwort "Laut Dokument: <Beleg>.". Gibt vor dem Start alle anderen Modelle frei (16 GB), nimmt nach Abbruch wieder auf, gleicht Faithfulness < 1 mit der Zahlprüfung aus `scoring.py` ab |
+| `stichprobe.py` | drei frei formulierte Fragen S1–S3 an P1/P2; Soll und Kriterien K1–K3 stehen vorher in `docs/stichprobe.md` |
 | `latex.py` | KPI-Tabelle für die Ausarbeitung aus `ausgangsmessung` und `schlussmessung2` |
 
 ### Messergebnisse (`src/eval/results/`)
@@ -243,8 +268,13 @@ Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `rout
 | `schicht_dev/` | R10 auf dem Entwicklungssatz: alle Varianten 44/54 wie die Weiche, Halluzination unverändert; Schicht übernommen (synthetisch, nur berichtet: 36 von 51 beantwortet, alle richtig) |
 | `schlussmessung3/` | P1 und P2 auf `heldout2`, zwei Wiederholungen |
 | `schicht_schluss/` | Weiche und Schicht+Weiche einmal aus `schlussmessung3` zusammengesetzt: P1 26/40 (65 %), P2 4/40 (10 %, Halluzination 33 %), Weiche und Schicht+Weiche je 22/40 (55 %); gegen P1 −10 pp [−20; −2,5]. Die Schicht greift nur bei N18/N19 (Bestand), die P1 schon richtig hatte |
+| `r11_p1_llama/`, `r11_p1_qwen/`, `r11_p1_qwen2/`, `r11_p2/` | R11 auf dem Entwicklungssatz: P1 neu 46/54 (qwen2.5, nach Fehleranalyse, Halluzination 2 wie vorher; alt 44), P2 neu 28/54 (alt 23, Halluzination 5 → 1); beide übernommen |
+| `schlussmessung4/` | R11 einmal auf `heldout3`, zwei Wiederholungen: P1 alt 26/48 (54 %), P1 neu 28/48 (58 %), P2 neu 14/48 (29 %, keine Halluzination); P1 neu gegen alt +4 pp [−12,5; +18,8] |
+| `ragas_heldout3/` | RAGAS auf `schlussmessung4` (Wiederholung 0, beide Wiederholungen waren gleich) |
+| `stichprobe/` | Antworten auf S1–S3, Bewertung in `docs/stichprobe.md` |
 
 Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
 Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet. Weiche (src/agent/router.py): 59 %, gegen P1 +10 pp [0; +21], gegen P2 +7 pp [−7; +22].
 Auf dem neuen versiegelten Satz `heldout2` bestätigt sich das nicht: P1 65 %, P2 10 %, Weiche 55 % (gegen P1 −10 pp
-[−20; −2,5]); die Kerndaten-Schicht ändert dort keine Antwort.
+[−20; −2,5]); die Kerndaten-Schicht ändert dort keine Antwort. Auf `heldout3` (R11): P1 mit geprüfter Antwort 58 %
+gegen 54 % ohne, nicht gesichert ([−12,5; +18,8]); falsche Ablehnungen 12 → 4, Latenz p50 50 → 104 s.
