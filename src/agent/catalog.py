@@ -100,7 +100,10 @@ class Filter:
 
     def describe(self) -> str:
         op = {"enthaelt": "enthält", "im_jahr": "im Jahr", "im_monat": "im Monat"}.get(self.operator, self.operator)
-        return f"{FIELDS[self.feld].label} {op} {self.wert}"
+        wert = self.wert
+        if FIELDS[self.feld].kind == "date" and (day := parse_date(wert)):
+            wert = de_date(day.isoformat())
+        return f"{FIELDS[self.feld].label} {op} {wert}"
 
 
 @dataclass
@@ -226,8 +229,17 @@ class Catalog:
         return "\n".join(e.line() for e in self.entries)
 
     def kinds(self) -> list[str]:
-        """Vorhandene Dokumente in Kurzform für eine hilfreiche Ablehnung."""
-        return [e.topic for e in self.entries]
+        """Vorhandene Dokumente nach Art gruppiert, je Dokument nur das Thema, für eine hilfreiche Ablehnung:
+        ['Verträge: Heizstrom, Strom', 'Rechnungen: Arzt, Strom']. Das Thema stammt aus dem Dateinamen nach dem
+        Schema Art_Thema_Anbieter, sonst aus dem Titel."""
+        groups: dict[str, list[str]] = {}
+        for e in self.entries:
+            parts = Path(e.filename).stem.split("_")
+            short = parts[1] if len(parts) >= 3 else (e.title or Path(e.filename).stem)
+            label = {"Vertrag": "Verträge", "Rechnung": "Rechnungen"}.get(e.art, e.art)
+            if short not in groups.setdefault(label, []):
+                groups[label].append(short)
+        return [f"{label}: {', '.join(sorted(items))}" for label, items in groups.items()]
 
     # --- Filter ------------------------------------------------------------------------------------------------------
     def apply(self, flt: Filter) -> tuple[list[tuple[Entry, Any]], list[Entry]]:
@@ -259,8 +271,12 @@ def show(kind: str, value: Any) -> str:
     return str(value)
 
 
-def _date(text: str) -> date | None:
-    iso = to_iso(str(text).strip())
+def parse_date(text: str) -> date | None:
+    """Datum aus 'TT.MM.JJJJ', 'JJJJ-MM-TT' oder 'JJJJ.MM.TT' (so schreibt es das Modell manchmal)."""
+    text = re.sub(r"^(\d{4})[./](\d{1,2})[./](\d{1,2})$", r"\1-\2-\3", str(text).strip())
+    text = re.sub(r"^(\d{4})-(\d)\b", r"\1-0\2", text)
+    text = re.sub(r"^(\d{4}-\d\d)-(\d)$", r"\1-0\2", text)
+    iso = to_iso(text)
     try:
         return date.fromisoformat(iso) if iso else None
     except ValueError:
@@ -282,7 +298,7 @@ def matches(kind: str, value: Any, op: str, wanted: str) -> bool:
         want = fold(wanted) in ("ja", "true", "1", "wahr")
         return (bool(value) == want) if op != "!=" else (bool(value) != want)
     if kind == "date":
-        day = _date(str(value))
+        day = parse_date(str(value))
         if day is None:
             return False
         if op == "im_jahr":
@@ -291,7 +307,7 @@ def matches(kind: str, value: Any, op: str, wanted: str) -> bool:
         if op == "im_monat":
             m = re.search(r"\b(\d{1,2})[./-](\d{4})\b", wanted)
             return bool(m) and (day.month, day.year) == (int(m.group(1)), int(m.group(2)))
-        other = _date(wanted)
+        other = parse_date(wanted)
         if other is None and re.fullmatch(r"(19|20)\d\d", wanted):      # "vor 2023" -> < 01.01.2023
             other = date(int(wanted), 1, 1) if op in ("<", ">=") else date(int(wanted), 12, 31)
         return other is not None and _compare(day, op, other)

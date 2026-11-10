@@ -171,6 +171,15 @@ Beobachtete Schwächen der Architektur:
 
   Offen bleiben drei Ablehnungen, die nur über das Wissen „Fernwärme ist nicht Heizstrom“ bzw. „ein
   Mietvertrag ist nicht im Bestand“ zu lösen wären. Das ist eine bewusste Grenze, keine weitere Regel.
+- **Klicktest in der App (danach):** Drei Fehler, die keine Kennzahl zeigte.
+  1. Das Modell schrieb ein Datum als „2023.01.01“. Der Filter konnte es nicht lesen und meldete
+     „auf keinen Vertrag trifft zu“, eine falsche, aber plausibel klingende Antwort. Jetzt liest der Code
+     auch dieses Format, und ein unlesbares Datum verwirft den Filter.
+  2. Bei „Abschlag im Stromvertrag“ plante das Modell auch die Rechnung desselben Anbieters, deren
+     *neuer* Abschlag (135 €) dann neben dem Vertragswert (130 €) stand. Nennt die Frage nur „Vertrag“,
+     entfernt der Code die Rechnung (betrifft 3 von 127 Fragen, keine erwartete Quelle geht verloren).
+  3. Der Hinweis bei einer Ablehnung zählte 16 lange Titel auf. Jetzt ist er nach Art gruppiert
+     („Verträge: Abo, Heizstrom, Kfz, …“).
 - **Gelernt:** Das Modell schlägt vor, der Code entscheidet. Je kleiner das Modell, desto mehr
   Verantwortung gehört in prüfbaren Code. Eine Teilmessung nur des Planers macht Änderungen in Minuten
   statt Stunden überprüfbar.
@@ -206,3 +215,6 @@ Beobachtete Schwächen der Architektur:
     Dokumenten, gilt „Grundpreis“ als unbekanntes Thema. Nur Dokumentarten prüfen, keine Attribute.
 13. **Nur den Teil messen, den man ändert.** Ein vollständiger Lauf dauert Stunden. Gespeicherte
     Zwischenergebnisse (Rohpläne) lassen sich in Sekunden neu bewerten.
+14. **Eine leere Ergebnisliste sieht aus wie eine Antwort.** Kann ein Filter seinen Wert nicht lesen,
+    passt nichts, und das System meldet „keiner“. Unlesbare Eingaben müssen auffallen, nicht leise
+    zu einem leeren Ergebnis führen.

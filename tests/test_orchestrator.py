@@ -154,7 +154,7 @@ def test_missing_kind_answers_without_draft(monkeypatch, tools):  # noqa: F811
     answer = Orchestrator(retriever=FakeRetriever(), tools=tools, processed_dir=tools.processed_dir).answer(
         "Wie hoch ist der Monatsbeitrag meines Sportvereins?")
     assert len(calls) == 1 and answer.answer.startswith("Zu „Sportverein“ liegt kein Dokument vor.")
-    assert NOT_FOUND in answer.answer and "Vorhanden sind:" in answer.hint and answer.evidence == []
+    assert NOT_FOUND in answer.answer and "Vorhanden sind" in answer.hint and "Verträge: " in answer.hint and answer.evidence == []
     assert [s["stufe"] for s in answer.stages] == ["plan", "bestand"]
 
 
@@ -233,3 +233,24 @@ def test_validate_rejects_invoice_year_that_is_missing(catalog):
 def test_filter_corrections(catalog, raw, expected):
     plan = validate({"typ": "liste", "art": "Vertrag", "filter": raw}, catalog, "Welche Verträge ...?", [])
     assert plan.filter is not None and (plan.filter.feld, plan.filter.operator) == expected and plan.notes
+
+
+def test_filter_accepts_model_date_formats(catalog):
+    """App-Klicktest: Das Modell schrieb '2023.01.01'; der Filter fand dadurch stillschweigend nichts."""
+    q = "Welche Verträge wurden vor 2023 abgeschlossen?"
+    for wert in ("2023.01.01", "2023-01-01", "01.01.2023", "2023"):
+        assert matches("date", "2022-02-10", "<", wert), wert
+        plan = validate({"typ": "liste", "art": "Vertrag",
+                         "filter": {"feld": "vertragsschluss", "operator": "<", "wert": wert}}, catalog, q, [])
+        assert plan.filter is not None, wert
+    plan = validate({"typ": "liste", "art": "Vertrag",
+                     "filter": {"feld": "vertragsschluss", "operator": "<", "wert": "letztes Jahr"}}, catalog, q, [])
+    assert plan.filter is None and "nicht lesbar" in plan.notes[-1]
+
+
+def test_validate_drops_invoice_when_question_names_contract(catalog):
+    """App-Klicktest: 'Abschlag im ...vertrag' plante auch die Rechnung, deren neuer Abschlag dann ablenkt."""
+    invoice = catalog.by_name("Rechnung_Heizstrom_VoltWaerme_2024.pdf")
+    q = "Wie hoch ist der monatliche Abschlag im Heizstromvertrag?"
+    plan = validate({"typ": "wert", "dokumente": [invoice.n]}, catalog, q, ["Vertrag_Heizstrom_VoltWaerme.docx"])
+    assert plan.dokumente == ["Vertrag_Heizstrom_VoltWaerme.docx"] and "entfernt" in plan.notes[-1]

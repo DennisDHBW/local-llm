@@ -26,7 +26,7 @@ from datetime import date
 from typing import Any
 
 from src import llm
-from src.agent.catalog import ARTEN, FIELDS, OPERATORS, Catalog, Entry, Filter
+from src.agent.catalog import ARTEN, FIELDS, OPERATORS, Catalog, Entry, Filter, parse_date
 from src.config import VERIFY_MODEL, today
 from src.retrieval.search import fold
 from src.textutil import de_date, to_iso
@@ -172,6 +172,14 @@ def validate(raw: dict[str, Any], catalog: Catalog, question: str, mentioned: li
     if typ == "wert" and re.search(r"rechnung", text) and re.search(r"vertrag|versicherungsschein", text):
         plan.notes.append("Frage nennt Rechnung und Vertrag -> vergleich")
         plan.typ = typ = "vergleich"
+    named = {"Vertrag"} if re.search(r"vertrag|versicherungsschein", text) else set()
+    named |= {"Rechnung"} if re.search(r"rechnung", text) else set()
+    if typ == "wert" and len(named) == 1 and mentioned:  # "Abschlag im Stromvertrag": die Rechnung lenkt nur ab
+        other = [n for n in plan.dokumente if (e := catalog.by_name(n)) and e.art in ("Vertrag", "Rechnung")
+                 and e.art not in named and n not in mentioned]
+        if other and len(other) < len(plan.dokumente):
+            plan.dokumente = [n for n in plan.dokumente if n not in other]
+            plan.notes.append("Frage nennt nur " + next(iter(named)) + ", entfernt: " + ", ".join(other))
     if typ == "frist":
         contracts = [n for n in plan.dokumente if (e := catalog.by_name(n)) and e.art == "Vertrag"]
         if not contracts:                       # Frist braucht den Vertrag: Partnerdokument über den Anbieter
@@ -267,6 +275,9 @@ def _filter(raw: dict[str, Any], plan: Plan, question: str) -> Filter | None:
     if spec.kind == "text" and op in ("<", "<=", ">", ">="):
         plan.notes.append(f"Operator {op} passt nicht zu Textfeld {feld} -> enthaelt")
         op = "enthaelt"
+    if spec.kind == "date" and not (re.fullmatch(r"(19|20)\d\d|\d{1,2}\.\d{4}", wert) or parse_date(wert)):
+        plan.notes.append(f"Datum {wert!r} nicht lesbar -> Liste ohne Filter")
+        return None
     art = plan.art if spec.art == "alle" else spec.art
     stichtag: date | None = None
     m = _STICHTAG.search(fold(question))

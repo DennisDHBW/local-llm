@@ -188,7 +188,7 @@ class Orchestrator:
         Antwort selbst keine fremden Zahlen enthält)."""
         topic = plan.thema or "diesem Thema"
         result.answer = f"Zu „{topic}“ liegt kein Dokument vor. {NOT_FOUND}"
-        result.hint = "Vorhanden sind: " + "; ".join(self.catalog.kinds())
+        result.hint = "Vorhanden sind – " + " · ".join(self.catalog.kinds())
         result.trajectory.append({"step": 2, "thought": f"keine Dokumente zu '{topic}' im Bestand",
                                   "action": "inventory_check", "action_input": topic, "observation": ""})
 
