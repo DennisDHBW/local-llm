@@ -50,6 +50,7 @@ uv sync --extra ragas                 # einmalig: RAGAS (Richter qwen2.5:7b loka
 uv run python -m src.eval.ragas_eval --run schlussmessung4 --sets heldout3 --systems P1,P1alt,P2 --name ragas_heldout3
 uv run python -m src.eval.stichprobe  # frei formulierte Fragen, Kriterien vorher in docs/stichprobe.md
 uv run python -m src.eval.planner_eval --sets dev --name planer_dev   # nur Stufe 1 (Planer), schnell
+uv run python -m src.eval.planner_replay --run planer_dev --show       # Prüfcode neu auf gespeicherte Pläne, ohne LLM
 ```
 
 Berichte (Markdown) und Rohdaten mit Trajektorie je Antwort (JSONL) liegen unter `src/eval/results/<lauf>/`.

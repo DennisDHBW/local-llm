@@ -179,12 +179,20 @@ Text enthält (Alternativen mit „|“), Datum (auch „vor 2023“ = vor dem 0
 
 ### `src/agent/planner.py` – Stufe 1
 `Planner.plan(frage)`: ein Aufruf mit Ollama-JSON-Schema (`typ` ∈ wert, vergleich, frist, liste, fehlt; `thema`;
-`dokumente` als Katalognummern; `art`; `filter`). `validate()` prüft danach in Code: unbekannte Nummern fallen weg;
-„Welche …/Alle …“ ist immer `liste`; ein ungültiger Filter wird verworfen (Liste ohne Filter); ein Stichtag
-„wenn ich am TT.MM.JJJJ kündige“ geht in den Filter. Nennt die Frage ein Dokument eindeutig
-(`mentioned_documents`: Anbieter und Art, bei Vergleichen jede Seite), überstimmt Code ein „fehlt“ – außer die Frage
-nennt eine Art (Gas, Miete, Hausrat …), die in diesem Dokument nicht vorkommt. Eine Fristfrage ergänzt den Vertrag,
-ein Vergleich das Partnerdokument desselben Anbieters. `Plan.notes` hält jede Korrektur fest (Expertenansicht).
+`dokumente` als Katalognummern; `art`; `filter`). `validate()` prüft danach in Code, in dieser Reihenfolge:
+unbekannte Nummern fallen weg; „Welche …/Alle …“ ist immer `liste`; ein ungültiger Filter (auch ein unlesbares
+Datum) wird verworfen, kleine Formfehler korrigiert (Datum auf Zahlenfeld → `fruehestes_ende`, „03.2027“ →
+`im_monat`); ein Stichtag „wenn ich am TT.MM.JJJJ kündige“ geht in den Filter. Dann drei Bestandsprüfungen, die zu
+`fehlt` führen: (1) `Catalog.unknown_topics`: ein zusammengesetztes Wort aus Bestimmungswort und Dokumentart
+(„Gas|vertrag“, „Hausrat|versicherung“), dessen Bestimmungswort in keinem Dokument vorkommt (Wortschatz aus
+Dateinamen, Anbietern, Titeln, Kerndaten und Text aller Chunks); (2) die Frage will einen Vertrag, zum genannten
+Anbieter gibt es nur eine Rechnung; (3) eine Rechnung mit Jahr, das im Bestand fehlt. Nennt die Frage ein Dokument
+eindeutig (`mentioned_documents`: Anbieter und Art, bei Vergleichen jede Seite), überstimmt Code ein „fehlt“,
+entfernt nicht genannte Anbieter (das Modell verwechselt Katalognummern) und ergänzt das genannte Dokument. Nennt
+eine Wertfrage nur „Vertrag“, fällt die Rechnung desselben Anbieters weg (und umgekehrt). Eine Fristfrage ergänzt den
+Vertrag, ein Vergleich immer Vertrag und Rechnung. Gemessen wird das ohne Antwort mit `src/eval/planner_eval.py`;
+`src/eval/planner_replay.py` wendet geänderten Prüfcode in Sekunden auf die gespeicherten Rohpläne an.
+`Plan.notes` hält jede Korrektur fest (Expertenansicht).
 
 ### `src/agent/orchestrator.py` – Prototyp 1
 `retrieve()` führt die Stufen 1–4 aus und merkt sich den Plan, `synthesize()` die Stufen 5–6 (in der App per Klick),
