@@ -19,7 +19,7 @@ from src.config import FACTS_MODEL, PROCESSED_DIR
 from src.ingestion.parser import DocumentChunk
 from src.textutil import dates_in, normalize, numbers_in, to_iso
 
-PROMPT_VERSION = 2       # 2: JSON-Schema (Structured Output) und Feldgruppen je Ordner
+PROMPT_VERSION = 3       # 2: JSON-Schema und Feldgruppen je Ordner; 3: Vertragsschluss und Zahlungsweise
 MAX_TEXT_CHARS = 7000
 NOTICE_MODES = ("laufzeitende", "jederzeit_nach_mindestlaufzeit", "abrechnungszeitraum", "nicht_kuendbar")
 
@@ -32,6 +32,8 @@ FIELDS: dict[str, tuple[str, str]] = {
     "contract_number": ("id", "Vertragsnummer, Versicherungsschein-Nr. oder Vertrags-/Buchungskonto"),
     "invoice_number": ("id", "Rechnungs- oder Bescheidsnummer (nur bei Rechnungen)"),
     "doc_date": ("date", "Ausstellungs-/Rechnungsdatum"),
+    "signed_date": ("date", "Datum des Vertragsschlusses (nicht der Vertragsbeginn)"),
+    "payment_method": ("text", "Zahlungsweise bzw. Zahlungsart wörtlich, z. B. 'SEPA-Lastschrift', 'Überweisung, jährlich', 'PayPal'"),
     "due_date": ("date", "Fälligkeit oder Zahlungsziel"),
     "total_gross_eur": ("number", "Gesamt-/Bruttobetrag der Rechnung in Euro"),
     "amount_due_eur": ("number", "Nachzahlung (positiv) oder Guthaben (negativ) in Euro"),
@@ -48,8 +50,8 @@ FIELDS: dict[str, tuple[str, str]] = {
     "monthly_price_eur": ("number", "monatlicher Gesamtpreis brutto (Abos, Telekommunikation), sonst null"),
 }
 COMMON_FIELDS = ("doc_type", "provider", "customer_name", "customer_number", "contract_number", "doc_date")
-INVOICE_FIELDS = COMMON_FIELDS + ("invoice_number", "due_date", "total_gross_eur", "amount_due_eur")
-CONTRACT_FIELDS = COMMON_FIELDS + ("contract_start", "term_end", "extension_months", "notice_period_months",
+INVOICE_FIELDS = COMMON_FIELDS + ("invoice_number", "due_date", "total_gross_eur", "amount_due_eur", "payment_method")
+CONTRACT_FIELDS = COMMON_FIELDS + ("signed_date", "payment_method", "contract_start", "term_end", "extension_months", "notice_period_months",
                                    "notice_mode", "price_guarantee_until", "advance_payment_eur", "advance_interval",
                                    "monthly_price_eur")
 _ENUMS = {"doc_type": ["Rechnung", "Vertrag", "Verbrauchsübersicht"], "notice_mode": list(NOTICE_MODES),
@@ -141,6 +143,9 @@ def verify(facts: dict[str, Any], text: str) -> tuple[dict[str, Any], list[str]]
         elif kind in ("text", "id"):
             clean = re.sub(r"^(herrn?|frau)\s+", "", str(value).strip(), flags=re.IGNORECASE)
             ok = normalize(clean).replace(" ", "") in norm_text
+            if not ok and field == "payment_method":     # sinngemäß ("Kreditkarte (Mastercard)"): alle Wörter im Text
+                words = [w for w in re.findall(r"\w{4,}", normalize(clean)) if not w.isdigit()]
+                ok = bool(words) and all(w in norm_text for w in words)
         elif kind == "enum":
             clean = str(value).strip()
             if field == "notice_mode":
@@ -193,3 +198,40 @@ def load_all_facts(processed_dir: Path = PROCESSED_DIR) -> dict[str, dict[str, A
         if record.get("filename"):
             out[record["filename"]] = record
     return out
+
+
+def reverify_all(processed_dir: Path = PROCESSED_DIR) -> None:
+    """Gespeicherte Rohantworten erneut prüfen (nach einer Änderung an `verify`), ohne Modellaufruf."""
+    for path in sorted(Path(processed_dir).glob("*_facts.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        chunks_path = Path(processed_dir) / path.name.replace("_facts.json", "_chunks.json")
+        chunks = [DocumentChunk(**c) for c in json.loads(chunks_path.read_text(encoding="utf-8"))]
+        group = field_group(record.get("folder", ""))
+        record["facts"], record["unverified"] = verify({k: v for k, v in (record.get("raw") or {}).items()
+                                                        if k in group}, document_text(chunks))
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def refresh_all(processed_dir: Path = PROCESSED_DIR, model: str = FACTS_MODEL) -> list[str]:
+    """Kerndaten aller importierten Dokumente neu erzeugen (nach einer Schemaänderung), ohne neu zu parsen."""
+    manifest = json.loads((Path(processed_dir) / "manifest.json").read_text(encoding="utf-8")) \
+        if (Path(processed_dir) / "manifest.json").exists() else {}
+    shas = {Path(rel).name: (sig or {}).get("sha256", "") for rel, sig in manifest.items()}
+    extractor = KeyFactExtractor(model=model, processed_dir=processed_dir)
+    done = []
+    for path in sorted(Path(processed_dir).glob("*_chunks.json")):
+        chunks = [DocumentChunk(**c) for c in json.loads(path.read_text(encoding="utf-8"))]
+        if not chunks:
+            continue
+        name = str(chunks[0].metadata.get("filename"))
+        record = extractor.extract(chunks, shas.get(name, ""))
+        print(f"{name}: verworfen {record['unverified']}", flush=True)
+        done.append(name)
+    llm.release([model])
+    return done
+
+
+if __name__ == "__main__":
+    import sys
+
+    reverify_all() if "--verify-only" in sys.argv else refresh_all()

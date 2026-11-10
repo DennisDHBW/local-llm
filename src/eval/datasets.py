@@ -65,6 +65,8 @@ CONTRACT_FIELD_MAP = {
     "customer_name": "kunde",
     "customer_number": "kundennummer",
     "contract_number": "vertragsnummer",
+    "signed_date": "vertragsschluss",
+    "payment_method": "zahlungsweise",
     "contract_start": "vertragsbeginn",
     "term_end": "erstlaufzeit_ende",
     "notice_period_months": "kuendigungsfrist_monate",

@@ -151,11 +151,13 @@ class Retriever:
         self._reranker: Any = None
         self.last_query = ""
 
-    def _where(self, chunk_types: list[str] | None, filename: str | None) -> dict[str, Any] | None:
+    def _where(self, chunk_types: list[str] | None, filename: str | list[str] | None) -> dict[str, Any] | None:
         clauses: list[dict[str, Any]] = []
         if chunk_types:
             clauses.append({"chunk_type": {"$in": list(chunk_types)}})
-        if filename:
+        if isinstance(filename, list | tuple) and filename:
+            clauses.append({"filename": {"$in": list(filename)}} if len(filename) > 1 else {"filename": filename[0]})
+        elif isinstance(filename, str) and filename:
             clauses.append({"filename": filename})
         return None if not clauses else clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
@@ -175,7 +177,7 @@ class Retriever:
             hit.base_score = 1 / (1 + math.exp(-float(value)))
 
     def search(self, query: str, top_k: int = TOP_K, chunk_types: list[str] | None = None,
-               filename: str | None = None) -> list[Hit]:
+               filename: str | list[str] | None = None) -> list[Hit]:
         search_query = self.rewriter.rewrite(query) if self.use_rewriter else query
         self.last_query = search_query
         n = self.collection.count()
