@@ -71,12 +71,12 @@ SCORE_HIGH = 0.7
 SCORE_LOW = 0.4
 
 # --- Verifizierte Antwort (Regel R11, src/agent/verify.py) --------------------------------------------------------
-VERIFY = _flag("VERIFY", True)                         # P1: Werte als JSON, Prüfung gegen Belege, Rechnen per Code
-CONTEXT_FACTS = _flag("CONTEXT_FACTS", True)           # P1: Kerndaten und Vertrags-/Rechnungsliste als Belege
-INVENTORY_CHECK = _flag("INVENTORY_CHECK", True)       # P1/P2: Bestandsprüfung vor der Antwort
+VERIFY = _flag("VERIFY", True)                         # P2: Prüfung der Endantwort (P1 prüft immer)
+INVENTORY_CHECK = _flag("INVENTORY_CHECK", True)       # P2: Bestandsprüfung über den Planer (P1 immer)
 VERIFY_MODEL = _env("VERIFY_MODEL", "qwen2.5:7b")      # JSON-Entwurf; R11: auf dev besser als llama3.1:8b
 # --- Agent (ReAct, Prototyp 2) ------------------------------------------------------------------------------------
 MAX_STEPS = int(_env("MAX_STEPS", "6"))
+AGENT_BUDGET_S = float(_env("AGENT_BUDGET_S", "300"))   # danach antwortet P2 mit den vorhandenen Belegen
 # Werkzeuge abschalten, z. B. für die GraphRAG-Messung: DOKAGENT_DISABLED_TOOLS=get_key_facts
 DISABLED_TOOLS = {t.strip() for t in _env("DISABLED_TOOLS", "").split(",") if t.strip()}
 MAX_OBSERVATION_CHARS = int(_env("MAX_OBSERVATION_CHARS", "3000"))

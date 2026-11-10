@@ -1,4 +1,4 @@
-"""Messlauf für Version2: P1 (Evidence-First) und P2 (ReAct) auf denselben Fragen, danach Bewertung und Bericht.
+"""Messlauf für Version2: P1 (Orchestrator, Evidence-First) und P2 (ReAct) auf denselben Fragen, danach Bewertung und Bericht.
 
     uv run python -m src.eval.runner --sets kern,heldout --systems P1,P2 --reps 2 --name schlussmessung
 
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from src import llm
-from src.agent.evidence_first import EvidenceFirstPipeline
+from src.agent.orchestrator import Orchestrator
 from src.agent.react_agent import ReActAgent
 from src.agent.tools import AgentTools
 from src.config import (
@@ -82,18 +82,17 @@ def fresh_models(model: str = AGENT_MODEL) -> None:
     llm.take_calls()
 
 
-def build_systems(retriever: Retriever, tools: AgentTools) -> dict[str, EvidenceFirstPipeline | ReActAgent]:
-    """P1/P2 im aktuellen Stand; P1alt/P2alt ohne die R11-Komponenten (Vergleich nach R11)."""
-    return {"P1": EvidenceFirstPipeline(retriever=retriever, tools=tools), "P2": ReActAgent(tools=tools),
-            "P1alt": EvidenceFirstPipeline(retriever=retriever, tools=tools, verify_answer=False,
-                                           context_facts=False, inventory=False),
+def build_systems(retriever: Retriever, tools: AgentTools) -> dict[str, Orchestrator | ReActAgent]:
+    """P1 = Orchestrator (V4), P2 = ReAct; P2alt ohne Bestandsprüfung und Endprüfung. P1 vor V4 wird aus einem
+    Arbeitsbaum des Stands vor dem Umbau gemessen (git worktree), nicht mehr im Code mitgeführt."""
+    return {"P1": Orchestrator(retriever=retriever, tools=tools), "P2": ReActAgent(tools=tools),
             "P2alt": ReActAgent(tools=tools, inventory=False, check=False)}
 
 
-def run_once(system: EvidenceFirstPipeline | ReActAgent, question: str) -> tuple[dict[str, Any], float]:
+def run_once(system: Orchestrator | ReActAgent, question: str) -> tuple[dict[str, Any], float]:
     started = time.perf_counter()
     try:
-        answer = system.answer(question) if isinstance(system, EvidenceFirstPipeline) else system.run(question)
+        answer = system.answer(question) if isinstance(system, Orchestrator) else system.run(question)
         record = answer.record()
         if record["status"] == "ok" and not str(record["answer"]).strip():
             record["status"], record["error"] = "error", "leere Antwort"
