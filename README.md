@@ -51,6 +51,12 @@ uv run python -m src.eval.stichprobe  # drei frei formulierte Fragen, Kriterien 
 
 Berichte (Markdown) und Rohdaten mit Trajektorie je Antwort (JSONL) liegen unter `src/eval/results/<lauf>/`.
 
+## Projekt weitergeben
+
+```bash
+python tools/projekt_export.py        # schreibt projekt_export.txt (Code, Doku, Testsätze, Messberichte)
+```
+
 ## Einstellungen
 
 Alle Werte in [`src/config.py`](src/config.py), überschreibbar per `DOKAGENT_<NAME>`, z. B.
