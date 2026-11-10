@@ -95,3 +95,12 @@ Datumsspanne (T07), Wert aus dem falschen Dokument (T10, T24). `heldout3` ist da
 Bedingungssatz („verlängert sich um 12 Monate, wenn er nicht rechtzeitig gekündigt wird“). Bedingungssätze mit
 wenn/falls/sofern werden vor der Verneinungsprüfung entfernt; alle Läufe wurden neu bewertet. Bekannter Sollwertfehler,
 nicht korrigiert, weil der Satz versiegelt ist: `heldout2`/N08 erwartet „Überweisung“, „überwiesen“ ist ebenso richtig.
+
+## Nachtrag vom 10.11.2026 (V4: Orchestrator, vor der Messung auf `heldout4`)
+
+`heldout4` wurde am 10.11.2026 vor jeder Codeänderung geschrieben und versiegelt (24 Fragen, je eine Begründung).
+Abgestimmt wird nur auf den verbrauchten Sätzen (`dev`, `kern`, `heldout`–`heldout3`), vor allem auf `dev`.
+
+| Nr. | Entscheidung | Regel |
+|---|---|---|
+| R12 | Orchestrator ersetzt Weiche, Kerndaten-Schicht und Schalter von P1 | Festgelegt vor der Messung. Einmal auf `heldout4`, zwei Wiederholungen: P1 vorher (Stand `main` vor V4, aus einem eigenen Arbeitsbaum), P1 neu (Orchestrator), P2 neu. Der Orchestrator gilt als Verbesserung, wenn alle Bedingungen erfüllt sind: (1) Korrektheit P1 neu nicht niedriger als P1 vorher (Punktschätzer der gepaarten Differenz ≥ 0); (2) keine Halluzination bei den vier Fragen zu fehlenden Dokumentarten (T21–T24); (3) bei den Listenfragen (T16–T20) mehr richtige Antworten als P1 vorher; (4) Latenz p50 von P1 neu unter 60 s; (5) P2 ohne Zeitüberschreitung (Status „error“ wegen Timeout = 0). Ist (1) verletzt, wird berichtet, welche Fragetypen verlieren; der Umbau bleibt wegen Erklärbarkeit und Oberfläche, das Ergebnis wird aber nicht als Verbesserung dargestellt. Alles wird berichtet, wie es ausfällt. Danach ist `heldout4` verbraucht. |
