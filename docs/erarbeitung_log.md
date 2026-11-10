@@ -188,8 +188,10 @@ Beobachtete Schwächen der Architektur:
 
 ## Typische Stolpersteine (Sammlung)
 
-1. **Prefill statt Generierung dominiert die Latenz.** Ein 8B-Modell auf CPU liest ~100 Tokens/s.
-   Ein Kontext von 7 000 Tokens kostet über eine Minute, bevor das erste Wort kommt. Mehr Belege
+1. **Prefill statt Generierung dominiert die Latenz.** Ein 7–8B-Modell auf der Laptop-CPU liest neue
+   Prompt-Tokens mit nur ~17–20 Tokens/s (Ollama-Log, 05.–10.11., gleichbleibend). Bezahlbar werden lange
+   Prompts nur, weil Ollama einen gleichen Prompt-Anfang aus dem Cache nimmt; deshalb steht der feste Teil
+   (Katalog, Regeln) vorne und die Frage am Ende. Mehr Belege
    „zur Sicherheit“ machen das System langsamer, nicht besser.
 2. **Kleine Modelle nehmen die erste passende Zahl.** In einer Rechnungszeile mit Menge, Einzelpreis,
    netto und brutto greift das Modell oft die falsche Spalte. Der Beleg ist richtig, die Antwort falsch.
