@@ -276,6 +276,8 @@ def tab_contracts() -> None:
     st.caption(f"Stand {de_date(now.isoformat())}: 🔴 Kündigung in höchstens 30 Tagen fällig · 🟡 in höchstens "
                "90 Tagen · 🟢 später · ⚪ nicht ordentlich kündbar. Fristen rechnet Python, nicht das Sprachmodell.")
     rows.sort(key=lambda r: (r["noch Tage"] is None, r["noch Tage"] or 0))
+    for r in rows:
+        r["noch Tage"] = "–" if r["noch Tage"] is None else str(r["noch Tage"])
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 

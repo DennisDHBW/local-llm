@@ -156,6 +156,13 @@ def stem_words(filename: str) -> str:
     return stem.replace("_", " ")
 
 
+# Grundwörter von Dokument- und Vertragsarten. Sie sagen nur, dass ein Wort eine Art benennt ("Zeitungs|abo"); ob es
+# diese Art gibt, entscheidet der Wortschatz der Dokumente (Bestimmungswort), nicht eine Liste von Arten.
+HEADS = tuple(sorted(("vertrag", "vertrags", "vertraege", "versicherung", "abo", "abos", "rechnung", "abrechnung",
+                      "bescheid", "beitrag", "miete", "steuer", "besuch", "studio"),
+                     key=len, reverse=True))
+
+
 class Catalog:
     """Nummerierter Bestand; Nummern sind stabil sortiert nach Dateiname."""
 
@@ -163,6 +170,7 @@ class Catalog:
         self.processed_dir = Path(processed_dir)
         records = load_all_facts(self.processed_dir) if records is None else records
         self.entries: list[Entry] = []
+        self._vocabulary: set[str] | None = None
         for n, (name, rec) in enumerate(sorted(records.items()), 1):
             facts = rec.get("facts") or {}
             provider = str(facts.get("provider") or "").strip()
@@ -172,6 +180,41 @@ class Catalog:
 
     def __len__(self) -> int:
         return len(self.entries)
+
+    # --- Themenprüfung -----------------------------------------------------------------------------------------------
+    @property
+    def vocabulary(self) -> set[str]:
+        """Alle Wörter aus Dateinamen, Kerndaten und Abschnitten (gefaltet), einmal je Katalog berechnet."""
+        if self._vocabulary is None:
+            parts = []
+            for entry in self.entries:
+                parts += [stem_words(entry.filename), entry.provider, entry.title,
+                          " ".join(str(v) for v in entry.facts.values())]
+                path = self.processed_dir / f"{Path(entry.filename).stem}_chunks.json"
+                try:
+                    parts += [str(c.get("content", "")) for c in json.loads(path.read_text(encoding="utf-8"))]
+                except (OSError, json.JSONDecodeError):
+                    pass
+            self._vocabulary = set(re.findall(r"[a-z0-9]+", fold(" ".join(parts)).replace("-", " ")))
+        return self._vocabulary
+
+    def _known(self, modifier: str) -> bool:
+        m = modifier[:-1] if modifier.endswith("s") and len(modifier) > 4 else modifier
+        if m in HEADS or any(m.endswith(h) and len(m) - len(h) >= 3 and self._known(m[:-len(h)]) for h in HEADS):
+            return True
+        return any(w == m or (len(m) >= 4 and w.startswith(m)) for w in self.vocabulary)
+
+    def unknown_topics(self, question: str) -> list[str]:
+        """Wörter der Frage, die eine Dokumentart benennen, deren Bestimmungswort in keinem Dokument vorkommt:
+        'Zahnarztbesuch', 'Zeitungsabo', 'Gasvertrag'. 'Heizstromabrechnung' ist bekannt (Heizstrom steht im Bestand)."""
+        out = []
+        for word in re.findall(r"[A-Za-zÄÖÜäöüß][\wÄÖÜäöüß-]*", question):
+            for part in word.split("-"):
+                folded = fold(part)
+                head = next((h for h in HEADS if folded.endswith(h) and len(folded) - len(h) >= 3), None)
+                if head and not self._known(folded[:-len(head)]):
+                    out.append(part)
+        return out
 
     def by_number(self, n: int) -> Entry | None:
         return self.entries[n - 1] if 1 <= n <= len(self.entries) else None

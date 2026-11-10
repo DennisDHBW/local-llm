@@ -98,8 +98,10 @@ class Plan:
 
 
 _CONTRACT_Q = re.compile(r"vertrag|vertraeg|\babo\b|abonnement|kuendig|laufzeit|preisgarantie|verlaenger")
-_LIST_Q = re.compile(r"\bwelche[nmrs]?\b\s+(?:\w+\s+){0,2}(?:vertraege|rechnungen|dokumente|unterlagen)\b"
-                     r"|\balle[nm]?\s+(?:\w+\s+)?(?:vertraege|rechnungen|dokumente)\b")
+_LIST_Q = re.compile(r"\bwelche[nmrs]?\b\s+(?:\w+\s+){0,2}(?:vertraege|rechnungen|dokumente|unterlagen)n?\b"
+                     r"|\balle[nm]?\s+(?:\w+\s+)?(?:vertraege|rechnungen|dokumente)n?\b")
+_INVOICE_YEAR = re.compile(r"(?:rechnung|abrechnung)\w*\b.*?(?<![\d.])(20\d\d)(?![\d.])"
+                           r"|(?<![\d.])(20\d\d)(?![\d.]).*?\b\w*(?:rechnung|abrechnung)")
 _STICHTAG = re.compile(r"\bam\s+(\d{1,2}\.\d{1,2}\.\d{4})\s+(?:\w+\s+)?kuendig|\bkuendig\w*\s+(?:ich\s+)?(?:\w+\s+)?am\s+(\d{1,2}\.\d{1,2}\.\d{4})")
 
 
@@ -135,16 +137,41 @@ def validate(raw: dict[str, Any], catalog: Catalog, question: str, mentioned: li
                 "Rechnung" if "rechnung" in text and "vertrag" not in text else "alle"
         plan.filter = _filter(raw.get("filter") or {}, plan, question)
         return plan
+    gaps = catalog.unknown_topics(question)
+    if gaps:                                    # Themenprüfung über den Wortschatz der Dokumente
+        if typ != "fehlt":
+            plan.notes.append(f"Code: „{gaps[0]}“ benennt eine Art, die in keinem Dokument vorkommt -> fehlt")
+        plan.typ, plan.thema, plan.dokumente = "fehlt", gaps[0], []
+        return plan
+    without = _provider_without_contract(catalog, text, mentioned)
+    if without:
+        plan.notes.append(f"Code: Frage setzt einen Vertrag voraus, von {without} gibt es nur Rechnungen -> fehlt")
+        plan.typ, plan.thema, plan.dokumente = "fehlt", f"Vertrag mit {without}", []
+        return plan
+    year = _missing_invoice_year(catalog, text) if typ != "liste" else None
+    if year:
+        plan.notes.append(f"Code: keine Rechnung aus {year} im Bestand -> fehlt")
+        plan.typ, plan.thema, plan.dokumente = "fehlt", f"Rechnung {year}", []
+        return plan
     if typ == "fehlt":
-        if mentioned and not plan.dokumente and _same_kind(question, [catalog.by_name(n) for n in mentioned]):
+        if mentioned and not plan.dokumente:
             plan.notes.append("Modell: fehlt; Code findet " + ", ".join(mentioned) + " -> wert")
             plan.typ = "wert"
             plan.dokumente = list(mentioned)
         return plan
+    if mentioned:                               # Nummern verwechselt? Nur Anbieter behalten, die die Frage nennt
+        keys = {_key(catalog.by_name(n)) for n in mentioned}
+        dropped = [n for n in plan.dokumente if _key(catalog.by_name(n)) not in keys]
+        if dropped:
+            plan.dokumente = [n for n in plan.dokumente if n not in dropped]
+            plan.notes.append("nicht genannter Anbieter entfernt: " + ", ".join(dropped))
     for name in mentioned:                      # eindeutig genannte Dokumente ergänzen
-        if name not in plan.dokumente and (typ == "vergleich" or not plan.dokumente):
+        if name not in plan.dokumente:
             plan.dokumente.append(name)
             plan.notes.append(f"{name} ergänzt (in der Frage genannt)")
+    if typ == "wert" and re.search(r"rechnung", text) and re.search(r"vertrag|versicherungsschein", text):
+        plan.notes.append("Frage nennt Rechnung und Vertrag -> vergleich")
+        plan.typ = typ = "vergleich"
     if typ == "frist":
         contracts = [n for n in plan.dokumente if (e := catalog.by_name(n)) and e.art == "Vertrag"]
         if not contracts:                       # Frist braucht den Vertrag: Partnerdokument über den Anbieter
@@ -153,11 +180,13 @@ def validate(raw: dict[str, Any], catalog: Catalog, question: str, mentioned: li
                 if partner:
                     plan.dokumente.append(partner)
                     plan.notes.append(f"Vertrag {partner} ergänzt (Frist)")
-    if typ == "vergleich" and len(plan.dokumente) == 1:
-        partner = _contract_of(catalog, plan.dokumente[0]) or _invoice_of(catalog, plan.dokumente[0])
-        if partner:
-            plan.dokumente.append(partner)
-            plan.notes.append(f"{partner} ergänzt (Vergleichspartner)")
+    arts = {e.art for n in plan.dokumente if (e := catalog.by_name(n))}
+    if typ == "vergleich" and ("Vertrag" not in arts or "Rechnung" not in arts):
+        for n in list(plan.dokumente)[:1]:
+            partner = _contract_of(catalog, n) if "Vertrag" not in arts else _invoice_of(catalog, n)
+            if partner and partner not in plan.dokumente:
+                plan.dokumente.append(partner)
+                plan.notes.append(f"{partner} ergänzt (Vergleichspartner)")
     if not plan.dokumente:
         plan.notes.append("kein Dokument bestimmt -> Suche über alle Dokumente")
     if _CONTRACT_Q.search(text) and plan.dokumente and typ == "frist" \
@@ -189,15 +218,30 @@ def _invoice_of(catalog: Catalog, filename: str) -> str | None:
     return None
 
 
-_KIND_WORDS = ("gas", "fernwaerme", "miete", "kredit", "leasing", "hausrat", "kranken", "haftpflicht", "zahnarzt")
+def _missing_invoice_year(catalog: Catalog, text: str) -> str | None:
+    """'Stromrechnung 2023': Die Frage nennt eine Rechnung mit Jahr, im Bestand gibt es keine Rechnung aus diesem Jahr."""
+    m = _INVOICE_YEAR.search(text)
+    if not m:
+        return None
+    year = m.group(1) or m.group(2)
+    invoices = [e for e in catalog.entries if e.doc_type == "Rechnung"]
+    if not invoices or any(year in f"{e.filename} {e.title}" for e in invoices):
+        return None
+    return year
 
 
-def _same_kind(question: str, entries: list[Entry | None]) -> bool:
-    """Code-Gegenprobe, wenn das Modell "fehlt" sagt, der Code aber Dokumente findet: Nennt die Frage eine Art,
-    die in diesen Dokumenten nicht vorkommt, bleibt es bei "fehlt"."""
-    text = fold(question)
-    label = " ".join(fold(f"{e.title} {e.filename} {e.provider}") for e in entries if e)
-    return not any(re.search(rf"\b\w*{w}", text) and w not in label for w in _KIND_WORDS)
+def _provider_without_contract(catalog: Catalog, text: str, mentioned: list[str]) -> str | None:
+    """Die Frage fragt nach einem Vertrag (Kündigung, Laufzeit, "Vertrag mit ..."), das genannte Dokument ist aber eine
+    Rechnung, und zu diesem Anbieter gibt es keinen Vertrag (LuminaStyle, Werkstatt)."""
+    if not re.search(r"vertrag|kuendig|laufzeit", text) or not mentioned:
+        return None
+    entries = [e for n in mentioned if (e := catalog.by_name(n)) is not None]
+    if not entries or any(e.art == "Vertrag" for e in entries):
+        return None
+    keys = {_key(e) for e in entries}
+    if any(o.art == "Vertrag" and _key(o) in keys for o in catalog.entries):
+        return None
+    return entries[0].provider or entries[0].filename
 
 
 def _filter(raw: dict[str, Any], plan: Plan, question: str) -> Filter | None:
@@ -210,6 +254,16 @@ def _filter(raw: dict[str, Any], plan: Plan, question: str) -> Filter | None:
     if spec.kind != "date" and op in ("im_jahr", "im_monat"):
         plan.notes.append(f"Operator {op} passt nicht zu {feld} -> Liste ohne Filter")
         return None
+    text = fold(question)
+    if feld == "rechnungsdatum" and "faellig" in text:
+        plan.notes.append("Frage fragt nach Fälligkeit -> Feld faellig")
+        feld, spec = "faellig", FIELDS["faellig"]
+    if spec.kind in ("int", "number") and re.fullmatch(r"\d{1,2}\.\d{1,2}\.\d{4}", wert):
+        plan.notes.append(f"Datum als Wert für {feld} -> Feld fruehestes_ende")
+        feld, spec = "fruehestes_ende", FIELDS["fruehestes_ende"]
+    if spec.kind == "date" and op in ("<", "<=", ">", ">=", "=") and re.fullmatch(r"\d{1,2}\.\d{4}", wert):
+        plan.notes.append("Monat als Wert -> im_monat")
+        op = "im_monat"
     if spec.kind == "text" and op in ("<", "<=", ">", ">="):
         plan.notes.append(f"Operator {op} passt nicht zu Textfeld {feld} -> enthaelt")
         op = "enthaelt"

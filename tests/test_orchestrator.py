@@ -78,7 +78,7 @@ def test_validate_overrides_fehlt_only_for_same_kind(catalog):
     mentioned = ["Vertrag_Strom_NeckarStrom.pdf"]
     plan = validate({"typ": "fehlt", "dokumente": []}, catalog, "Wie hoch ist der Abschlag im Stromvertrag?", mentioned)
     assert plan.typ == "wert" and plan.dokumente == mentioned
-    plan = validate({"typ": "fehlt", "dokumente": []}, catalog, "Wie hoch ist der Gasabschlag bei Neckar-Strom?",
+    plan = validate({"typ": "fehlt", "dokumente": []}, catalog, "Wie hoch ist der Gasvertrag bei Neckar-Strom?",
                     mentioned)
     assert plan.typ == "fehlt"
 
@@ -205,3 +205,31 @@ def test_clean_removes_duplicates_and_shortens():
     long = Evidence("Wort " * 300, "a.pdf")
     out = _clean([Evidence("Abschlag 130 €", "a.pdf"), Evidence("abschlag  130 €", "a.pdf"), long])
     assert len(out) == 2 and len(out[1].text) <= 702 and out[1].text.endswith("…")
+
+
+# --- Code-Prüfungen des Planers (E8) -----------------------------------------------------------------------------------
+def test_unknown_topics_uses_document_vocabulary(catalog):
+    assert catalog.unknown_topics("Wie hoch ist der Beitrag für mein Fitnessstudio?") == ["Fitnessstudio"]
+    assert catalog.unknown_topics("Was kostet das Zeitungsabo im Monat?") == ["Zeitungsabo"]
+    # Bestimmungswort kommt im Bestand vor, Attribute wie "Grundpreis" sind keine Dokumentart
+    assert catalog.unknown_topics("Stimmt der Grundpreis der Heizstromabrechnung mit dem Vertrag?") == []
+    assert catalog.unknown_topics("Wann endet der Stromvertrag?") == []
+
+
+def test_validate_rejects_invoice_year_that_is_missing(catalog):
+    plan = validate({"typ": "wert", "dokumente": []}, catalog, "Wie hoch war die Heizstromrechnung 2021?", [])
+    assert plan.typ == "fehlt" and "2021" in plan.thema
+    plan = validate({"typ": "wert", "dokumente": []}, catalog, "Wie hoch war die Heizstromrechnung 2024?",
+                    ["Rechnung_Heizstrom_VoltWaerme_2024.pdf"])
+    assert plan.typ == "wert" and plan.dokumente[0] == "Rechnung_Heizstrom_VoltWaerme_2024.pdf"
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ({"feld": "kuendigungsfrist_monate", "operator": "<=", "wert": "31.12.2026"},
+     ("fruehestes_ende", "<=")),                                  # Datum auf Zahlenfeld
+    ({"feld": "laufzeitende", "operator": "<", "wert": "03.2027"}, ("laufzeitende", "im_monat")),
+    ({"feld": "anbieter", "operator": ">", "wert": "Volt"}, ("anbieter", "enthaelt")),
+])
+def test_filter_corrections(catalog, raw, expected):
+    plan = validate({"typ": "liste", "art": "Vertrag", "filter": raw}, catalog, "Welche Verträge ...?", [])
+    assert plan.filter is not None and (plan.filter.feld, plan.filter.operator) == expected and plan.notes

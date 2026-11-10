@@ -42,17 +42,24 @@ def main() -> None:
                "question": q["question"], "plan": plan.as_dict(), "raw": plan.raw,
                "seconds": round(time.perf_counter() - started, 1),
                "prompt_tokens": sum(c["prompt_tokens"] for c in calls),
+               "expected_sources": sorted(expected),
                "docs_ok": expected <= set(plan.dokumente) if q["type"] in "abc" and expected else None}
         rows.append(row)
         print(f"[{i}/{len(questions)}] {q['set']}/{q['id']} {q['type']} -> {plan.typ} {plan.dokumente} "
               f"{plan.as_dict()['filter']} {plan.notes} ({row['seconds']} s)", flush=True)
     (out_dir / "planer.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
                                           encoding="utf-8")
+    summary = summarize(rows)
+    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False, indent=1))
+
+
+def summarize(rows: list[dict]) -> dict:
     e = [r for r in rows if not r["answerable"]]
     ans = [r for r in rows if r["answerable"]]
     abc = [r for r in rows if r["docs_ok"] is not None]
     d = [r for r in rows if r["type"] == "d"]
-    summary = {
+    return {
         "fragen": len(rows),
         "ablehnung_richtig": f"{sum(r['plan']['typ'] == 'fehlt' for r in e)}/{len(e)}",
         "ablehnung_falsch": f"{sum(r['plan']['typ'] == 'fehlt' for r in ans)}/{len(ans)}",
@@ -61,8 +68,6 @@ def main() -> None:
         "liste_mit_filter": f"{sum(bool(r['plan']['filter']) for r in d)}/{len(d)}",
         "median_s": sorted(r["seconds"] for r in rows)[len(rows) // 2],
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(json.dumps(summary, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":

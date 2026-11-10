@@ -138,6 +138,43 @@ Beobachtete Schwächen der Architektur:
   die Bewertung seine Wörter und Zahlen als unbelegte Aussagen. Er steht deshalb in einem eigenen Feld
   (`AgentAnswer.hint`).
 
+## E8 Planer allein messen, Code prüft den Plan
+
+- **Problem:** Der Planer (qwen2.5:7b) liegt bei Ablehnungen oft falsch. Bei unbekannten Themen
+  („Gasvertrag“, „Zahnarztbesuch“) plant er eine Wertfrage über ein ähnliches Dokument. Bekannte
+  Dokumente vergisst er oder nennt die falsche Katalognummer ([7] statt [3]).
+- **Bemerkt durch:** eigene Planer-Messung (`planner_eval.py`) über die verbrauchten Sätze dev, kern
+  und heldout 1–3 (127 Fragen). Sie dauert nur den Planschritt (~17 s je Frage) statt der ganzen
+  Antwort. Die Rohpläne werden gespeichert, sodass `planner_replay.py` jede Code-Änderung offline
+  nachprüft, ohne das Modell neu zu fragen.
+- **Ursache:** Das Modell entscheidet über Themen anhand von Ähnlichkeit, nicht anhand des Bestands.
+  „Gas“ und „Strom“ liegen nah beieinander. Die Katalognummern sind für ein kleines Modell austauschbar.
+- **Verworfen:** eine längere Liste unbekannter Arten im Prompt (generalisiert nicht, Stolperstein 3).
+  Ebenso eine Prüfung jedes Nomens gegen den Wortschatz der Dokumente: Allgemeine Nomen wie „Grundpreis“
+  oder „Monatsbeitrag“ führten zu falschen Ablehnungen.
+- **Entscheidung:** Code prüft den Plan in einer festen Reihenfolge.
+  1. Themenprüfung über den Wortschatz der Dokumente: Ein zusammengesetztes Wort aus Bestimmungswort und
+     Dokumentart („Gas|vertrag“, „Zeitungs|abo“) gilt als fehlend, wenn das Bestimmungswort in keinem
+     Dokument vorkommt. Attribute wie „-preis“ zählen nicht als Dokumentart.
+  2. Rechnung zu einem Anbieter, aber kein Vertrag → fehlt „Vertrag mit X“.
+  3. Rechnung mit Jahr, das im Bestand fehlt → fehlt „Rechnung 2023“.
+  4. Danach ergänzt Code die in der Frage genannten Dokumente und entfernt nicht genannte Anbieter.
+  5. Ein Vergleich bekommt immer einen Vertrag und eine Rechnung.
+- **Beleg (127 Fragen, gleiche Rohpläne):**
+
+  | Kennzahl | Modell allein | mit Code-Prüfung |
+  |---|---|---|
+  | Ablehnung richtig | 9/21 | 18/21 |
+  | Ablehnung falsch | 0/106 | 0/106 |
+  | Dokumente gefunden | 76/87 | 87/87 |
+  | Liste erkannt / mit Filter | 15/19 · 14/19 | 18/19 · 17/19 |
+
+  Offen bleiben drei Ablehnungen, die nur über das Wissen „Fernwärme ist nicht Heizstrom“ bzw. „ein
+  Mietvertrag ist nicht im Bestand“ zu lösen wären. Das ist eine bewusste Grenze, keine weitere Regel.
+- **Gelernt:** Das Modell schlägt vor, der Code entscheidet. Je kleiner das Modell, desto mehr
+  Verantwortung gehört in prüfbaren Code. Eine Teilmessung nur des Planers macht Änderungen in Minuten
+  statt Stunden überprüfbar.
+
 ---
 
 ## Typische Stolpersteine (Sammlung)
@@ -163,3 +200,9 @@ Beobachtete Schwächen der Architektur:
    die Antwort.
 10. **Der Verlauf eines ReAct-Agenten wächst mit jedem Schritt**; ohne Kürzung wird jeder weitere
     Schritt langsamer.
+11. **Kleine Modelle verwechseln Katalognummern.** Sie wählen [7] statt [3], wenn beide ähnlich
+    klingen. Code muss die Auswahl gegen die in der Frage genannten Anbieter prüfen.
+12. **Eine Prüfung über den Wortschatz kann zu streng sein.** Fehlt „Grund“ zufällig in den
+    Dokumenten, gilt „Grundpreis“ als unbekanntes Thema. Nur Dokumentarten prüfen, keine Attribute.
+13. **Nur den Teil messen, den man ändert.** Ein vollständiger Lauf dauert Stunden. Gespeicherte
+    Zwischenergebnisse (Rohpläne) lassen sich in Sekunden neu bewerten.
