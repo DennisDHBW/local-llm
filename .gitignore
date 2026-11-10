@@ -40,3 +40,4 @@ archiv/
 snapshot_*.json
 # Projekt-Export von export_project.sh (enthält auch data/processed, also personenbezogene Daten)
 projekt_export*.txt
+projekt_export.txt
