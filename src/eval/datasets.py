@@ -6,6 +6,7 @@
     heldout    sets/heldout.json    zurückgehalten: vor dem Umbau geschrieben, nur Ausgangs- und Schlussmessung
     heldout2   sets/heldout2.json   zweiter zurückgehaltener Satz: vor der Kerndaten-Antwortschicht geschrieben, einmal
     heldout3   sets/heldout3.json   dritter zurückgehaltener Satz: vor der verifizierten Antwort (R11) geschrieben, einmal
+    heldout4   sets/heldout4.json   vierter zurückgehaltener Satz: vor dem Orchestrator (R12) geschrieben, einmal
 
 Alle Fragen haben dasselbe Format (siehe Kopf von sets/heldout.json).
 """
@@ -21,7 +22,8 @@ EVAL_DIR = Path(__file__).resolve().parent
 SETS_DIR = EVAL_DIR / "sets"
 GOLD_DIR = EVAL_DIR / "gold"
 SET_FILES = {"kern": SETS_DIR / "kern.json", "dev": SETS_DIR / "dev.json", "heldout": SETS_DIR / "heldout.json",
-             "heldout2": SETS_DIR / "heldout2.json", "heldout3": SETS_DIR / "heldout3.json"}
+             "heldout2": SETS_DIR / "heldout2.json", "heldout3": SETS_DIR / "heldout3.json",
+             "heldout4": SETS_DIR / "heldout4.json"}
 ALL_SETS = ("kern", "dev", "synthetic", "heldout")
 
 
