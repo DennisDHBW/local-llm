@@ -36,3 +36,19 @@ Lauf am 08.11.2026 (Rohdaten: `src/eval/results/stichprobe/stichprobe_raw.jsonl`
 Summe K1: P1 1/3, P2 1/3. Die Stichprobe bestätigt das Muster der Messung: P1 antwortet öfter, liest aber nicht immer
 die richtige Zeile; P2 lehnt lieber ab. Neu ist der Fall S3: Eine Dokumentart, die die Bestandsprüfung nicht kennt,
 umgeht sie. Ich habe das nicht nachträglich repariert, weil die Stichprobe sonst ihren Zweck verliert.
+
+## Runde 2: nach dem Umbau (V4), festgelegt am 10.11.2026 vor dem Lauf
+
+Dieselben drei Fragen S1–S3 noch einmal, damit sichtbar wird, ob der Umbau die beobachteten Fehler behebt
+(netto statt brutto, erfundene Frist, Zeitüberschreitung von P2). Dazu drei neue Fragen, je eine für die
+Fragearten, die V4 neu angeht. Keine steht in einem Testsatz, keine wurde während der Entwicklung gestellt.
+Kriterien K1–K3 wie oben.
+
+| Nr. | Frage | Sollantwort (aus dem Dokument) | Warum diese Frage |
+|---|---|---|---|
+| S4 | Ist mein Stromabschlag laut Rechnung 2024 noch der gleiche wie im Vertrag? | Ja für 2024: Vertrag 130,00 € monatlich, Rechnung 2024 „11 Abschläge à 130,00 €“. Ab 01.03.2025 steigt er laut Rechnung auf 135,00 €. Mindestens: 130 € in beiden, Hinweis auf 135 € ist ein Plus, aber kein Muss. | Vergleich zweier Dokumente desselben Anbieters, Fangstelle: der neue Abschlag 135 € |
+| S5 | Welche Verträge muss ich noch dieses Jahr kündigen, wenn ich raus will? | Stichtag 05.11.2026: Strom Neckar-Strom (bis 05.11.2026), Kfz NordStern (bis 30.11.2026), StreamPulse (bis 04.12.2026). Alle drei, keine weiteren. | Listenfrage in Alltagssprache, Fristen muss Python rechnen |
+| S6 | Was hat die Hausratversicherung letztes Jahr gekostet? | Nichts belegt: keine Hausratversicherung im Bestand (es gibt nur eine Kfz-Versicherung). | Unbekannte Dokumentart, die einer vorhandenen ähnelt (Versicherung) |
+
+Geprüft werden P1 (Orchestrator) und P2, je ein Lauf
+(`src/eval/stichprobe.py --name stichprobe_v4`, nach der Messung von `heldout4`).
