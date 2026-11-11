@@ -124,3 +124,13 @@ unbelegt), Faithfulness (RAGAS) 0,79 → 0,79, Context Recall 0,67 → 0,73. P2 
 Ursachen (Analyse nach der Messung, nicht mehr auf `heldout4` abgestimmt): Latenz in E9 des Arbeitsprotokolls,
 T22: „Haftpflicht“ steht im Kfz-Versicherungsschein („Kfz-Haftpflicht“), daher hält die Themenprüfung das Thema für
 vorhanden. Der Umbau bleibt wegen Korrektheit, Erklärbarkeit und Oberfläche; `heldout4` ist verbraucht.
+
+## Nachtrag vom 11.11.2026 (V5: Feinschliff, vor der Messung auf `heldout5`)
+
+`heldout5` wurde am 11.11.2026 vor jeder Codeänderung geschrieben und versiegelt (24 Fragen, je eine Begründung,
+Prüfsumme in `src/eval/sets/heldout5.sha256`). `heldout4` und die Stichprobe gelten ab jetzt als verbraucht und
+dürfen zur Fehleranalyse genutzt werden.
+
+| Nr. | Entscheidung | Regel |
+|---|---|---|
+| R13 | Feinschliff des Orchestrators (Latenz, Themenprüfung, Filterfeld, Vergleichsprüfung) | Festgelegt vor der Messung. Einmal auf `heldout5`, zwei Wiederholungen: P1 V4 (Stand `main` vor V5, eigener Arbeitsbaum, gleicher Ollama-Server) und P1 V5; P2 V5 einmal. Erfüllt, wenn alle drei gelten: (1) Korrektheit P1 V5 nicht niedriger als P1 V4 (Punktschätzer der gepaarten Differenz ≥ 0); (2) Latenz p50 von P1 V5 unter 60 s; (3) keine Halluzination bei T21–T24. Alles wird berichtet, wie es ausfällt. Danach ist `heldout5` verbraucht. |

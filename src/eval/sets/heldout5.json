@@ -1,0 +1,561 @@
+{
+ "_hinweis": "Fünfter zurückgehaltener Testsatz H5. Geschrieben am 11.11.2026 VOR dem Feinschliff (Regel R13). Keine Frage aus kern, dev, synthetic, heldout bis heldout4 oder der Stichprobe wiederholt. Schwerpunkte: Fristen in Alltagssprache (T11, T20), Vergleiche Rechnung/Vertrag (T12–T15), Filter mit zwei Bedingungen (T18, T19), Negativfragen mit vorhandenem Teilthema (T21–T24). Sollwerte aus dem Rohtext der Originaldateien (pdftotext, python-docx); je Frage eine Begründung. Geschrieben vom Entwickler; das ist eine Einschränkung. Wird genau einmal gemessen. Feldformat wie heldout.json.",
+ "set": "heldout5",
+ "written": "2026-11-11",
+ "questions": [
+  {
+   "id": "T01",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie viel Umsatzsteuer wurde auf der Stromrechnung 2024 der Stadtwerke Neckar-Strom berechnet?",
+   "expected": [
+    "251,37|251.37"
+   ],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf"
+   ],
+   "evidence": [
+    "251,37"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Steuerzeile; Netto 1.323,00 und Brutto 1.574,37 stehen direkt daneben."
+  },
+  {
+   "id": "T02",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie hoch ist der Nettobeitrag gesamt auf der NordStern-Beitragsrechnung 2027?",
+   "expected": [
+    "580,00|580.00"
+   ],
+   "expected_sources": [
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf"
+   ],
+   "evidence": [
+    "580,00"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Netto/Brutto-Falle: Gesamtbeitrag 690,20 inkl. Versicherungssteuer."
+  },
+  {
+   "id": "T03",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was hat die Inspektion bei Auto & Service Müller netto gekostet?",
+   "expected": [
+    "171,00|171.00|171 €"
+   ],
+   "expected_sources": [
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf"
+   ],
+   "evidence": [
+    "171,00 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Spaltenfalle: Stundensatz 95,00 und Stunden 1,8 in derselben Zeile."
+  },
+  {
+   "id": "T04",
+   "type": "a",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Wie viel Trinkwasser-Verbrauchsgebühr wurde in der Wasserabrechnung 2024 brutto berechnet?",
+   "expected": [
+    "294,25|294.25"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [
+    "294,25"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Brutto-Spalte; netto 275,00 steht in derselben Zeile."
+  },
+  {
+   "id": "T05",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Was hat die symptombezogene Untersuchung auf der Arztrechnung von Dr. Weber gekostet?",
+   "expected": [
+    "10,72|10.72"
+   ],
+   "expected_sources": [
+    "Rechnung_Arzt_DrWeber_2026-10.pdf"
+   ],
+   "evidence": [
+    "10,72 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Einfachsatz 4,66 und Faktor 2,3 stehen davor."
+  },
+  {
+   "id": "T06",
+   "type": "a",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie viel kostete die Smart Home LED Stehleuchte bei LuminaStyle netto?",
+   "expected": [
+    "67,14|67.14"
+   ],
+   "expected_sources": [
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf"
+   ],
+   "evidence": [
+    "67,14 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Einzelpreis gleich Gesamtpreis; mehrere Artikel in der Tabelle."
+  },
+  {
+   "id": "T07",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wie lange ist die Erstvertragslaufzeit des Stromvertrags der Stadtwerke Neckar-Strom?",
+   "expected": [
+    "12 Monate|zwölf Monate|ein Jahr|1 Jahr"
+   ],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf"
+   ],
+   "evidence": [
+    "12 Monate"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Fließtext § 2; Kündigungsfrist ein Monat ist ein Störwert."
+  },
+  {
+   "id": "T08",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Bis wann gilt die Preisgarantie im Vertrag mit ConnectNet?",
+   "expected": [
+    "31.03.2027|31. März 2027"
+   ],
+   "expected_sources": [
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [
+    "31.03.2027"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Fließtext § 4; das gleiche Datum ist auch Ende der Mindestlaufzeit."
+  },
+  {
+   "id": "T09",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Seit wann läuft mein StreamPulse-Abo?",
+   "expected": [
+    "05.03.2024|5.3.2024|5. März 2024"
+   ],
+   "expected_sources": [
+    "Vertrag_Abo_StreamPulse.docx"
+   ],
+   "evidence": [
+    "05.03.2024"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Alltagssprache für Vertragsbeginn."
+  },
+  {
+   "id": "T10",
+   "type": "b",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Vertragsnummer hat mein Wasservertrag beim Zweckverband?",
+   "expected": [
+    "VT-2021-WA-1029"
+   ],
+   "expected_sources": [
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "VT-2021-WA-1029"
+   ],
+   "expected_tools": [
+    [
+     "get_key_facts",
+     "search_documents"
+    ]
+   ],
+   "begruendung": "Kennung aus der Merkmalstabelle; Zählernummer WAS-449201 ist ein Störwert."
+  },
+  {
+   "id": "T11",
+   "type": "b",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Ich will aus der Kfz-Versicherung bei NordStern zum Jahresende 2026 raus. Bis wann muss meine Kündigung spätestens dort sein?",
+   "expected": [
+    "30.11.2026|30. November 2026"
+   ],
+   "expected_sources": [
+    "Vertrag_Kfz_Versicherung_NordStern.pdf"
+   ],
+   "evidence": [
+    "Frist von einem Monat"
+   ],
+   "expected_tools": [
+    [
+     "search_documents",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Frist in Alltagssprache: ein Monat zum Ende der Laufzeit 31.12.2026."
+  },
+  {
+   "id": "T12",
+   "type": "c",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wurde in der Heizstromabrechnung 2024 der Tagstrom zu dem Arbeitspreis abgerechnet, der im Heizstromvertrag steht?",
+   "expected": [
+    "28,00|28.00|28,0|28,000"
+   ],
+   "expected_sources": [
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [
+    "28,000 ct/kWh",
+    "28,00 ct/kWh"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Vergleich zweier Dokumente; NT-Preis 21,50 ist ein Störwert."
+  },
+  {
+   "id": "T13",
+   "type": "c",
+   "category": "standard",
+   "answerable": true,
+   "question": "Wird auf der ConnectNet-Rechnung für den Tarif Connect Mobile L 5G derselbe Preis berechnet wie im Vertrag?",
+   "expected": [
+    "33,60|33.60|33,6"
+   ],
+   "expected_sources": [
+    "Rechnung_Mobilfunk_ConnectNet_2026-09.pdf",
+    "Vertrag_Mobilfunk_ConnectNet.docx"
+   ],
+   "evidence": [
+    "33,60 €"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Vergleich Rechnung/Vertrag; drei Tarifpositionen in beiden Tabellen."
+  },
+  {
+   "id": "T14",
+   "type": "c",
+   "category": "grenzfall",
+   "answerable": true,
+   "question": "Um wie viel Euro ist die neue quartalsweise Wasser-Vorauszahlung ab Februar 2025 höher als die Vorauszahlung im Wasservertrag?",
+   "expected": [
+    "15,00|15.00|15 €|15 Euro"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf",
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "225,00",
+    "210,00"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Differenz 225,00 − 210,00; beide Werte aus verschiedenen Dokumenten."
+  },
+  {
+   "id": "T15",
+   "type": "c",
+   "category": "standard",
+   "answerable": true,
+   "question": "Entspricht die Grundgebühr für den Wasserzähler in der Wasserabrechnung 2024 dem Satz aus dem Wasservertrag?",
+   "expected": [
+    "5,00|5.00|5 €"
+   ],
+   "expected_sources": [
+    "Rechnung_Wasser_Zweckverband_2024.pdf",
+    "Vertrag_Wasser_Zweckverband.pdf"
+   ],
+   "evidence": [
+    "5,00 €/Monat"
+   ],
+   "expected_tools": [
+    [
+     "search_tables",
+     "get_key_facts"
+    ]
+   ],
+   "begruendung": "Vergleich; Jahressumme 60,00 und Brutto 64,20 sind Störwerte."
+  },
+  {
+   "id": "T16",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Verträge bezahle ich per Kreditkarte?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Abo_StreamPulse.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "StreamPulse"
+   ],
+   "excluded_items": [
+    "Neckar-Strom|Stromvertrag",
+    "Volt & Wärme|Heizstrom",
+    "Zweckverband|Wasser",
+    "NordStern|Kfz",
+    "ConnectNet"
+   ],
+   "begruendung": "Filter über Zahlungsweise; nur ein Treffer."
+  },
+  {
+   "id": "T17",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Rechnungen wurden im Jahr 2025 ausgestellt?",
+   "expected": [],
+   "expected_sources": [
+    "Rechnung_Strom_NeckarStrom_2024.pdf",
+    "Rechnung_Heizstrom_VoltWaerme_2024.pdf",
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_invoices"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Strom 2024",
+    "Volt & Wärme|Heizstrom",
+    "Zweckverband|Wasser"
+   ],
+   "excluded_items": [
+    "NordStern",
+    "Auto & Service Müller|Werkstatt",
+    "Dr. Weber|Arzt",
+    "LuminaStyle",
+    "ConnectNet",
+    "StreamPulse"
+   ],
+   "begruendung": "Datumsfilter auf Rechnungsdatum; die Abrechnungsjahre heißen 2024."
+  },
+  {
+   "id": "T18",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Rechnungen haben einen Gesamtbetrag zwischen 100 und 1.000 €?",
+   "expected": [],
+   "expected_sources": [
+    "Rechnung_Arzt_DrWeber_2026-10.pdf",
+    "Rechnung_Kfz_Versicherung_NordStern_2027.pdf",
+    "Rechnung_Onlineshop_LuminaStyle_2026-10.pdf",
+    "Rechnung_Werkstatt_AutoServiceMueller_2026-10.pdf",
+    "Rechnung_Wasser_Zweckverband_2024.pdf"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_invoices"
+    ]
+   ],
+   "expected_items": [
+    "Dr. Weber|Arzt",
+    "NordStern",
+    "LuminaStyle",
+    "Auto & Service Müller|Werkstatt",
+    "Zweckverband|Wasser"
+   ],
+   "excluded_items": [
+    "Neckar-Strom|Strom 2024",
+    "Volt & Wärme|Heizstrom",
+    "ConnectNet",
+    "StreamPulse"
+   ],
+   "begruendung": "Bereichsfilter mit zwei Grenzen."
+  },
+  {
+   "id": "T19",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Welche Verträge von Max Mustermann werden per SEPA-Lastschrift bezahlt?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Heizstrom_VoltWaerme.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag",
+    "Volt & Wärme|Heizstrom"
+   ],
+   "excluded_items": [
+    "Zweckverband|Wasser",
+    "NordStern|Kfz",
+    "ConnectNet",
+    "StreamPulse"
+   ],
+   "begruendung": "Zwei Bedingungen; Wasser gehört Max Mustermann, wird aber überwiesen; ConnectNet ist SEPA, aber Thomas Kramer."
+  },
+  {
+   "id": "T20",
+   "type": "d",
+   "category": "standard",
+   "answerable": true,
+   "question": "Aus welchen Verträgen komme ich bis zum 31.12.2026 raus, wenn ich heute kündige?",
+   "expected": [],
+   "expected_sources": [
+    "Vertrag_Strom_NeckarStrom.pdf",
+    "Vertrag_Kfz_Versicherung_NordStern.pdf",
+    "Vertrag_Abo_StreamPulse.docx"
+   ],
+   "evidence": [],
+   "expected_tools": [
+    [
+     "list_contracts"
+    ]
+   ],
+   "expected_items": [
+    "Neckar-Strom|Stromvertrag",
+    "NordStern|Kfz",
+    "StreamPulse"
+   ],
+   "excluded_items": [
+    "Volt & Wärme|Heizstrom",
+    "Zweckverband|Wasser",
+    "ConnectNet"
+   ],
+   "begruendung": "Frist in Alltagssprache, Stichtag 05.11.2026: Heizstrom (3 Monate zum 31.12.) zu spät, ConnectNet Mindestlaufzeit bis 31.03.2027, Wasser nicht kündbar."
+  },
+  {
+   "id": "T21",
+   "type": "e",
+   "category": "grenzfall",
+   "answerable": false,
+   "question": "Welche Kündigungsfrist hat meine Wohngebäudeversicherung für die Mozartstraße 14?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "begruendung": "Adresse vorhanden (Max Mustermann), Versicherungsart nicht."
+  },
+  {
+   "id": "T22",
+   "type": "e",
+   "category": "grenzfall",
+   "answerable": false,
+   "question": "Wie hoch ist der Versicherungsbeitrag für den VW Golf?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "begruendung": "Fahrzeug kommt nur in der Werkstattrechnung vor; versichert ist ein BMW."
+  },
+  {
+   "id": "T23",
+   "type": "e",
+   "category": "grenzfall",
+   "answerable": false,
+   "question": "Was kostet mein DSL-Anschluss bei 1&1 im Monat?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "begruendung": "Thema vorhanden (VDSL bei ConnectNet), Anbieter nicht."
+  },
+  {
+   "id": "T24",
+   "type": "e",
+   "category": "grenzfall",
+   "answerable": false,
+   "question": "Wie hoch war die Heizstromabrechnung 2025 von Volt & Wärme?",
+   "expected": [],
+   "expected_sources": [],
+   "evidence": [],
+   "expected_tools": [],
+   "begruendung": "Anbieter und Dokumentart vorhanden, Jahr nicht."
+  }
+ ]
+}
