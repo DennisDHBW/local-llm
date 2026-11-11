@@ -293,6 +293,10 @@ Bis V3 lagen vor P1 und P2 eine Regex-Weiche (`router.py`) und eine Kerndaten-Sc
 | `schlussmessung4/` | R11 einmal auf `heldout3`, zwei Wiederholungen: P1 alt 26/48 (54 %), P1 neu 28/48 (58 %), P2 neu 14/48 (29 %, keine Halluzination); P1 neu gegen alt +4 pp [−12,5; +18,8] |
 | `ragas_heldout3/` | RAGAS auf `schlussmessung4` (Wiederholung 0, beide Wiederholungen waren gleich) |
 | `stichprobe/` | Antworten auf S1–S3, Bewertung in `docs/stichprobe.md` |
+| `planer_dev/` | V4: nur der Planer auf den verbrauchten Sätzen (127 Fragen), Rohpläne für `planner_replay.py` |
+| `heldout4_v4/`, `heldout4_vorher/` | R12 einmal auf `heldout4`, zwei Wiederholungen: P1 vorher 26/48 (54 %, p50 42 s), P1 neu (Orchestrator) 36/48 (75 %, p50 192 s), P2 neu 18/48 (38 %); neu gegen vorher +21 pp [0; +42]; Listen 2/10 → 6/10 |
+| `ragas_heldout4_v4/`, `ragas_heldout4_vorher/` | RAGAS auf `heldout4`: Faithfulness P1 0,79 → 0,79, Context Recall 0,67 → 0,73 |
+| `stichprobe_v4/` | Runde 2: S1–S6 nach dem Umbau, Bewertung in `docs/stichprobe.md` |
 
 Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
 Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet. Weiche (src/agent/router.py): 59 %, gegen P1 +10 pp [0; +21], gegen P2 +7 pp [−7; +22].
