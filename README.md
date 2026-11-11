@@ -5,9 +5,11 @@ Werte aus Tabellen, Textstellen und Gliederung, Diagramme, Abgleich Rechnung ↔
 (Kündigungsfristen, Preisgarantien, Abschläge) – mit Quellenangabe [n] und ausdrücklicher Enthaltung, wenn nichts
 belegt ist. Alles läuft lokal (Ollama, ChromaDB), ohne Cloud-Aufruf.
 
-- Prototyp 1 **Evidence-First**: Suche → farbcodiertes Evidenz-Panel → Antwort erst per Klick; das Modell füllt ein
-  JSON-Schema (Werte mit Belegnummer), Code prüft jeden Wert gegen den Beleg und rechnet selbst
-- Prototyp 2 **ReAct-Agent**: Thought → Action (8 Werkzeuge) → Observation → Final Answer;
+- Prototyp 1 **Orchestrator (Evidence-First)**: Plan → Bestand → Werkzeug → Belege → (Klick) → Entwurf → Prüfung.
+  Ein Planer wählt über einen Dokumentkatalog die Dokumente der Frage oder meldet, dass keines passt; Listenfragen
+  filtert Python über die Kerndaten; das Modell füllt ein JSON-Schema (Werte mit Belegnummer), Code prüft jeden Wert
+  (auch netto/brutto) gegen den Beleg und rechnet selbst
+- Prototyp 2 **ReAct-Agent**: Thought → Action (9 Werkzeuge) → Observation → Final Answer;
   die Endantwort wird gegen die Beobachtungen geprüft
 
 Aufbau und jedes Modul erklärt: [`docs/reverse_engineering.md`](docs/reverse_engineering.md);
@@ -26,10 +28,10 @@ uv run python -m src.ingestion.pipeline   # Import aller Dateien unter data/raw/
 uv run streamlit run app.py
 ```
 
-Standard in der App ist P1, weil es auf den versiegelten Testsätzen am besten abschnitt (`heldout2`: 65 % gegen
-55 % für die Weiche; `heldout3`: 58 % mit geprüfter Antwort, 54 % ohne, P2 29 %). Wahlweise beantwortet der Modus „Automatisch (Weiche)“ Einzelwerte direkt aus den Kerndaten und lehnt Fragen zu
-Dokumentarten ab, die im Bestand fehlen (`src/agent/facts_answer.py`); alle anderen Fragen gehen je nach Art an P1
-oder P2 (`src/agent/router.py`). P1 und P2 sind einzeln wählbar.
+Standard in der App ist P1: ein Fragefeld mit Beispielfragen, die Stufen laufen sichtbar ab, zuerst erscheinen die
+Belege, die Antwort kommt per Klick mit Prüfprotokoll. Ein Klick auf [n] zeigt die PDF-Seite mit markiertem Wert.
+P2 lässt sich als „Agent-Modus“ zum Vergleich zuschalten. Im Tab „Verträge“ zeigt eine Ampel, welche Kündigung bald
+fällig ist; im Tab „Dokumente“ lassen sich neue Dateien hochladen und importieren.
 
 Die sechs Verträge in `data/raw/Vertraege` sind synthetisch und versioniert; neu erzeugen mit
 `uv run python -m src.eval.make_contracts` (braucht LibreOffice für die PDF-Fassungen).
@@ -46,7 +48,9 @@ uv run python -m src.eval.ablation    # Boost 1,0/1,25/1,5/2,0, BM25, Reranker, 
 uv run python -m src.eval.models      # Modellauswahl nach den Kriterien aus Allgemein.md
 uv sync --extra ragas                 # einmalig: RAGAS (Richter qwen2.5:7b lokal über Ollama)
 uv run python -m src.eval.ragas_eval --run schlussmessung4 --sets heldout3 --systems P1,P1alt,P2 --name ragas_heldout3
-uv run python -m src.eval.stichprobe  # drei frei formulierte Fragen, Kriterien vorher in docs/stichprobe.md
+uv run python -m src.eval.stichprobe  # frei formulierte Fragen, Kriterien vorher in docs/stichprobe.md
+uv run python -m src.eval.planner_eval --sets dev --name planer_dev   # nur Stufe 1 (Planer), schnell
+uv run python -m src.eval.planner_replay --run planer_dev --show       # Prüfcode neu auf gespeicherte Pläne, ohne LLM
 ```
 
 Berichte (Markdown) und Rohdaten mit Trajektorie je Antwort (JSONL) liegen unter `src/eval/results/<lauf>/`.
@@ -68,17 +72,16 @@ Auf 16 GB RAM ohne GPU empfiehlt sich `OLLAMA_MAX_LOADED_MODELS=2` und `OLLAMA_N
 ## Struktur
 
 ```
-app.py                  Streamlit: P1 und P2, Vertragsübersicht, Dokumente
+app.py                  Streamlit: Fragen (P1, wahlweise P2), Verträge mit Ampel, Dokumente mit Upload
 compare_prototypes.py   P1 gegen P2 über die KPI-Suite
 src/config.py           Einstellungen          src/llm.py   Ollama-Zugang mit Messung     src/textutil.py  Zahlen/Daten
 src/ingestion/          parser.py (PDF/DOCX -> Chunks), pipeline.py (Import, drei Speicherebenen)
 src/enrichment/         captioner.py, summarizer.py (DiskCache SHA-256), facts.py (Kerndaten mit Textprüfung)
 src/retrieval/          embeddings.py, prefix.py, vector_store.py (ChromaDB), rewriter.py, search.py (Boost)
-src/agent/              evidence.py, evidence_first.py (P1), react_agent.py (P2), tools.py, contracts.py (Fristen),
-                        router.py (Weiche), facts_answer.py (Kerndaten-Schicht, Bestandsprüfung),
-                        verify.py (geprüfte Antwort)
+src/agent/              orchestrator.py (P1), catalog.py (Katalog, Filter), planner.py (Plan), verify.py (Prüfung),
+                        react_agent.py (P2), tools.py, evidence.py, contracts.py (Fristen)
 src/eval/               Testsätze, Sollwerte, Bewertung, KPIs, Berichte, Ablation, Modellauswahl, Ausgangsmessung
 tests/                  pytest je Modul
-docs/                   Bestandsaufnahme, Reverse Engineering (mit Messergebnissen), Auswahlregeln R1–R11
+docs/                   Bestandsaufnahme, Reverse Engineering (mit Messergebnissen), Auswahlregeln R1–R12, Arbeitsprotokoll V4
 data/                   raw/ (Eingang), processed/ (JSON), vectors/ (ChromaDB) – nur raw/Vertraege versioniert
 ```

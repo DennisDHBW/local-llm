@@ -1,0 +1,9 @@
+{
+ "fragen": 127,
+ "ablehnung_richtig": "9/21",
+ "ablehnung_falsch": "0/106",
+ "dokumente_gefunden": "76/87",
+ "liste_erkannt": "15/19",
+ "liste_mit_filter": "14/19",
+ "median_s": 16.9
+}

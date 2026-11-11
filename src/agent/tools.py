@@ -15,6 +15,14 @@
                                               Preisgarantie und Abschlag je Monat. Begründung: Listenfragen über viele
                                               Dokumente (Fragetyp d); Top-k schneidet Listen ab, 7B-Modelle rechnen
                                               Fristen unzuverlässig.
+    filter_documents(feld, operator, wert)    Filter über die Kerndaten in Python (src/agent/catalog.py), dasselbe
+                                              Werkzeug wie im Orchestrator (P1). Begründung: Listenfragen mit einer
+                                              Bedingung ("vor 2023 abgeschlossen") las das Modell aus langen Listen
+                                              unzuverlässig ab.
+
+Argumente werden normalisiert, weil kleine Modelle sie oft ungünstig setzen: top_k mindestens 3 (llama3.1 setzte
+häufig 1), Dateinamen über resolve() (erfundene Namen werden ignoriert), leere Suche mit Dateifilter wird einmal ohne
+Filter wiederholt.
 
 Jedes Werkzeug liefert Belege (src/agent/evidence.py), die der Agent fortlaufend nummeriert, damit die Antwort sie mit
 [n] zitieren kann.
@@ -31,6 +39,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from src.agent.catalog import FIELDS, OPERATORS, Catalog, Filter, show
 from src.agent.contracts import earliest_end, guarantee_active, monthly_advance
 from src.agent.evidence import Evidence, from_hit
 from src.config import PROCESSED_DIR, today
@@ -79,6 +88,13 @@ TOOL_SCHEMAS = [
 TOOL_SCHEMAS.append(_tool(
     "list_invoices", "Alle Rechnungen als Liste mit Aussteller, Kunde, Rechnungsdatum, Fälligkeit, Gesamtbetrag und "
     "Nachzahlung/Guthaben. Für Fragen über mehrere Rechnungen.", {}, []))
+TOOL_SCHEMAS.append(_tool(
+    "filter_documents", "Filtert Verträge oder Rechnungen nach einer Bedingung über die Kerndaten, z. B. "
+    "vertragsschluss < 2023, zahlungsweise enthaelt Überweisung, gesamtbetrag < 100. Für Fragen 'Welche ... ?'.",
+    {"feld": {"type": "string", "description": "eines von: " + ", ".join(FIELDS)},
+     "operator": {"type": "string", "description": "eines von: " + " ".join(OPERATORS)},
+     "wert": {"type": "string", "description": "Vergleichswert, z. B. 2023, 31.03.2027, 100, Überweisung"}},
+    ["feld", "operator", "wert"]))
 TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
@@ -154,7 +170,7 @@ class AgentTools:
 
     # --- Werkzeuge --------------------------------------------------------------------------------------------------
     def _search(self, query: str, kinds: list[str], top_k: Any, filename: str = "") -> ToolResult:
-        k = max(1, min(int(top_k or 5), 10))
+        k = max(3, min(int(top_k or 5), 10))
         target = None
         if filename:
             found = self.resolve(filename, limit=1)
@@ -200,6 +216,7 @@ class AgentTools:
     def _facts_text(name: str, facts: dict[str, Any]) -> str:
         labels = {"doc_type": "Dokumentart", "provider": "Aussteller/Vertragspartner", "customer_name": "Kunde",
                   "customer_number": "Kundennummer", "contract_number": "Vertragsnummer",
+                  "signed_date": "Vertragsschluss", "payment_method": "Zahlungsweise",
                   "invoice_number": "Rechnungsnummer", "doc_date": "Datum", "due_date": "fällig",
                   "total_gross_eur": "Gesamtbetrag brutto €", "amount_due_eur": "Nachzahlung(+)/Guthaben(-) €",
                   "contract_start": "Vertragsbeginn", "term_end": "Ende Mindest-/Erstlaufzeit",
@@ -265,7 +282,7 @@ class AgentTools:
             monthly = monthly_advance(facts)
             parts = [f"Vertrag: {facts.get('provider') or name}", f"Kunde: {facts.get('customer_name') or '-'}",
                      f"Vertragsnummer: {facts.get('contract_number') or '-'}",
-                     f"Vertragsschluss: {de_date(facts.get('doc_date'))}",
+                     f"Vertragsschluss: {de_date(facts.get('signed_date') or facts.get('doc_date'))}",
                      f"Beginn: {de_date(facts.get('contract_start'))}",
                      f"Mindest-/Erstlaufzeit bis: {de_date(facts.get('term_end'))}",
                      f"Kündigung: {deadline.reason}"]
@@ -305,6 +322,19 @@ class AgentTools:
             evidence.append(Evidence(" | ".join(parts), filename=name, folder=rec.get("folder", ""), kind="invoice"))
         return ToolResult(evidence, "" if evidence else "Keine Rechnungen gefunden.")
 
+    def filter_documents(self, feld: str, operator: str, wert: str) -> ToolResult:
+        if feld not in FIELDS or operator not in OPERATORS or not wert:
+            return ToolResult(note=f"Ungültiger Filter. Felder: {', '.join(FIELDS)}; Operatoren: {' '.join(OPERATORS)}")
+        flt = Filter(feld, operator, wert)
+        hits, unknown = Catalog(self.processed_dir).apply(flt)
+        spec = FIELDS[feld]
+        evidence = [Evidence(f"{e.topic}: {spec.label} = {show(spec.kind, v)}", filename=e.filename, folder=e.folder,
+                             kind="facts") for e, v in hits]
+        note = f"Filter {flt.describe()}: {len(hits)} Treffer."
+        if unknown:
+            note += " Ohne Angabe: " + ", ".join(e.topic for e in unknown)
+        return ToolResult(evidence, note)
+
     # --- Ausführung -------------------------------------------------------------------------------------------------
     def execute(self, name: str, arguments: dict[str, Any] | None) -> ToolResult:
         args = dict(arguments or {})
@@ -319,6 +349,9 @@ class AgentTools:
             "calculate": lambda: self.calculate(str(args.get("expression", ""))),
             "get_key_facts": lambda: self.get_key_facts(str(args.get("document") or args.get("filename") or "")),
             "list_invoices": lambda: self.list_invoices(),
+            "filter_documents": lambda: self.filter_documents(str(args.get("feld") or ""),
+                                                              str(args.get("operator") or ""),
+                                                              str(args.get("wert") or "")),
             "list_contracts": lambda: self.list_contracts(str(args.get("notice_date") or ""),
                                                           str(args.get("customer") or "")),
         }

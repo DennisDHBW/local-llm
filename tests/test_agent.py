@@ -1,4 +1,4 @@
-"""Agent: Fristberechnung, Werkzeuge, Evidenz/Kontext, Prototyp 1 (Evidence-First) und Prototyp 2 (ReAct)."""
+"""Agent: Fristberechnung, Werkzeuge, Evidenz/Kontext und Prototyp 2 (ReAct). Prototyp 1: tests/test_orchestrator.py."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import src.llm as llm
 from src.agent.contracts import add_months, earliest_end, guarantee_active, monthly_advance
 from src.agent.evidence import Evidence, build_context, build_evidence, relevance, source_list
 from src.agent.answer import NOT_FOUND
-from src.agent.evidence_first import EvidenceFirstPipeline
 from src.agent.react_agent import ReActAgent, parse_tool_calls
 from src.agent.tools import TOOL_NAMES, TOOL_SCHEMAS, AgentTools, safe_eval
 from src.eval.datasets import CONTRACT_FIELD_MAP, contracts_spec
@@ -28,6 +27,17 @@ def contract_facts(c):
     facts.update({"doc_type": "Vertrag", "notice_mode": MODES[c["kuendigung_regel"]],
                   "extension_months": c.get("verlaengerung_monate"), "advance_interval": c.get("abschlag_turnus")})
     return facts
+
+
+def plan_reply(monkeypatch, typ: str) -> None:
+    """Bestandsprüfung von P2 (Planer) ohne Modell: liefert den gewünschten Plantyp."""
+    plan = {"typ": typ, "thema": "Leasing", "dokumente": [], "art": "alle", "filter": {}}
+    monkeypatch.setattr(llm, "generate", lambda *a, **kw: json.dumps(plan))
+
+
+@pytest.fixture(autouse=True)
+def _answerable(monkeypatch):
+    plan_reply(monkeypatch, "wert")
 
 
 def test_add_months_keeps_month_end():
@@ -80,7 +90,7 @@ class FakeRetriever:
         self.calls = []
 
     def search(self, query, top_k=5, chunk_types=None, filename=None):
-        self.calls.append((query, chunk_types, filename))
+        self.calls.append((query, chunk_types, filename, top_k))
         meta = {"filename": "Vertrag_Strom_NeckarStrom.pdf", "folder": "Vertraege", "chunk_type": (chunk_types or ["text"])[0],
                 "heading_stack_str": "§ 5 Abschlagszahlungen", "page_number": 1}
         return [Hit("c1", "[Verträge | Vertrag_Strom_NeckarStrom.pdf | § 5]\nDer Abschlag beträgt 130,00 €.", meta, 0.8,
@@ -138,7 +148,7 @@ def test_key_facts_follow_contract_number_to_related_document(tools):
 def test_search_tools_use_chunk_types_and_outline(tools):
     tools.search_tables("Arbeitspreis", filename="Stromvertrag")
     tools.search_images("Diagramm")
-    assert tools.retriever.calls[0][1:] == (["table_row"], "Vertrag_Strom_NeckarStrom.pdf")
+    assert tools.retriever.calls[0][1:3] == (["table_row"], "Vertrag_Strom_NeckarStrom.pdf")
     assert tools.retriever.calls[1][1] == ["image"]
     outline = tools.get_document_outline("Heizstromvertrag")
     assert "§ 2 Laufzeit" in outline.evidence[0].text
@@ -190,54 +200,6 @@ def test_react_reports_outage(tools, monkeypatch):
     assert ReActAgent(tools=tools).run("Frage?").status == "outage"
 
 
-def test_evidence_first_synthesis_only_on_request(monkeypatch):
-    prompts = []
-    monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: prompts.append(prompt) or "130,00 € [1].")
-    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), verify_answer=False, context_facts=False, inventory=False)
-    evidence = p1.retrieve("Abschlag Strom?")
-    assert not prompts and p1.panel(evidence)[0]["chapters"]["§ 5 Abschlagszahlungen"][0]["level"] == "hoch"
-    answer = p1.synthesize("Abschlag Strom?", evidence)
-    assert len(prompts) == 1 and "[1] Datei: Vertrag_Strom_NeckarStrom.pdf" in prompts[0]
-    assert answer.answer.endswith("[1] Vertrag_Strom_NeckarStrom.pdf, S. 1, § 5 Abschlagszahlungen")
-
-
-def test_evidence_first_verified_answer_computes_in_code(monkeypatch, tools):
-    drafts = [json.dumps({"werte": [{"bezeichnung": "Abschlag", "wert": "130,00 €", "beleg": 1}], "rechnung": "w1 * 12",
-                          "antwort": "Pro Jahr sind es {ergebnis} € [1].", "belegt": True})]
-    prompts = []
-    monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: prompts.append(kw) or drafts[0])
-    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), context_facts=False, tools=tools)
-    answer = p1.answer("Wie viel Abschlag zahle ich pro Jahr für Strom?")
-    assert len(prompts) == 1 and prompts[0].get("schema") is not None
-    assert "1.560,00 €" in answer.answer and "[1] Vertrag_Strom_NeckarStrom.pdf" in answer.answer
-
-
-def test_evidence_first_corrects_once_then_falls_back(monkeypatch, tools):
-    bad = json.dumps({"werte": [{"bezeichnung": "Abschlag", "wert": "140,00 €", "beleg": 1}], "rechnung": "",
-                      "antwort": "Der Abschlag beträgt 140,00 € [1].", "belegt": True})
-    calls = []
-    monkeypatch.setattr(llm, "generate", lambda model, prompt, **kw: calls.append(prompt) or bad)
-    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), context_facts=False, tools=tools)
-    answer = p1.answer("Wie hoch ist der Abschlag für Strom?")
-    assert len(calls) == 2 and "140,00" in calls[1] and "Fehler" in calls[1]
-    assert answer.answer == NOT_FOUND
-
-
-def test_evidence_first_inventory_check_skips_model(monkeypatch, tools):
-    monkeypatch.setattr(llm, "generate", lambda *a, **kw: pytest.fail("kein Modellaufruf erwartet"))
-    p1 = EvidenceFirstPipeline(retriever=FakeRetriever(), context_facts=False, tools=tools)
-    answer = p1.answer("Wie hoch ist meine Leasingrate?")
-    assert answer.answer == NOT_FOUND and answer.trajectory[-1]["action"] == "inventory_check"
-
-
-def test_mentioned_documents_resolves_each_side_of_a_comparison(tools):
-    from src.agent.evidence_first import mentioned_documents
-
-    assert mentioned_documents(tools, "Stimmt die Heizstrom-Rechnung 2024 mit dem Heizstromvertrag überein?") == [
-        "Rechnung_Heizstrom_VoltWaerme_2024.pdf", "Vertrag_Heizstrom_VoltWaerme.docx"]
-    assert mentioned_documents(tools, "Welche Verträge haben eine Preisgarantie?") == []
-
-
 def test_list_invoices_lists_amounts(tools):
     result = tools.list_invoices()
     assert [e.filename for e in result.evidence] == ["Rechnung_Heizstrom_VoltWaerme_2024.pdf"]
@@ -262,7 +224,8 @@ def test_react_final_answer_with_unsupported_number_is_checked_once(monkeypatch,
 
 
 def test_react_inventory_check_skips_model(monkeypatch, tools):
-    monkeypatch.setattr(llm, "chat", lambda *a, **kw: pytest.fail("kein Modellaufruf erwartet"))
+    plan_reply(monkeypatch, "fehlt")
+    monkeypatch.setattr(llm, "chat", lambda *a, **kw: pytest.fail("kein Agentenschritt erwartet"))
     answer = ReActAgent(tools=tools).run("Wie hoch ist meine Leasingrate?")
     assert answer.answer == NOT_FOUND and answer.trajectory[0]["action"] == "inventory_check"
 
@@ -281,8 +244,32 @@ def test_disabled_tools_are_removed_from_schema_and_prompt(tools, monkeypatch):
     assert "list_contracts" in seen["tools"]
 
 
-def test_citation_only_answers_are_detected():
-    from src.agent.evidence_first import citation_only
+def test_search_uses_at_least_three_hits_and_ignores_invented_filename(tools):
+    retriever = tools.retriever
+    tools.execute("search_documents", {"query": "Abschlag", "top_k": 1, "filename": "gibt_es_nicht.pdf"})
+    assert retriever.calls[-1][3] == 3 and retriever.calls[-1][2] is None
 
-    assert citation_only("[2]") and citation_only("[1].\n\n") and citation_only("[1], [3]")
-    assert not citation_only("Der Abschlag beträgt 130,00 € [2].")
+
+def test_filter_documents_tool(tools):
+    result = tools.execute("filter_documents", {"feld": "vertragsschluss", "operator": "<", "wert": "2023"})
+    assert sorted(e.filename for e in result.evidence) == ["Vertrag_Heizstrom_VoltWaerme.docx",
+                                                          "Vertrag_Wasser_Zweckverband.pdf"]
+    assert "2 Treffer" in result.note
+    assert "Ungültiger Filter" in tools.execute("filter_documents", {"feld": "farbe"}).note
+
+
+def test_react_shortens_old_observations_and_answers_after_budget(tools, monkeypatch):
+    from src.agent.react_agent import shorten_history
+
+    messages = [{"role": "tool", "content": "x" * 2000} for _ in range(3)]
+    shorten_history(messages)
+    assert [len(m["content"]) < 700 for m in messages] == [True, False, False]
+
+    seen = []
+    search = {"message": {"content": "", "tool_calls": [{"function": {"name": "search_documents",
+                                                                      "arguments": {"query": "Abschlag"}}}]}}
+    final = {"message": {"content": "Der Abschlag beträgt 130,00 € [1]."}}
+    monkeypatch.setattr(llm, "chat", _recording_chat([search, final], seen))
+    answer = ReActAgent(tools=tools, budget_s=0).run("Wie hoch ist der Abschlag für Strom?")
+    assert [t["action"] for t in answer.trajectory] == ["search_documents", "budget", "final_answer"]
+    assert "130,00 € [1]" in answer.answer

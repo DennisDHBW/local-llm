@@ -20,14 +20,20 @@ src/retrieval/embeddings.py  nomic-embed-text, "search_document: " / "search_que
    ▼
 data/vectors/ (ChromaDB, Kosinus, 768 Dim.) + embedding_index.json   ◄── Ebene 3
    │
-   │   Kerndaten-Schicht src/agent/facts_answer.py: Einzelfeld aus Kerndaten oder "nicht im Bestand" (ohne LLM)
-   │   sonst Weiche src/agent/router.py: Fristen/Listen/Vergleiche → P2, sonst P1 (App-Modus "Automatisch")
-   ├─► Prototyp 1  src/agent/evidence_first.py: Bestandsprüfung → Retriever.search + Kerndaten/Listen → Panel → Klick
-   │                → JSON-Entwurf (qwen2.5:7b) → src/agent/verify.py prüft Werte, rechnet → ggf. 1 Korrektur → Antwort
-   └─► Prototyp 2  src/agent/react_agent.py: Bestandsprüfung → Thought → Action (tools.py) → Observation → …
+   │   src/agent/catalog.py  nummerierter Katalog aus den Kerndaten + Filter {feld, operator, wert}
+   ├─► Prototyp 1  src/agent/orchestrator.py
+   │     1 Plan      src/agent/planner.py: qwen2.5 wählt {typ, thema, dokumente, art, filter}, Code prüft
+   │     2 Bestand   typ "fehlt" → "Zu „X“ liegt kein Dokument vor" + Hinweis auf vorhandene Dokumente
+   │     3 Werkzeug  Liste+Filter → Catalog.apply (Python) | Wert/Frist/Vergleich → Suche je geplantem Dokument
+   │     4 Belege    gekürzt, ohne Dubletten → Evidenz-Panel → Klick
+   │     5 Entwurf   JSON-Schema (qwen2.5:7b): Werte mit Belegnummer, Rechnung mit w1, w2 …
+   │     6 Prüfung   src/agent/verify.py: Wert im Beleg, Spalte netto/brutto, Vergleich aus beiden Dokumenten,
+   │                 Rechnen in Python → ggf. 1 Korrektur → Antwort + Prüfprotokoll
+   └─► Prototyp 2  src/agent/react_agent.py: Bestandsprüfung (Planer) → Thought → Action (tools.py) → Observation → …
                     → Final Answer → Prüfung gegen die Beobachtungen (verify.check_answer) → ggf. 1 Korrektur
                     Werkzeuge: search_documents | search_tables | search_images | get_document_outline | calculate
                                | get_key_facts | list_contracts (Fristen in src/agent/contracts.py) | list_invoices
+                               | filter_documents (Catalog.apply)
    ▼
 app.py (Streamlit)   compare_prototypes.py / src/eval/runner.py (KPI-Suite)
 ```
@@ -162,22 +168,46 @@ aus `EXPANSIONS` dazu). `last_ms` misst die Latenz (Ziel < 500 ms).
 `[n] Datei | Kapitel | Seite` und gibt die Quellenliste zurück; `source_list()` hängt nur zitierte, existierende
 Nummern an.
 
-### `src/agent/evidence_first.py` – Prototyp 1
-`retrieve()` (eine Suche) → `panel()` (für Streamlit) → `synthesize()` (ein Aufruf, nur auf Klick) mit Regeln:
-ganze Sätze mit dem Wert und [n] dahinter, bei fehlendem Beleg genau `NOT_FOUND`. Besteht die Antwort nur aus
-Belegnummern (`citation_only`), wird einmal nachgefragt: llama3.1:8b und qwen2.5:7b taten das sonst in rund einem
-Drittel der Antworten. `answer()` = Klick automatisch (Messung).
+### `src/agent/catalog.py` – Dokumentkatalog und Filter
+`Catalog` liest alle Kerndaten und nummeriert die Dokumente stabil nach Dateiname. `Entry.line()` ergibt die Zeile
+für den Planer („[3] Vertrag · Volt & Wärme AG · Heizstromvertrag WP-Natur · Kunde …“); der Titel ist die erste
+Überschrift, die ein Dokument benennt (Rechnung, Abrechnung, Vertrag, Police …), sonst der zerlegte Dateiname.
+`FIELDS` bildet deutsche Feldnamen auf Kerndaten oder berechnete Werte ab (frühestes Ende und Kündigungstag über
+`contracts.earliest_end` zum Stichtag, Kosten je Monat über `monthly_advance`). `matches()` vergleicht nach Feldart:
+Text enthält (Alternativen mit „|“), Datum (auch „vor 2023“ = vor dem 01.01.2023, `im_jahr`, `im_monat`), Zahl
+(auch Zahlwörter), ja/nein. `apply()` liefert Treffer und Dokumente ohne Angabe. Test: `tests/test_orchestrator.py`.
 
-Seit R11 (Schalter `VERIFY`, `CONTEXT_FACTS`, `INVENTORY_CHECK`; alle aus = Stand davor, in der Messung `P1alt`):
-- `structured_evidence()`: Kerndaten der Dokumente, die die Frage nennt (`mentioned_documents`: bei Vergleichen jede
-  Seite für sich, eine Seite zählt nur bei höchstens zwei gleich guten Treffern); bei Listen- und Fristfragen
-  (`router.route`) zusätzlich `list_contracts` bzw. `list_invoices` mit in Python berechneten Fristen.
-- Bestandsprüfung aus `facts_answer.py` vor jedem Modellaufruf.
-- `_verified()`: Das Modell füllt `verify.SCHEMA` (Werte mit Belegnummer, Rechnung mit w1, w2 …, Antwortsatz mit
-  `{ergebnis}`, `belegt` zuletzt). Danach Prüfung, höchstens eine Korrekturrunde, Rückfall auf geprüfte Werte.
+### `src/agent/planner.py` – Stufe 1
+`Planner.plan(frage)`: ein Aufruf mit Ollama-JSON-Schema (`typ` ∈ wert, vergleich, frist, liste, fehlt; `thema`;
+`dokumente` als Katalognummern; `art`; `filter`). `validate()` prüft danach in Code, in dieser Reihenfolge:
+unbekannte Nummern fallen weg; „Welche …/Alle …“ ist immer `liste`; ein ungültiger Filter (auch ein unlesbares
+Datum) wird verworfen, kleine Formfehler korrigiert (Datum auf Zahlenfeld → `fruehestes_ende`, „03.2027“ →
+`im_monat`); ein Stichtag „wenn ich am TT.MM.JJJJ kündige“ geht in den Filter. Dann drei Bestandsprüfungen, die zu
+`fehlt` führen: (1) `Catalog.unknown_topics`: ein zusammengesetztes Wort aus Bestimmungswort und Dokumentart
+(„Gas|vertrag“, „Hausrat|versicherung“), dessen Bestimmungswort in keinem Dokument vorkommt (Wortschatz aus
+Dateinamen, Anbietern, Titeln, Kerndaten und Text aller Chunks); (2) die Frage will einen Vertrag, zum genannten
+Anbieter gibt es nur eine Rechnung; (3) eine Rechnung mit Jahr, das im Bestand fehlt. Nennt die Frage ein Dokument
+eindeutig (`mentioned_documents`: Anbieter und Art, bei Vergleichen jede Seite), überstimmt Code ein „fehlt“,
+entfernt nicht genannte Anbieter (das Modell verwechselt Katalognummern) und ergänzt das genannte Dokument. Nennt
+eine Wertfrage nur „Vertrag“, fällt die Rechnung desselben Anbieters weg (und umgekehrt). Eine Fristfrage ergänzt den
+Vertrag, ein Vergleich immer Vertrag und Rechnung. Gemessen wird das ohne Antwort mit `src/eval/planner_eval.py`;
+`src/eval/planner_replay.py` wendet geänderten Prüfcode in Sekunden auf die gespeicherten Rohpläne an.
+`Plan.notes` hält jede Korrektur fest (Expertenansicht).
+
+### `src/agent/orchestrator.py` – Prototyp 1
+`retrieve()` führt die Stufen 1–4 aus und merkt sich den Plan, `synthesize()` die Stufen 5–6 (in der App per Klick),
+`answer()` beides (Messung). Jede Stufe meldet Ergebnis und Dauer über einen Callback (`_Timer`), die App zeigt sie
+live. `gather()`: Listen mit Filter → Kerndaten der Treffer; Listen ohne Filter → `list_contracts`/`list_invoices`;
+sonst je geplantem Dokument eine gefilterte Suche (Wert 5, Vergleich und Frist je 3 Treffer), ohne Plan Top-5 über
+alle; dazu die Kerndaten der geplanten Dokumente. `_clean()` entfernt doppelte Belege und kürzt auf 700 Zeichen.
+Antwortarten: `_abstain()` (hilfreiche Ablehnung, vorhandene Dokumente in `AgentAnswer.hint`, nicht im Antworttext),
+`_list_answer()` (Code formuliert die Liste aus den Treffern, kein Modellaufruf), `_verified()` (Entwurf, Prüfung,
+höchstens eine Korrektur, Wert in falscher Spalte wird danach verworfen). `_check_log()` ergibt das Prüfprotokoll.
 
 ### `src/agent/verify.py` – geprüfte Antwort
-`check_draft()`: jeder Wert muss im zitierten Beleg stehen (`value_in`: Zahlen und Datumsteile, auch ausgeschriebene
+`wanted_column()` liest aus der Frage netto oder brutto („insgesamt“, „bezahlt“, „gekostet“ → brutto),
+`value_column()` die Spalte des Werts im Beleg (die Zeilenbezeichnung „Bruttobetrag“ geht der Kopfzeile vor),
+`column_problems()` meldet Abweichungen. `check_draft()`: jeder Wert muss im zitierten Beleg stehen (`value_in`: Zahlen und Datumsteile, auch ausgeschriebene
 Daten und Zahlwörter; Text als Wortfolge), sonst wird die Belegnummer berichtigt oder der Wert verworfen. Die Rechnung
 läuft über `tools.safe_eval`, kaufmännisch auf Cent gerundet, und zählt nur, wenn der Antwortsatz `{ergebnis}`
 enthält. Jede Zahl im Antwortsatz muss aus einem geprüften Wert, dem Ergebnis, einem zitierten Beleg oder der Frage
@@ -188,7 +218,7 @@ stammen. `check_answer()` prüft die Endantwort von P2 nach derselben Regel. Tes
 `monthly_advance()` (quartalsweise ÷ 3), `guarantee_active()`. Test: Fristen aller sechs Verträge gegen die Sollwerte.
 
 ### `src/agent/tools.py` – `AgentTools`
-Acht Werkzeuge mit JSON-Schema (`TOOL_SCHEMAS`). `resolve()` ordnet Beschreibungen wie „Heizstromvertrag“ einer
+Neun Werkzeuge mit JSON-Schema (`TOOL_SCHEMAS`); Argumente werden normalisiert (`top_k` ≥ 3, Dateiname über `resolve`, leere Suche einmal ohne Filter). `filter_documents` nutzt `Catalog.apply` wie P1. `resolve()` ordnet Beschreibungen wie „Heizstromvertrag“ einer
 Datei zu (Wortteile aus Ordner, Dateiname, Aussteller, Dokumentart; längere Treffer zählen mehr). `get_key_facts`
 liefert die Kerndaten und die über Vertrags-/Kundennummer verknüpften Dokumente (Multi-Hop). `list_contracts` liefert
 je Vertrag eine Zeile mit berechnetem frühestem Ende, Kündigungsdatum, Preisgarantie-Status, Abschlag je Monat und
@@ -201,37 +231,28 @@ Abschlussdatum; `list_invoices` je Rechnung Aussteller, Kunde, Datum, Fälligkei
 3000 Zeichen → nächste Runde. Ohne Werkzeugaufruf: Final Answer + Quellenliste. Leitplanken: einmaliger Hinweis,
 wenn im ersten Schritt ohne Werkzeug geantwortet wird; identische Aufrufe werden nicht wiederholt; nach `MAX_STEPS`
 Antwort ohne Werkzeuge. Jeder Schritt landet in `trajectory` (Thought, Action, Action Input, Observation).
-Seit R11 (Schalter `INVENTORY_CHECK`, `VERIFY`; aus = `P2alt`): Bestandsprüfung vor dem ersten Modellaufruf;
+Seit R11 (Schalter `INVENTORY_CHECK`, `VERIFY`; aus = `P2alt`): Bestandsprüfung vor dem ersten Modellaufruf (seit V4
+über den Planer mit dem Agentenmodell); ältere Beobachtungen werden auf 600 Zeichen gekürzt, nach `AGENT_BUDGET_S`
+(300 s) antwortet der Agent mit den vorhandenen Belegen;
 Endantwort mit unbelegten Zahlen oder bloßer Wiedergabe der Belege geht einmal mit dem Befund zurück; bleiben
 unbelegte Zahlen, lautet die Antwort „nicht belegt“.
 
-### `src/agent/router.py` – Weiche
-`route(frage)` → `Route(system, rule)`: drei Regex-Muster auf der gefalteten Frage (Umlaute ausgeschrieben):
-`frist` (kündig, Frist, Laufzeit, Vertragsende, verlänger, Preisgarantie), `liste` („Welche Verträge/Rechnungen/
-Dokumente …“, „alle …“), `vergleich` (entspricht, stimmt … überein, Unterschied, abweichen) → P2, sonst P1. Kein
-Sprachmodell. Festgelegt nach R9 (docs/abstimmungsregeln.md), ausgewertet mit `src/eval/router_eval.py`.
-
-### `src/agent/facts_answer.py` – Kerndaten-Schicht vor der Weiche
-`FactsAnswerer.answer(frage)` → `(AgentAnswer | None, teil)`, ohne Sprachmodell, zwei Komponenten:
-- Bestandsprüfung: Zerlegt Wörter wie „Leasingrate“, „Gasvertrag“, „Hausratversicherung“ in Bestimmungs- und
-  Grundwort (Grundwörter: Vertrag, Versicherung, Rechnung, Rate, Preis, Beitrag, Police …). Steht das Bestimmungswort
-  in keinem Chunk und keinem Dateinamen als Wortanfang, lautet die Antwort „nicht belegt“. Keine Liste von Vertragsarten.
-  Zweiter Fall (R11): Die Frage setzt einen Vertrag voraus (Vertrag, Abo, Kündigung, Laufzeit …) und nennt einen
-  Anbieter, von dem es nur Rechnungen gibt. `inventory_gap()` vereint beide Fälle; P1 und P2 nutzen sie direkt.
-- Kerndaten-Antwort: `FIELD_RULES` ordnen eine Frage genau einem Feld zu (Kündigungsfrist, Preisgarantie, Laufzeitende,
-  Beginn, Abschlussdatum, Abschlag, Zahlungsdatum, Nachzahlung/Guthaben, Rechnungs-, Kunden-, Vertragsnummer,
-  Rechnungsbetrag). Fragen mit mehreren Werten (`COMPLEX`: „um wie viel“, „insgesamt“, „netto“, „neue“, Listen …)
-  bleiben ausgeschlossen. `tools.resolve` liefert bis zu drei Dokumente der passenden Art; nur wenn alle denselben
-  Wert haben, antwortet Code mit einem Satz und den Kerndaten als Beleg [1].
-Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `router_eval.py` (Varianten
-`Bestand+Weiche`, `Kerndaten+Weiche`, `Schicht+Weiche`). Test: `tests/test_facts_answer.py`.
+Bis V3 lagen vor P1 und P2 eine Regex-Weiche (`router.py`) und eine Kerndaten-Schicht (`facts_answer.py`, Bestand
+über eine Wortzerlegung). Beide sind mit V4 entfallen (Begründung: docs/erarbeitung_log.md, E1–E2); ihre Messungen
+(`weiche_*`, `schicht_*`) bleiben in Abschnitt 8 stehen.
 
 ### `src/agent/answer.py`
 `AgentAnswer` als gemeinsames Format; `record()` liefert den Rohdatensatz für die KPI-Suite.
 
 ## 7. Oberfläche und Vergleich
-- `app.py`: Seitenleiste (Workflow, Import), Tab „Fragen“ (P1: Belege suchen → farbiges Panel → Antwort per Klick;
-  P2: Live-Trajektorie), Tab „Verträge“ (Fristen-Tabelle), Tab „Dokumente“ (Chunks und Kerndaten). Test: `tests/test_app.py`.
+- `app.py`: Seitenleiste (Agent-Modus P2, Expertenansicht, Verlauf leeren). Tab „Fragen“: Verlauf als Chat,
+  Beispielfragen je Typ, `st.chat_input`; P1 zeigt die Stufen live (`st.status`), dann die Belege mit Ampel, die
+  Antwort entsteht per Klick (bei Ablehnung und gefilterten Listen sofort, weil kein Entwurf nötig ist). Antwortkarte
+  mit Hinweis, Prüfprotokoll und Quellen; ein Klick auf [n] zeigt die PDF-Seite mit markiertem Wert (PyMuPDF
+  `search_for`, `add_highlight_annot`, `get_pixmap`), bei DOCX die Textstelle. Expertenansicht: Plan, Stufen mit
+  Sekunden, Modellaufrufe mit Prompt-Tokens, Ablauf. P2: Live-Trajektorie. Tab „Verträge“: Ampel nach Tagen bis zum
+  Kündigungstag (`contracts.notice_light`). Tab „Dokumente“: Upload nach `data/raw/<Ordner>`, inkrementeller Import,
+  Katalog mit Kerndaten. Test: `tests/test_app.py`.
 - `compare_prototypes.py`: ruft `src/eval/runner.py` für P1 und P2 auf denselben Fragen auf.
 
 ## 8. KPI-Suite (`src/eval`)
@@ -247,7 +268,7 @@ Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `rout
 | `runner.py` | Messlauf Version2 (Wiederaufnahme nach Abbruch, bei Ollama-Ausfall warten und einmal wiederholen, Modelle alle 6 Fragen außerhalb der Zeitmessung neu laden; Filter `--types`; Extras: Feldgenauigkeit, Ingest, Rewriting) |
 | `ablation.py`, `models.py` | Retrieval-Ablation (gepaarter Bootstrap); Modellauswahl |
 | `baseline.py`, `adapters/v1_driver.py` | Ausgangsmessung von Version1 in deren Umgebung, gleiche Bewertung |
-| `router_eval.py` | Weiche P1/P2 aus vorhandenen Antworten zusammensetzen (Varianten Regel, Kaskade, beides, Kerndaten-Schicht), gepaarter Bootstrap gegen P1 und P2 |
+| `planner_eval.py` | nur Stufe 1: Typ, Dokumente und Filter je Frage; Ablehnung richtig/falsch, Dokumente gefunden, Liste erkannt |
 | `ragas_eval.py` | RAGAS 0.4 (Faithfulness, Context Recall) auf vorhandenen Antworten eines Laufs; Richter qwen2.5:7b über Ollamas OpenAI-Schnittstelle, Temperatur 0. Faithfulness nur für nicht abgelehnte Antworten ohne Quellenblock, Context Recall nur für Typ a–c mit Sollantwort "Laut Dokument: <Beleg>.". Gibt vor dem Start alle anderen Modelle frei (16 GB), nimmt nach Abbruch wieder auf, gleicht Faithfulness < 1 mit der Zahlprüfung aus `scoring.py` ab |
 | `stichprobe.py` | drei frei formulierte Fragen S1–S3 an P1/P2; Soll und Kriterien K1–K3 stehen vorher in `docs/stichprobe.md` |
 | `latex.py` | KPI-Tabelle für die Ausarbeitung aus `ausgangsmessung` und `schlussmessung2` |
@@ -272,6 +293,10 @@ Passt nichts, entscheidet die Weiche. Festgelegt nach R10, ausgewertet mit `rout
 | `schlussmessung4/` | R11 einmal auf `heldout3`, zwei Wiederholungen: P1 alt 26/48 (54 %), P1 neu 28/48 (58 %), P2 neu 14/48 (29 %, keine Halluzination); P1 neu gegen alt +4 pp [−12,5; +18,8] |
 | `ragas_heldout3/` | RAGAS auf `schlussmessung4` (Wiederholung 0, beide Wiederholungen waren gleich) |
 | `stichprobe/` | Antworten auf S1–S3, Bewertung in `docs/stichprobe.md` |
+| `planer_dev/` | V4: nur der Planer auf den verbrauchten Sätzen (127 Fragen), Rohpläne für `planner_replay.py` |
+| `heldout4_v4/`, `heldout4_vorher/` | R12 einmal auf `heldout4`, zwei Wiederholungen: P1 vorher 26/48 (54 %, p50 42 s), P1 neu (Orchestrator) 36/48 (75 %, p50 192 s), P2 neu 18/48 (38 %); neu gegen vorher +21 pp [0; +42]; Listen 2/10 → 6/10 |
+| `ragas_heldout4_v4/`, `ragas_heldout4_vorher/` | RAGAS auf `heldout4`: Faithfulness P1 0,79 → 0,79, Context Recall 0,67 → 0,73 |
+| `stichprobe_v4/` | Runde 2: S1–S6 nach dem Umbau, Bewertung in `docs/stichprobe.md` |
 
 Kurzfassung V1 → V2 (P1/P2): Korrektheit 53/53 % → 48/52 %, MRR 0,49 → 0,86, Feldgenauigkeit 49 → 96 %,
 Werkzeugwahl P2 10 → 75 %, Latenz p50 105/176 s → 28/36 s. Der zurückgehaltene Satz wurde für P1 zweimal verwendet. Weiche (src/agent/router.py): 59 %, gegen P1 +10 pp [0; +21], gegen P2 +7 pp [−7; +22].

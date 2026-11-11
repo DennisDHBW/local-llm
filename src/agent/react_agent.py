@@ -10,16 +10,22 @@ Zwei Leitplanken, beide gemessen begründet (Version1): (1) Antwortet das Modell
 wird es einmal aufgefordert, zuerst zu suchen (sonst Antworten aus Modellwissen). (2) Wiederholt es einen identischen
 Aufruf, bekommt es den Hinweis statt einer erneuten Ausführung. Nach MAX_STEPS muss es ohne Werkzeuge antworten.
 
-Seit R11 zwei weitere (Schalter INVENTORY_CHECK und VERIFY in src/config.py): (3) Fehlt die gefragte Dokumentart im
-Bestand, lautet die Antwort ohne Modellaufruf "nicht belegt" (src/agent/facts_answer.py). (4) Die Endantwort wird
+Seit R11 zwei weitere (Schalter INVENTORY_CHECK und VERIFY in src/config.py): (3) Bestandsprüfung vor dem ersten
+Schritt: Der Planer (src/agent/planner.py) prüft die Frage gegen den Dokumentkatalog, mit dem Modell des Agenten, damit
+kein zweites Modell geladen wird. Plant er "fehlt", lautet die Antwort "nicht belegt". (4) Die Endantwort wird
 geprüft: Zahlen ohne Beleg oder eine bloße Wiedergabe der Belege gehen einmal mit dem Befund an das Modell zurück;
 bleiben unbelegte Zahlen, wird die Antwort zu "nicht belegt" (src/agent/verify.py).
+
+V4 (gegen Zeitüberschreitung, S1 lief über 600 s): Ältere Beobachtungen werden im Verlauf gekürzt (der Prompt wächst
+sonst mit jedem Schritt, und das Lesen des Prompts kostet die meiste Zeit). Nach AGENT_BUDGET_S Sekunden muss der
+Agent mit den vorhandenen Belegen antworten, statt dass die Messung abbricht.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -28,7 +34,7 @@ from src.agent import verify
 from src.agent.answer import NOT_FOUND, AgentAnswer
 from src.agent.evidence import build_context, source_list
 from src.agent.tools import TOOL_NAMES, TOOL_SCHEMAS, AgentTools
-from src.config import AGENT_MODEL, DISABLED_TOOLS, INVENTORY_CHECK, MAX_OBSERVATION_CHARS, MAX_STEPS, VERIFY, today
+from src.config import AGENT_BUDGET_S, AGENT_MODEL, DISABLED_TOOLS, INVENTORY_CHECK, MAX_OBSERVATION_CHARS, MAX_STEPS, VERIFY, today
 from src.textutil import de_date
 
 SYSTEM_PROMPT = """Du bist ein lokaler Assistent für private Rechnungen und Verträge. Heute ist der {today}.
@@ -38,6 +44,7 @@ Beobachtung entscheidest du neu. Reichen die Belege, gib die Endantwort ohne Wer
 Werkzeugwahl:
 - Fragen über mehrere Verträge (Kündigung, Fristen, Laufzeit, Preisgarantie, Abschläge, Kunde): list_contracts
 - Fragen über mehrere Rechnungen (Beträge, Fälligkeit, Nachzahlung, Aussteller): list_invoices
+- "Welche Verträge/Rechnungen ...?" mit einer Bedingung (Datum, Betrag, Zahlungsweise, Frist): filter_documents
 - Rechnung mit Vertrag vergleichen oder Kerndaten eines Dokuments: get_key_facts
 - Werte aus Tabellen (Preise, Mengen, Verbrauch, Positionen): search_tables
 - Diagramme und Bilder: search_images
@@ -86,9 +93,23 @@ def parse_tool_calls(message: Any) -> list[tuple[str, dict[str, Any]]]:
     return calls
 
 
+KEEP_FULL = 2            # die letzten Beobachtungen bleiben vollständig
+SHORT_OBSERVATION = 600  # ältere werden auf so viele Zeichen gekürzt
+
+
+def shorten_history(messages: list[dict[str, Any]]) -> None:
+    """Ältere Werkzeugbeobachtungen kürzen; die Belegnummern am Anfang jedes Belegs bleiben lesbar."""
+    tools = [m for m in messages if m.get("role") == "tool"]
+    for m in tools[:-KEEP_FULL]:
+        if len(m["content"]) > SHORT_OBSERVATION:
+            m["content"] = m["content"][:SHORT_OBSERVATION].rstrip() + " … (gekürzt)"
+
+
 class ReActAgent:
     def __init__(self, tools: AgentTools | None = None, model: str = AGENT_MODEL, max_steps: int = MAX_STEPS,
-                 disabled: set[str] | None = None, inventory: bool = INVENTORY_CHECK, check: bool = VERIFY):
+                 disabled: set[str] | None = None, inventory: bool = INVENTORY_CHECK, check: bool = VERIFY,
+                 budget_s: float = AGENT_BUDGET_S):
+        self.budget_s = budget_s
         self.tools = tools or AgentTools()
         self.inventory, self.check = inventory, check
         self._layer = None
@@ -111,11 +132,17 @@ class ReActAgent:
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}, {"role": "user", "content": question}]
         seen: set[str] = set()
         nudged = checked = False
+        started = time.monotonic()
         try:
             for step in range(1, self.max_steps + 2):
-                last = step > self.max_steps
+                over = time.monotonic() - started > self.budget_s and bool(result.evidence)
+                last = step > self.max_steps or over
+                if over:
+                    result.trajectory.append({"step": step, "thought": "", "action": "budget",
+                                              "action_input": f"{self.budget_s:.0f} s", "observation": FINAL})
                 if last:
                     messages.append({"role": "user", "content": FINAL})
+                shorten_history(messages)
                 response = llm.chat(self.model, messages, tools=None if last else self.schemas)
                 message = _get(response, "message") or {}
                 thought = _THINK_RE.sub("", str(_get(message, "content") or "")).strip()
@@ -158,9 +185,11 @@ class ReActAgent:
         if not self.inventory:
             return None
         if self._layer is None:
-            from src.agent.facts_answer import FactsAnswerer     # spät: facts_answer importiert tools
-            self._layer = FactsAnswerer(self.tools, use_facts=False)
-        return self._layer.inventory_gap(question)
+            from src.agent.catalog import Catalog                # spät: Katalog liest die Kerndaten
+            from src.agent.planner import Planner
+            self._layer = Planner(Catalog(self.tools.processed_dir), self.tools, model=self.model)
+        plan = self._layer.plan(question)
+        return (plan.thema or "Thema") if plan.typ == "fehlt" else None
 
     @staticmethod
     def _problems(question: str, text: str, result: AgentAnswer) -> list[str]:

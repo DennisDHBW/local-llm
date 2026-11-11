@@ -1,0 +1,64 @@
+{
+ "run": "heldout4_v4",
+ "sets": "heldout4",
+ "systems": {
+  "P1": {
+   "faithfulness": {
+    "n": 20,
+    "ausfall": 0,
+    "mean": 0.7871428571428571,
+    "ci": [
+     0.6249821428571428,
+     0.93
+    ],
+    "voll": 14
+   },
+   "context_recall": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.7333333333333333,
+    "ci": [
+     0.5,
+     0.9333333333333333
+    ],
+    "voll": 10
+   },
+   "abgleich": {
+    "beide_auffaellig": 1,
+    "nur_ragas": 5,
+    "nur_zahlpruefung": 0,
+    "beide_unauffaellig": 14
+   }
+  },
+  "P2": {
+   "faithfulness": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.3777777777777778,
+    "ci": [
+     0.17777777777777776,
+     0.5780555555555565
+    ],
+    "voll": 4
+   },
+   "context_recall": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.2,
+    "ci": [
+     0.0,
+     0.4
+    ],
+    "voll": 3
+   },
+   "abgleich": {
+    "beide_auffaellig": 0,
+    "nur_ragas": 11,
+    "nur_zahlpruefung": 0,
+    "beide_unauffaellig": 4
+   }
+  }
+ },
+ "rep": 0,
+ "judge": "qwen2.5:7b"
+}

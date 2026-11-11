@@ -238,3 +238,63 @@ def check_answer(answer: str, evidence: Sequence[Evidence], question: str = "") 
         allowed |= {abs(v) for v in number_pool(e.text)}
     return [de_number(v) for v in numbers_in(long_dates(answer))
             if round(abs(v), 2) not in allowed and not (abs(v) <= 12 and float(v).is_integer())]
+
+
+# --- Spaltenprüfung (V4): netto oder brutto? --------------------------------------------------------------------------
+# Fehleranalyse Stichprobe S1 und heldout3: Das Modell nimmt den Nettobetrag, obwohl die Frage "insgesamt" fragt und
+# der Bruttobetrag eine Zeile tiefer steht. Code liest aus dem Beleg, in welcher Spalte oder Zeile der Wert steht.
+_WANT_NET = re.compile(r"\bnetto\b|\bohne\s+(?:umsatz|mehrwert)steuer|\bzzgl\b")
+_WANT_GROSS = re.compile(r"\bbrutto\b|\binkl\w*\b|\binsgesamt\b.*(?:bezahl|zahl|kost)|(?:bezahl|zahl|kost)\w*\b.*\binsgesamt"
+                         r"|\bgesamtbetrag|\brechnungsbetrag|\bendbetrag|\bmit\s+(?:umsatz|mehrwert)steuer")
+_GROSS = re.compile(r"brutto|gesamtbetrag|rechnungsbetrag|endbetrag|gesamtbeitrag|inkl")
+_NET = re.compile(r"netto|zzgl|zwischensumme")
+
+
+def wanted_column(question: str) -> str | None:
+    """'netto', 'brutto' oder None (Frage legt sich nicht fest)."""
+    text = fold(question)
+    if _WANT_NET.search(text):
+        return "netto"
+    return "brutto" if _WANT_GROSS.search(text) else None
+
+
+def value_column(value: str, text: str) -> str | None:
+    """In welcher Spalte bzw. Zeile steht der Wert im Beleg? Tabellenzeilen 'Spalte: Wert | ...': die Spalte des
+    Werts, außer die Zeile selbst heißt 'Bruttobetrag' (der Parser setzt Kopfzeilen manchmal falsch). Fließtext: die
+    Zeile mit dem Wert."""
+    number = first_number(value)
+    if number is None:
+        return None
+    for line in str(text).splitlines():
+        cells = [c.partition(":") for c in line.split(" | ")] if " | " in line else []
+        if cells:
+            label = fold(cells[0][2])
+            for key, _, cell in cells:
+                if round(abs(number), 2) in {round(abs(v), 2) for v in numbers_in(cell)}:
+                    key = fold(key)
+                    if _GROSS.search(label) or _GROSS.search(fold(cell)):
+                        return "brutto"
+                    if _NET.search(label) or _NET.search(fold(cell)):
+                        return "netto"
+                    return "brutto" if _GROSS.search(key) else "netto" if _NET.search(key) else None
+            continue
+        if round(abs(number), 2) in {round(abs(v), 2) for v in numbers_in(line)}:
+            line = fold(line)
+            return "brutto" if _GROSS.search(line) else "netto" if _NET.search(line) else None
+    return None
+
+
+def column_problems(question: str, values: Sequence[dict[str, Any]], texts: Sequence[str]) -> list[str]:
+    """Befund, wenn ein Wert in der falschen Spalte steht (Nettobetrag auf eine Frage nach dem Bruttobetrag)."""
+    want = wanted_column(question)
+    if not want:
+        return []
+    problems = []
+    for item in values:
+        n = int(item["beleg"])
+        found = value_column(str(item["wert"]), texts[n - 1]) if 1 <= n <= len(texts) else None
+        if found and found != want:
+            problems.append(f"Die Frage fragt nach dem {want.capitalize()}betrag, \"{item['wert']}\" steht in Beleg "
+                            f"[{n}] als {found.capitalize()}betrag. Nimm den {want.capitalize()}betrag aus den Belegen "
+                            f"oder rechne ihn mit \"rechnung\" aus.")
+    return problems

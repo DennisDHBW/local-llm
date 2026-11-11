@@ -89,3 +89,10 @@ def monthly_advance(facts: dict[str, Any]) -> float | None:
 def guarantee_active(facts: dict[str, Any], on: date) -> bool | None:
     until = _iso(facts.get("price_guarantee_until"))
     return None if until is None else until >= on
+
+
+def notice_light(days_left: int | None, cancellable: bool = True) -> str:
+    """Ampel für die Vertragsübersicht: Tage bis zum letzten Kündigungstag."""
+    if not cancellable or days_left is None:
+        return "⚪"
+    return "🔴" if days_left <= 30 else "🟡" if days_left <= 90 else "🟢"

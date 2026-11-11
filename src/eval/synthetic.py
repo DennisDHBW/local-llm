@@ -24,7 +24,7 @@ def _num(value: float) -> str:
     return "|".join(dict.fromkeys(alts))
 
 
-def _date(iso: str) -> str:
+def parse_date(iso: str) -> str:
     d = date.fromisoformat(iso)
     return f"{d.day:02d}.{d.month:02d}.{d.year}"
 
@@ -56,10 +56,10 @@ def build_synthetic() -> list[dict[str, Any]]:
         questions.append(_q(f"S-V{i}-nr", "b", f"Welche Vertragsnummer hat der {kat}-Vertrag mit {partner}?",
                             c["vertragsnummer"], f, c["vertragsnummer"]))
         questions.append(_q(f"S-V{i}-beginn", "b", f"Wann beginnt der {kat}-Vertrag mit {partner}?",
-                            _date(c["vertragsbeginn"]), f, _date(c["vertragsbeginn"])))
+                            parse_date(c["vertragsbeginn"]), f, parse_date(c["vertragsbeginn"])))
         if c.get("preisgarantie_bis"):
             questions.append(_q(f"S-V{i}-garantie", "b", f"Bis wann gilt die Preisgarantie im {kat}-Vertrag mit {partner}?",
-                                _date(c["preisgarantie_bis"]), f, _date(c["preisgarantie_bis"])))
+                                parse_date(c["preisgarantie_bis"]), f, parse_date(c["preisgarantie_bis"])))
         if c.get("abschlag_betrag"):
             noun = "Vorauszahlung" if kat == "Wasser" else "Abschlag"
             questions.append(_q(f"S-V{i}-abschlag", "a", f"Wie hoch ist der {noun} laut {kat}-Vertrag mit {partner}?",
