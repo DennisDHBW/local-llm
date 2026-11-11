@@ -208,6 +208,38 @@ Beobachtete Schwächen der Architektur:
 
 ---
 
+## E10 Feinschliff vor heldout5 (V5)
+
+- **Vorher festgelegt:** neuer versiegelter Satz `heldout5` (24 Fragen) und Regel R13 in `abstimmungsregeln.md`,
+  bevor eine Zeile Code geändert wurde.
+- **Latenz – zwei Cache-Plätze getestet, nicht nötig:** Ein zweiter Ollama-Server unter meinem Nutzer
+  (Port 11435, `OLLAMA_NUM_PARALLEL=2`) gegen den Systemdienst (1 Platz), je 9 Kernfragen nur mit P1:
+  p50 89 s gegen 95 s, Planer in beiden Fällen 16–19 s. Ollama 0.35 legt den Cache eines freien Platzes im
+  Arbeitsspeicher ab und holt ihn zurück. Die Zeit kostet der Entwurf: 1 000–1 600 neue Tokens Belege bei
+  ~18 Tokens/s (Ryzen 5 7520U, 4 Kerne).
+- **Warum war heldout4 dann bei 192 s?** Der Runner wechselt je Frage zwischen P1 und P2. llama3.1 (P2) verdrängt
+  qwen2.5 aus dem Speicher; jeder Plan begann kalt (heldout4: alle 48 Pläne 96–105 s). Die Latenz von P1 in E9
+  war also zum großen Teil ein Artefakt des Messaufbaus. In der App läuft nur P1. Für heldout5 laufen P1 V4,
+  P1 V5 und P2 deshalb nacheinander, und für die Latenz zählt nur die erste Wiederholung (die zweite folgt direkt
+  und findet den ganzen Prompt im Cache).
+- **Katalog kürzen (A1.3) verworfen:** Der Planer-Prompt liegt im Cache, kürzer bringt fast nichts.
+- **Kontext kürzen gemessen** (`ctx_eval`: gespeicherte Pläne → Suche → Kontext, Beleg im Kontext?, 87 Fragen
+  a–c): nur 3 statt 5 Treffer 78 → 71, 450 statt 700 Zeichen 78 → 76. Übernommen nur: im Kontext nur das letzte
+  Kapitelelement statt des ganzen Pfads (78 → 78, Kontext −7 %). Die Quellen behalten den vollen Pfad.
+- **Themenprüfung (T22 aus heldout4):** Statt eines Wortschatzes nur aus Namen (der hätte „Vollkasko“ oder
+  „Streaming“ abgelehnt) prüft der Katalog jetzt das Eigenschaftswort vor einer bekannten Dokumentart:
+  „private Haftpflichtversicherung“ → steht „privat“ in einem Dokument, das auch „Versicherung“ enthält? Nein →
+  unbekanntes Thema. Erste Fassung lehnte „viel Umsatzsteuer“ ab; jetzt nur Wörter mit Adjektivendung und
+  Stamm ≥ 4 Zeichen, Possessiv- und Zeitwörter ausgenommen. `planner_replay`: 0/106 falsche Ablehnungen.
+- **Kündigungsfragen (S5):** Fragt der Nutzer „bis wann muss ich kündigen“ und der Plan filtert
+  `laufzeitende`, korrigiert Code auf `kuendigen_bis`.
+- **Vergleich (S4):** Der Plan hatte drei Dokumente, die Prüfung nahm die ersten zwei. Jetzt wählt Code das Paar
+  Vertrag + anderes Dokument, und beim Verschieben eines Werts in den richtigen Beleg wird bei Vergleichen ein
+  Beleg aus dem noch nicht genutzten Dokument bevorzugt.
+- **Gelernt:** Eine Messung kann ihr eigenes Ergebnis erzeugen. Die Reihenfolge der Aufrufe gehört zum Messaufbau.
+
+---
+
 ## Typische Stolpersteine (Sammlung)
 
 1. **Prefill statt Generierung dominiert die Latenz.** Ein 7–8B-Modell auf der Laptop-CPU liest neue
@@ -246,3 +278,6 @@ Beobachtete Schwächen der Architektur:
     zwei Prompt-Arten abwechseln. Latenz immer an der ganzen Kette messen.
 16. **Ein bekanntes Wort ist noch kein bekanntes Thema.** „Haftpflicht“ steht in der Kfz-Police, eine private
     Haftpflichtversicherung gibt es trotzdem nicht.
+17. **Der Messaufbau erzeugt seine eigene Latenz.** Wechseln sich zwei Systeme mit verschiedenen Modellen je Frage
+    ab, beginnt jedes kalt. Systeme nacheinander messen, und Wiederholungen derselben Frage nicht für die Latenz
+    nutzen, weil sie den ganzen Prompt im Cache finden.

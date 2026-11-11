@@ -19,11 +19,11 @@ Ausgangslage und Paketplan: [`docs/bestandsaufnahme.md`](docs/bestandsaufnahme.m
 
 ```bash
 uv sync                                   # Abhängigkeiten (Python 3.11+)
-ollama pull llama3.1:8b                   # Agent (P2) und Synthese (P1)
-ollama pull qwen2.5:7b                    # Kerndaten und geprüfte Antwort von P1 (JSON-Schema)
+ollama pull llama3.1:8b                   # ReAct-Agent (P2)
+ollama pull qwen2.5:7b                    # Kerndaten, Plan und Entwurf von P1 (JSON-Schema)
 ollama pull gemma3:4b                     # Bildbeschreibung, Tabellen-Summary
 ollama pull nomic-embed-text              # Embeddings
-ollama pull llama3.2                      # optionales Query-Rewriting
+ollama pull llama3.2                      # optionales Query-Rewriting (gemessen, aus)
 uv run python -m src.ingestion.pipeline   # Import aller Dateien unter data/raw/{Rechnungen,Vertraege}
 uv run streamlit run app.py
 ```
@@ -68,6 +68,10 @@ Alle Werte in [`src/config.py`](src/config.py), überschreibbar per `DOKAGENT_<N
 `DOKAGENT_TODAY=2026-11-05` (Stichtag für Fristen), `DOKAGENT_DISABLED_TOOLS=get_key_facts`.
 
 Auf 16 GB RAM ohne GPU empfiehlt sich `OLLAMA_MAX_LOADED_MODELS=2` und `OLLAMA_NUM_PARALLEL=1`.
+Ein zweiter Platz (`OLLAMA_NUM_PARALLEL=2`) bringt mit Ollama 0.35 kaum etwas (Kernfragen p50 95 s → 89 s):
+Ollama legt den Prompt-Cache eines freien Platzes ohnehin im Arbeitsspeicher ab, der Planer findet seinen
+Katalog also auch mit einem Platz wieder (Protokoll E10). Die Zeit kostet das Lesen der Belege im Entwurf
+(~1 000–1 600 neue Tokens bei ~18 Tokens/s auf einem Ryzen 5 7520U).
 
 ## Struktur
 
