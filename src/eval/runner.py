@@ -29,7 +29,6 @@ from src.config import (
     FACTS_MODEL,
     HIERARCHY_BOOST,
     PROCESSED_DIR,
-    REWRITE_MODEL,
     SYNTH_MODEL,
     VERIFY_MODEL,
     USE_BM25,
@@ -204,7 +203,7 @@ def main() -> None:
         extra_path.write_text(json.dumps(extra, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     scored = score_records(load_jsonl(raw_path), questions)
     meta = {"title": args.title, "started": f"{datetime.now():%d.%m.%Y %H:%M}", "variant": "Version2",
-            "models": f"Agent {AGENT_MODEL}, Synthese P1 {SYNTH_MODEL}, Kerndaten {FACTS_MODEL}, Embedding {EMBED_MODEL}, Rewriter {REWRITE_MODEL}",
+            "models": f"P1 Plan und Entwurf {VERIFY_MODEL}, P2 ReAct {AGENT_MODEL}, Kerndaten {FACTS_MODEL}, Embedding {EMBED_MODEL}",
             "sets": args.sets, "reps": args.reps,
             "note": f"Retrieval: Top-{CANDIDATE_K} Kandidaten, Boost {HIERARCHY_BOOST}, BM25 {'an' if USE_BM25 else 'aus'}, "
                     f"Reranker {'an' if USE_RERANKER else 'aus'}, Rewriting {'an' if USE_REWRITER else 'aus'}; "
