@@ -12,7 +12,7 @@ from src.agent.answer import NOT_FOUND
 from src.agent.catalog import Catalog, Filter, matches
 from src.agent.orchestrator import Orchestrator, _clean
 from src.agent.evidence import Evidence
-from src.agent.planner import validate
+from src.agent.planner import Plan, validate
 from src.agent.verify import column_problems, value_column, wanted_column
 from tests.test_agent import FakeRetriever, tools  # noqa: F401 - Fixture
 
@@ -254,3 +254,39 @@ def test_validate_drops_invoice_when_question_names_contract(catalog):
     q = "Wie hoch ist der monatliche Abschlag im Heizstromvertrag?"
     plan = validate({"typ": "wert", "dokumente": [invoice.n]}, catalog, q, ["Vertrag_Heizstrom_VoltWaerme.docx"])
     assert plan.dokumente == ["Vertrag_Heizstrom_VoltWaerme.docx"] and "entfernt" in plan.notes[-1]
+
+
+def test_filter_notice_question_uses_kuendigen_bis(catalog):
+    """Stichprobe S5: 'muss ich noch dieses Jahr kündigen' fragt nach dem Kündigungstag, nicht nach dem Vertragsende."""
+    raw = {"typ": "liste", "art": "Vertrag", "filter": {"feld": "laufzeitende", "operator": "im_jahr", "wert": "2026"}}
+    plan = validate(raw, catalog, "Welche Verträge muss ich noch dieses Jahr kündigen, wenn ich raus will?", [])
+    assert plan.filter is not None and plan.filter.feld == "kuendigen_bis"
+    raw["filter"] = {"feld": "fruehestes_ende", "operator": "<=", "wert": "31.12.2026"}
+    plan = validate(raw, catalog, "Aus welchen Verträgen komme ich bis Jahresende raus, wenn ich heute kündige?", [])
+    assert plan.filter is not None and plan.filter.feld == "fruehestes_ende"
+
+
+def test_unknown_topics_checks_qualifying_adjective(tmp_path):
+    """heldout4 T22: 'Haftpflicht' steht im Kfz-Versicherungsschein, 'privat' in keinem Dokument mit Haftpflicht."""
+    docs = {"Vertrag_Kfz_Versicherung_NordStern.pdf": "Tarif: Haftpflicht + Vollkasko. Versichert mit Kfz-Haftpflicht.",
+            "Rechnung_Strom_NeckarStrom_2024.pdf": "Jahresabrechnung Strom 2024. Umsatzsteuer 19 %. Preisgarantie.",
+            "Vertrag_Abo_StreamPulse.docx": "Gegenstand ist das Streaming-Abonnement Ultra HD."}
+    for name, text in docs.items():
+        stem = name.rsplit(".", 1)[0]
+        (tmp_path / f"{stem}_facts.json").write_text(json.dumps({"filename": name, "facts": {}}), encoding="utf-8")
+        (tmp_path / f"{stem}_chunks.json").write_text(json.dumps([{"content": text}]), encoding="utf-8")
+    catalog = Catalog(tmp_path)
+    assert catalog.unknown_topics("Welche Kündigungsfrist hat meine private Haftpflichtversicherung?")
+    for q in ("Was kostet die Kfz-Haftpflichtversicherung?", "Was kostet meine Vollkaskoversicherung?",
+              "Wie hoch war meine letzte Stromrechnung?", "Wie viel Umsatzsteuer weist die Stromrechnung aus?",
+              "Bis wann galt laut Stromvertrag die Preisgarantie?", "Wann kann ich mein Streamingabo kündigen?"):
+        assert catalog.unknown_topics(q) == [], q
+
+
+def test_comparison_pair_is_contract_and_other_document(tools):  # noqa: F811
+    """Stichprobe S4: Plan mit Rechnung, Übersicht und Vertrag; geprüft werden Rechnung und Vertrag, nicht die ersten zwei."""
+    orch = Orchestrator(retriever=FakeRetriever(), tools=tools, processed_dir=tools.processed_dir)
+    contract = next(e.filename for e in orch.catalog.entries if e.art == "Vertrag")
+    invoice = next(e.filename for e in orch.catalog.entries if e.art != "Vertrag")
+    plan = Plan("vergleich", dokumente=[invoice, "Verbrauchsuebersicht_Strom_2025.pdf", contract])
+    assert orch._pair(plan) == [invoice, contract]

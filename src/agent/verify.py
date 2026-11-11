@@ -156,8 +156,11 @@ def parse_draft(text: str) -> dict[str, Any]:
     return data
 
 
-def check_draft(draft: dict[str, Any], evidence: Sequence[Evidence], question: str = "") -> Checked:
-    """Regeln 2-4 aus dem Modulkopf; liefert geprüfte Werte, Ergebnis und Befunde."""
+def check_draft(draft: dict[str, Any], evidence: Sequence[Evidence], question: str = "",
+                spread: bool = False) -> Checked:
+    """Regeln 2-4 aus dem Modulkopf; liefert geprüfte Werte, Ergebnis und Befunde.
+    spread (Vergleich): Muss eine Belegnummer berichtigt werden, zuerst ein Dokument wählen, aus dem noch kein Wert
+    stammt. Sonst landete in Stichprobe S4 der Vertragswert (130,00 €, steht in Rechnung und Vertrag) bei der Rechnung."""
     from src.agent.tools import safe_eval        # spät importiert: tools importiert die Retrieval-Schicht
 
     out = Checked()
@@ -173,7 +176,10 @@ def check_draft(draft: dict[str, Any], evidence: Sequence[Evidence], question: s
         if 1 <= n <= len(texts) and value_in(value, texts[n - 1]):
             out.values.append({**item, "wert": value, "beleg": n})
             continue
-        other = next((i for i, t in enumerate(texts, 1) if value_in(value, t)), None)
+        found = [i for i, t in enumerate(texts, 1) if value_in(value, t)]
+        used = {evidence[v["beleg"] - 1].filename for v in out.values}
+        fresh = [i for i in found if evidence[i - 1].filename not in used] if spread else []
+        other = (fresh or found or [None])[0]
         if other:
             out.values.append({**item, "wert": value, "beleg": other, "beleg_berichtigt": n})
         else:

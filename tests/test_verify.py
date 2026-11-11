@@ -63,3 +63,14 @@ def test_check_answer_finds_stray_numbers():
 
 def test_parse_draft_survives_garbage():
     assert parse_draft("kein json") == {"werte": [], "rechnung": "", "antwort": "", "belegt": False}
+
+
+def test_check_draft_spread_moves_value_to_unused_document():
+    """Stichprobe S4: 130,00 € steht in Rechnung und Vertrag; beim Vergleich gehört der zweite Wert zum Vertrag."""
+    evidence = [Evidence("Geleistete Abschläge: 11 Abschläge à 130,00 €", filename="Rechnung.pdf"),
+                Evidence("Verbrauch März 2025: 310 kWh", filename="Uebersicht.pdf"),
+                Evidence("Der Abschlag beträgt 130,00 € und ist monatlich fällig.", filename="Vertrag.pdf")]
+    werte = [{"bezeichnung": "Abschlag Rechnung", "wert": "130,00 €", "beleg": 1},
+             {"bezeichnung": "Abschlag Vertrag", "wert": "130,00 €", "beleg": 2}]
+    assert [v["beleg"] for v in check_draft(draft(werte), evidence, spread=True).values] == [1, 3]
+    assert [v["beleg"] for v in check_draft(draft(werte), evidence).values] == [1, 1]
