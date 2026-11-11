@@ -52,3 +52,26 @@ Kriterien K1–K3 wie oben.
 
 Geprüft werden P1 (Orchestrator) und P2, je ein Lauf
 (`src/eval/stichprobe.py --name stichprobe_v4`, nach der Messung von `heldout4`).
+
+### Ergebnis Runde 2
+
+Lauf am 11.11.2026 (Rohdaten: `src/eval/results/stichprobe_v4/stichprobe_raw.jsonl`). ✓ = erfüllt, ✗ = nicht erfüllt.
+
+| | K1 | K2 | K3 | Begründung |
+|---|---|---|---|---|
+| P1 S1 (194 s) | ✓ | ✓ | ✓ | „3.400 kWh … 1.323,00 € Nettobetrag und 1.574,37 € Bruttobetrag“. Der Bruttobetrag steht jetzt da, beide Werte sind richtig benannt (in Runde 1 nur netto). |
+| P1 S2 (94 s) | ✓ | ✓ | ✓ | „99,94 € zurück“ wie in Runde 1. |
+| P1 S3 (13 s) | ✓ | ✓ | ✓ | „Zu ‚Fitnessstudio‘ liegt kein Dokument vor.“ In Runde 1 erfand P1 hier drei Monate. |
+| P1 S4 (174 s) | ✗ | ✗ | ✗ | Zweimal „Abschlag: 130,00 € [2]“, beide aus der Rechnung; der Vertrag wird nicht zitiert und es fehlt die Aussage „gleich“. Der Plan enthielt den Vertrag, der Entwurf hat den Wert aber zweimal aus demselben Beleg genommen. |
+| P1 S5 (18 s) | ✗ | ✓ | ✗ | Das Modell wählt das Feld „Ende der Laufzeit ≤ 31.12.2026“ statt „kündigen bis im Jahr 2026“: Heizstrom statt StreamPulse. Die Daten selbst stimmen. |
+| P1 S6 (15 s) | ✓ | ✓ | ✓ | „Zu ‚Hausratversicherung‘ liegt kein Dokument vor.“ |
+| P2 S1 (283 s) | ✗ | ✓ | ✗ | 1.574,37 € richtig, den Verbrauch findet P2 nicht; viel Nebeninformation. Keine Zeitüberschreitung mehr (Runde 1: 714 s, Abbruch). |
+| P2 S2 (70 s) | ✗ | ✗ | ✗ | „du erhältst 2.540,06 €“: verwechselt Rechnungsbetrag und Guthaben. |
+| P2 S3 (18 s) | ✓ | ✓ | ✓ | lehnt ab. |
+| P2 S4 (106 s) | ✗ | ✗ | ✗ | vergleicht mit dem Heizstromvertrag (225 €), also mit dem falschen Anbieter. |
+| P2 S5 (59 s) | ✗ | ✗ | ✗ | nennt Vertragsbeginne statt Kündigungstermine. |
+| P2 S6 (19 s) | ✓ | ✓ | ✓ | lehnt ab. |
+
+Summe K1: P1 4/6 (Runde 1: 1/3, jetzt S1–S3 alle richtig), P2 2/6. Die drei Fehler aus Runde 1 sind bei P1
+behoben. Neu sichtbar werden zwei Schwächen des kleinen Modells an genau den Stellen, an denen es noch entscheidet:
+die Wahl des Filterfelds (S5) und die Zuordnung zweier Werte zu zwei Dokumenten (S4).

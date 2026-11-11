@@ -104,3 +104,23 @@ Abgestimmt wird nur auf den verbrauchten Sätzen (`dev`, `kern`, `heldout`–`he
 | Nr. | Entscheidung | Regel |
 |---|---|---|
 | R12 | Orchestrator ersetzt Weiche, Kerndaten-Schicht und Schalter von P1 | Festgelegt vor der Messung. Einmal auf `heldout4`, zwei Wiederholungen: P1 vorher (Stand `main` vor V4, aus einem eigenen Arbeitsbaum), P1 neu (Orchestrator), P2 neu. Der Orchestrator gilt als Verbesserung, wenn alle Bedingungen erfüllt sind: (1) Korrektheit P1 neu nicht niedriger als P1 vorher (Punktschätzer der gepaarten Differenz ≥ 0); (2) keine Halluzination bei den vier Fragen zu fehlenden Dokumentarten (T21–T24); (3) bei den Listenfragen (T16–T20) mehr richtige Antworten als P1 vorher; (4) Latenz p50 von P1 neu unter 60 s; (5) P2 ohne Zeitüberschreitung (Status „error“ wegen Timeout = 0). Ist (1) verletzt, wird berichtet, welche Fragetypen verlieren; der Umbau bleibt wegen Erklärbarkeit und Oberfläche, das Ergebnis wird aber nicht als Verbesserung dargestellt. Alles wird berichtet, wie es ausfällt. Danach ist `heldout4` verbraucht. |
+
+**Ergebnis R12 (11.11.2026).** `heldout4`, 24 Fragen, zwei Wiederholungen, gleiche Daten und gleiche Maschine
+(Berichte: `src/eval/results/heldout4_v4/`, `heldout4_vorher/`; RAGAS: `ragas_heldout4_v4/`, `ragas_heldout4_vorher/`).
+
+| Bedingung | P1 vorher | P1 neu | erfüllt |
+|---|---|---|---|
+| (1) Korrektheit, gepaarte Differenz neu − vorher | 54 % (26/48) | 75 % (36/48) | ✓ +0,21 [0,00–0,42] |
+| (2) keine Halluzination T21–T24 | T22 halluziniert (2/2) | T22 halluziniert (2/2) | ✗ |
+| (3) Listenfragen T16–T20 | 2/10 | 6/10 | ✓ |
+| (4) Latenz p50 < 60 s | 42 s | 192 s | ✗ |
+| (5) P2 ohne Zeitüberschreitung | – | 0 von 48 (p50 242 s) | ✓ |
+
+Nach R12 ist der Umbau damit **keine Verbesserung in allen Punkten**: Die Antworten sind deutlich öfter richtig,
+Listenfragen und Zitationsrate (71 % → 95 %) steigen, aber P1 ist viereinhalbmal langsamer, und die Frage nach der
+privaten Haftpflichtversicherung beantworten alle drei Systeme mit der Frist der Kfz-Versicherung. Weitere Werte:
+Halluzinationsrate 4 % → 8 % (zusätzlich T20: die Jahreszahl 2027 aus einem Rechnungstitel gilt der Bewertung als
+unbelegt), Faithfulness (RAGAS) 0,79 → 0,79, Context Recall 0,67 → 0,73. P2 neu: Korrektheit 38 %, Fehl-Enthaltung 30 %.
+Ursachen (Analyse nach der Messung, nicht mehr auf `heldout4` abgestimmt): Latenz in E9 des Arbeitsprotokolls,
+T22: „Haftpflicht“ steht im Kfz-Versicherungsschein („Kfz-Haftpflicht“), daher hält die Themenprüfung das Thema für
+vorhanden. Der Umbau bleibt wegen Korrektheit, Erklärbarkeit und Oberfläche; `heldout4` ist verbraucht.

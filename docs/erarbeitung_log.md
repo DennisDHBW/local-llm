@@ -184,6 +184,28 @@ Beobachtete Schwächen der Architektur:
   Verantwortung gehört in prüfbaren Code. Eine Teilmessung nur des Planers macht Änderungen in Minuten
   statt Stunden überprüfbar.
 
+## E9 Messung auf heldout4: richtiger, aber langsamer
+
+- **Ergebnis (R12, vorher festgelegt):** Korrektheit P1 54 % → 75 % (gepaarte Differenz +0,21 [0,00–0,42]),
+  Listenfragen 2/10 → 6/10, Zitationsrate 71 % → 95 %, P2 ohne Zeitüberschreitung. Nicht erfüllt: Latenz p50
+  42 s → 192 s (Ziel < 60 s), und T22 „private Haftpflichtversicherung“ wird weiter mit der Frist der
+  Kfz-Versicherung beantwortet. Damit gilt der Umbau nach meiner eigenen Regel nicht als Verbesserung in allen
+  Punkten. Das steht so im Bericht (`abstimmungsregeln.md`).
+- **Warum so langsam? (Analyse nach der Messung):** Im reinen Planer-Test brauchte ein Plan 17 s, in der Messung
+  ~100 s. Das Ollama-Log zeigt den Grund: Der Server hat nur **einen** Prompt-Cache. Im Planer-Test kamen nur
+  Planer-Aufrufe hintereinander, der Katalog (~1 300 Tokens) lag im Cache. In der echten Kette wechseln sich Planer
+  und Entwurf ab; jeder Aufruf verdrängt den Cache des anderen (`cached n_tokens = 24` statt ~1 400). Bei
+  ~18 Tokens/s kostet das je Stufe rund anderthalb Minuten. P1 vorher war schneller, weil die alte
+  Kerndaten-Schicht viele Fragen ohne langen Prompt beantwortete.
+- **Mögliche Abhilfe (nicht mehr auf heldout4 geprüft):** zwei Cache-Plätze im Server (`OLLAMA_NUM_PARALLEL=2`,
+  je Platz ~0,5 GB mehr für qwen2.5:7b), ein kürzerer Katalog im Plan-Prompt, oder Fragen, die der Code schon
+  sicher einordnet (Liste, fehlendes Thema), ganz ohne Planer-Aufruf.
+- **Warum T22?** Die Themenprüfung fragt, ob das Bestimmungswort („Haftpflicht“) in irgendeinem Dokument vorkommt.
+  Im Kfz-Versicherungsschein steht „Kfz-Haftpflicht“. Das Wort ist also bekannt, das Thema aber nicht. Eine
+  Prüfung über Wörter kann ein vorhandenes Wort in einem anderen Zusammenhang nicht erkennen.
+- **Gelernt:** Eine Teilmessung (nur Planer) kann eine Wirkung zeigen, die im Zusammenspiel verschwindet. Caches
+  sind ein geteilter Zustand; was eine Stufe allein schnell macht, nimmt die nächste Stufe wieder weg.
+
 ---
 
 ## Typische Stolpersteine (Sammlung)
@@ -220,3 +242,7 @@ Beobachtete Schwächen der Architektur:
 14. **Eine leere Ergebnisliste sieht aus wie eine Antwort.** Kann ein Filter seinen Wert nicht lesen,
     passt nichts, und das System meldet „keiner“. Unlesbare Eingaben müssen auffallen, nicht leise
     zu einem leeren Ergebnis führen.
+15. **Einzeln schnell, zusammen langsam.** Ein Server mit nur einem Prompt-Cache verliert den Cache, sobald sich
+    zwei Prompt-Arten abwechseln. Latenz immer an der ganzen Kette messen.
+16. **Ein bekanntes Wort ist noch kein bekanntes Thema.** „Haftpflicht“ steht in der Kfz-Police, eine private
+    Haftpflichtversicherung gibt es trotzdem nicht.
