@@ -246,6 +246,12 @@ Beobachtete Schwächen der Architektur:
   heldout5 jetzt verbraucht ist.
 - **Bewertung genau lesen:** T07 als „erfunden“ markiert, weil das Datum als „1. Januar 2024“ ausgeschrieben war;
   T14 hat 15,00 selbst gerechnet und die Zahlprüfung nur bestanden, weil 15 als Tag in „15.02.2025“ vorkommt.
+- **RAGAS heldout5** (Richter qwen2.5:7b, Wiederholung 0, Bootstrap-95-%): Faithfulness P1 V4 0,80 [0,64–0,93],
+  P1 V5 0,68 [0,51–0,84], P2 0,60 [0,35–0,83]; Context Recall (a–c, 15 Fragen) P1 V4/V5 0,93 [0,80–1,00], P2 0,20
+  [0,00–0,40]. Der Rückgang V4 → V5 ist zum Teil Richterrauschen (T04: gleiche Antwort, 1,0 gegen 0,0), bei T13
+  berechtigt (Preis fehlt in V5). T01 (richtig, wörtlich belegt) bekommt 0. Gegen die Zahlprüfung (V5, 20
+  Antworten): beide 2 (T17, T18), nur RAGAS 8 (davon 4 richtig), nur Zahlprüfung 2 (T07, T14). Ergebnisse:
+  `src/eval/results/ragas_heldout5_{v4,v5,p2}/`.
 
 ---
 

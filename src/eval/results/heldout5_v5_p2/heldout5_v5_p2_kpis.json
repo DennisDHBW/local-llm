@@ -1,0 +1,185 @@
+{
+ "meta": {
+  "title": "KPI-Bericht Version2",
+  "started": "13.11.2026 10:12",
+  "variant": "Version2",
+  "models": "P1 Plan und Entwurf qwen2.5:7b, P2 ReAct llama3.1:8b, Kerndaten qwen2.5:7b, Embedding nomic-embed-text",
+  "sets": "heldout5",
+  "reps": 1,
+  "note": "Retrieval: Top-20 Kandidaten, Boost 1.5, BM25 aus, Reranker aus, Rewriting aus; Stichtag 2026-11-05; abgeschaltete Werkzeuge: keine"
+ },
+ "kpis": {
+  "P2": {
+   "correct": {
+    "value": 0.3333333333333333,
+    "interval": [
+     0.1797219032729775,
+     0.5329368316186824
+    ],
+    "n": 24
+   },
+   "faithfulness": {
+    "value": 1.0,
+    "interval": [
+     1.0,
+     1.0
+    ],
+    "n": 10
+   },
+   "hallucinated": {
+    "value": 0.0,
+    "interval": [
+     1.3877787807814457e-17,
+     0.13797620467498017
+    ],
+    "n": 24
+   },
+   "cited": {
+    "value": 0.5384615384615384,
+    "interval": [
+     0.29143795714506004,
+     0.7679393219046169
+    ],
+    "n": 13
+   },
+   "citation_correct": {
+    "value": 0.3076923076923077,
+    "interval": [
+     0.12680703655710515,
+     0.5763065681945096
+    ],
+    "n": 13
+   },
+   "abstain": {
+    "value": 1.0,
+    "interval": [
+     0.5101091635454027,
+     1.0
+    ],
+    "n": 4
+   },
+   "false_abstention": {
+    "value": 0.35,
+    "interval": [
+     0.18119182410108206,
+     0.5671457233147638
+    ],
+    "n": 20
+   },
+   "recall@5": {
+    "value": 0.775,
+    "interval": [
+     0.6083333333333333,
+     0.925
+    ],
+    "n": 20
+   },
+   "precision@5": {
+    "value": 0.67,
+    "interval": [
+     0.51,
+     0.82
+    ],
+    "n": 20
+   },
+   "rr": {
+    "value": 0.7821428571428571,
+    "interval": [
+     0.6249107142857143,
+     0.925
+    ],
+    "n": 20
+   },
+   "beleg@5": {
+    "value": 0.8,
+    "interval": [
+     0.5481455128483065,
+     0.9295245065301844
+    ],
+    "n": 15
+   },
+   "tool_selection": {
+    "value": 0.45,
+    "interval": [
+     0.2581978582556243,
+     0.6579146575496577
+    ],
+    "n": 20
+   },
+   "steps": {
+    "value": 1.1666666666666667,
+    "interval": [
+     0.9166666666666666,
+     1.4583333333333333
+    ],
+    "n": 24
+   },
+   "latency_p50": {
+    "value": 91.72999999999999,
+    "interval": [
+     58.5,
+     140.57
+    ],
+    "n": 24
+   },
+   "latency_p95": {
+    "value": 332.20000000000005,
+    "interval": [
+     194.31,
+     348.09
+    ],
+    "n": 24
+   },
+   "tokens_per_s": {
+    "value": 4.836345981004143,
+    "interval": [
+     4.735139170779814,
+     4.935266110669461
+    ],
+    "n": 24
+   },
+   "peak_ram_gb": {
+    "value": 10.0,
+    "interval": null,
+    "n": 24
+   },
+   "error_rate": {
+    "value": 0.0,
+    "interval": [
+     1.3877787807814457e-17,
+     0.13797620467498017
+    ],
+    "n": 24
+   },
+   "outage_rate": {
+    "value": 0.0,
+    "interval": [
+     1.3877787807814457e-17,
+     0.13797620467498017
+    ],
+    "n": 24
+   },
+   "field_accuracy": {
+    "value": 0.958904109589041,
+    "interval": [
+     0.9132470514592993,
+     0.9810314816958631
+    ],
+    "n": 146
+   },
+   "ingest_s_per_doc": {
+    "value": 153.85,
+    "interval": [
+     139.618125,
+     170.57171875
+    ],
+    "n": 16
+   },
+   "consistency": {
+    "value": null,
+    "interval": null,
+    "n": 0
+   }
+  }
+ }
+}
