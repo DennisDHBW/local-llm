@@ -237,6 +237,15 @@ Beobachtete Schwächen der Architektur:
   Vertrag + anderes Dokument, und beim Verschieben eines Werts in den richtigen Beleg wird bei Vergleichen ein
   Beleg aus dem noch nicht genutzten Dokument bevorzugt.
 - **Gelernt:** Eine Messung kann ihr eigenes Ergebnis erzeugen. Die Reihenfolge der Aufrufe gehört zum Messaufbau.
+- **Ergebnis heldout5 (R13):** P1 V5 37/48 = 77 % [63–87] gegen P1 V4 35/48 = 73 % [59–83], gepaarte
+  Differenz +0,04 [0,00; 0,13] (nur T07 kippt, 0/2 → 2/2). P2 8/24 = 33 %. Typen V5: a 10/12, b 10/10, c 7/8,
+  d 2/10, e 8/8. Zitierquote 36/40. Latenz P1 V5 p50 98 s / p95 199 s (V4 113 / 227 s). T21–T24 in allen
+  Läufen abgelehnt. R13: (1) ✓, (2) ✗, (3) ✓. V5 bleibt.
+- **Schwach bleiben Listen (d):** Der Filter rechnet richtig, der Plan beschreibt ihn falsch: kein Filter (T16),
+  nur eine Grenze (T18), nur eine Bedingung (T19), falsches Feld (T20). Bewusst nicht mehr nachgebessert, weil
+  heldout5 jetzt verbraucht ist.
+- **Bewertung genau lesen:** T07 als „erfunden“ markiert, weil das Datum als „1. Januar 2024“ ausgeschrieben war;
+  T14 hat 15,00 selbst gerechnet und die Zahlprüfung nur bestanden, weil 15 als Tag in „15.02.2025“ vorkommt.
 
 ---
 
