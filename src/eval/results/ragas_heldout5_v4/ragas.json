@@ -1,0 +1,36 @@
+{
+ "run": "heldout5_v4",
+ "sets": "heldout5",
+ "systems": {
+  "P1": {
+   "faithfulness": {
+    "n": 20,
+    "ausfall": 0,
+    "mean": 0.7967261904761905,
+    "ci": [
+     0.6431547619047618,
+     0.9271354166666669
+    ],
+    "voll": 13
+   },
+   "context_recall": {
+    "n": 15,
+    "ausfall": 0,
+    "mean": 0.9333333333333333,
+    "ci": [
+     0.8,
+     1.0
+    ],
+    "voll": 14
+   },
+   "abgleich": {
+    "beide_auffaellig": 2,
+    "nur_ragas": 5,
+    "nur_zahlpruefung": 1,
+    "beide_unauffaellig": 12
+   }
+  }
+ },
+ "rep": 0,
+ "judge": "qwen2.5:7b"
+}
