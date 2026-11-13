@@ -208,6 +208,53 @@ Beobachtete Schwächen der Architektur:
 
 ---
 
+## E10 Feinschliff vor heldout5 (V5)
+
+- **Vorher festgelegt:** neuer versiegelter Satz `heldout5` (24 Fragen) und Regel R13 in `abstimmungsregeln.md`,
+  bevor eine Zeile Code geändert wurde.
+- **Latenz – zwei Cache-Plätze getestet, nicht nötig:** Ein zweiter Ollama-Server unter meinem Nutzer
+  (Port 11435, `OLLAMA_NUM_PARALLEL=2`) gegen den Systemdienst (1 Platz), je 9 Kernfragen nur mit P1:
+  p50 89 s gegen 95 s, Planer in beiden Fällen 16–19 s. Ollama 0.35 legt den Cache eines freien Platzes im
+  Arbeitsspeicher ab und holt ihn zurück. Die Zeit kostet der Entwurf: 1 000–1 600 neue Tokens Belege bei
+  ~18 Tokens/s (Ryzen 5 7520U, 4 Kerne).
+- **Warum war heldout4 dann bei 192 s?** Der Runner wechselt je Frage zwischen P1 und P2. llama3.1 (P2) verdrängt
+  qwen2.5 aus dem Speicher; jeder Plan begann kalt (heldout4: alle 48 Pläne 96–105 s). Die Latenz von P1 in E9
+  war also zum großen Teil ein Artefakt des Messaufbaus. In der App läuft nur P1. Für heldout5 laufen P1 V4,
+  P1 V5 und P2 deshalb nacheinander, und für die Latenz zählt nur die erste Wiederholung (die zweite folgt direkt
+  und findet den ganzen Prompt im Cache).
+- **Katalog kürzen (A1.3) verworfen:** Der Planer-Prompt liegt im Cache, kürzer bringt fast nichts.
+- **Kontext kürzen gemessen** (`ctx_eval`: gespeicherte Pläne → Suche → Kontext, Beleg im Kontext?, 87 Fragen
+  a–c): nur 3 statt 5 Treffer 78 → 71, 450 statt 700 Zeichen 78 → 76. Übernommen nur: im Kontext nur das letzte
+  Kapitelelement statt des ganzen Pfads (78 → 78, Kontext −7 %). Die Quellen behalten den vollen Pfad.
+- **Themenprüfung (T22 aus heldout4):** Statt eines Wortschatzes nur aus Namen (der hätte „Vollkasko“ oder
+  „Streaming“ abgelehnt) prüft der Katalog jetzt das Eigenschaftswort vor einer bekannten Dokumentart:
+  „private Haftpflichtversicherung“ → steht „privat“ in einem Dokument, das auch „Versicherung“ enthält? Nein →
+  unbekanntes Thema. Erste Fassung lehnte „viel Umsatzsteuer“ ab; jetzt nur Wörter mit Adjektivendung und
+  Stamm ≥ 4 Zeichen, Possessiv- und Zeitwörter ausgenommen. `planner_replay`: 0/106 falsche Ablehnungen.
+- **Kündigungsfragen (S5):** Fragt der Nutzer „bis wann muss ich kündigen“ und der Plan filtert
+  `laufzeitende`, korrigiert Code auf `kuendigen_bis`.
+- **Vergleich (S4):** Der Plan hatte drei Dokumente, die Prüfung nahm die ersten zwei. Jetzt wählt Code das Paar
+  Vertrag + anderes Dokument, und beim Verschieben eines Werts in den richtigen Beleg wird bei Vergleichen ein
+  Beleg aus dem noch nicht genutzten Dokument bevorzugt.
+- **Gelernt:** Eine Messung kann ihr eigenes Ergebnis erzeugen. Die Reihenfolge der Aufrufe gehört zum Messaufbau.
+- **Ergebnis heldout5 (R13):** P1 V5 37/48 = 77 % [63–87] gegen P1 V4 35/48 = 73 % [59–83], gepaarte
+  Differenz +0,04 [0,00; 0,13] (nur T07 kippt, 0/2 → 2/2). P2 8/24 = 33 %. Typen V5: a 10/12, b 10/10, c 7/8,
+  d 2/10, e 8/8. Zitierquote 36/40. Latenz P1 V5 p50 98 s / p95 199 s (V4 113 / 227 s). T21–T24 in allen
+  Läufen abgelehnt. R13: (1) ✓, (2) ✗, (3) ✓. V5 bleibt.
+- **Schwach bleiben Listen (d):** Der Filter rechnet richtig, der Plan beschreibt ihn falsch: kein Filter (T16),
+  nur eine Grenze (T18), nur eine Bedingung (T19), falsches Feld (T20). Bewusst nicht mehr nachgebessert, weil
+  heldout5 jetzt verbraucht ist.
+- **Bewertung genau lesen:** T07 als „erfunden“ markiert, weil das Datum als „1. Januar 2024“ ausgeschrieben war;
+  T14 hat 15,00 selbst gerechnet und die Zahlprüfung nur bestanden, weil 15 als Tag in „15.02.2025“ vorkommt.
+- **RAGAS heldout5** (Richter qwen2.5:7b, Wiederholung 0, Bootstrap-95-%): Faithfulness P1 V4 0,80 [0,64–0,93],
+  P1 V5 0,68 [0,51–0,84], P2 0,60 [0,35–0,83]; Context Recall (a–c, 15 Fragen) P1 V4/V5 0,93 [0,80–1,00], P2 0,20
+  [0,00–0,40]. Der Rückgang V4 → V5 ist zum Teil Richterrauschen (T04: gleiche Antwort, 1,0 gegen 0,0), bei T13
+  berechtigt (Preis fehlt in V5). T01 (richtig, wörtlich belegt) bekommt 0. Gegen die Zahlprüfung (V5, 20
+  Antworten): beide 2 (T17, T18), nur RAGAS 8 (davon 4 richtig), nur Zahlprüfung 2 (T07, T14). Ergebnisse:
+  `src/eval/results/ragas_heldout5_{v4,v5,p2}/`.
+
+---
+
 ## Typische Stolpersteine (Sammlung)
 
 1. **Prefill statt Generierung dominiert die Latenz.** Ein 7–8B-Modell auf der Laptop-CPU liest neue
@@ -246,3 +293,6 @@ Beobachtete Schwächen der Architektur:
     zwei Prompt-Arten abwechseln. Latenz immer an der ganzen Kette messen.
 16. **Ein bekanntes Wort ist noch kein bekanntes Thema.** „Haftpflicht“ steht in der Kfz-Police, eine private
     Haftpflichtversicherung gibt es trotzdem nicht.
+17. **Der Messaufbau erzeugt seine eigene Latenz.** Wechseln sich zwei Systeme mit verschiedenen Modellen je Frage
+    ab, beginnt jedes kalt. Systeme nacheinander messen, und Wiederholungen derselben Frage nicht für die Latenz
+    nutzen, weil sie den ganzen Prompt im Cache finden.

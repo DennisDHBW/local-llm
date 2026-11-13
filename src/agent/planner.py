@@ -252,6 +252,11 @@ def _provider_without_contract(catalog: Catalog, text: str, mentioned: list[str]
     return entries[0].provider or entries[0].filename
 
 
+# "Welche Verträge muss ich noch dieses Jahr kündigen?" fragt nach dem Kündigungstag, nicht nach dem Vertragsende.
+# "Aus welchen Verträgen komme ich bis Jahresende raus?" fragt nach dem Ende und bleibt bei fruehestes_ende.
+_ASKS_NOTICE = re.compile(r"\bmuss\w*\b[^?]*\bkuendig|kuendig\w*\s+muss|spaetestens\b[^?]*\bkuendig|kuendig\w*\s+spaetestens")
+
+
 def _filter(raw: dict[str, Any], plan: Plan, question: str) -> Filter | None:
     feld, op, wert = str(raw.get("feld") or ""), str(raw.get("operator") or ""), str(raw.get("wert") or "").strip()
     if feld not in FIELDS or op not in OPERATORS or not wert:
@@ -266,6 +271,9 @@ def _filter(raw: dict[str, Any], plan: Plan, question: str) -> Filter | None:
     if feld == "rechnungsdatum" and "faellig" in text:
         plan.notes.append("Frage fragt nach Fälligkeit -> Feld faellig")
         feld, spec = "faellig", FIELDS["faellig"]
+    if feld in ("laufzeitende", "fruehestes_ende") and _ASKS_NOTICE.search(text):
+        plan.notes.append(f"Frage fragt, bis wann gekündigt werden muss -> Feld kuendigen_bis statt {feld}")
+        feld, spec = "kuendigen_bis", FIELDS["kuendigen_bis"]
     if spec.kind in ("int", "number") and re.fullmatch(r"\d{1,2}\.\d{1,2}\.\d{4}", wert):
         plan.notes.append(f"Datum als Wert für {feld} -> Feld fruehestes_ende")
         feld, spec = "fruehestes_ende", FIELDS["fruehestes_ende"]

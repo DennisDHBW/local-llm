@@ -229,7 +229,7 @@ class Orchestrator:
         draft = verify.parse_draft(raw)
         stage.done("entwurf", f"{len(draft['werte'])} Werte")
         stage.start("pruefung")
-        checked = verify.check_draft(draft, evidence, question)
+        checked = verify.check_draft(draft, evidence, question, spread=plan.typ == "vergleich")
         problems = checked.problems + self._extra_problems(question, plan, checked, evidence)
         result.trajectory.append({"step": 2, "thought": "", "action": "draft", "action_input": "",
                                   "observation": raw[:1500]})
@@ -242,7 +242,7 @@ class Orchestrator:
             result.trajectory.append({"step": 3, "thought": "; ".join(problems), "action": "correction",
                                       "action_input": "", "observation": raw[:1500]})
             draft = verify.parse_draft(raw)
-            checked = verify.check_draft(draft, evidence, question)
+            checked = verify.check_draft(draft, evidence, question, spread=plan.typ == "vergleich")
             problems = checked.problems + self._extra_problems(question, plan, checked, evidence)
         wrong_column = {str(v["wert"]) for v in checked.values
                         if verify.column_problems(question, [v], texts)}
@@ -266,13 +266,21 @@ class Orchestrator:
                                   "observation": json.dumps({"werte": checked.values, "ergebnis": checked.result},
                                                             ensure_ascii=False)[:1500]})
 
-    @staticmethod
-    def _extra_problems(question: str, plan: Plan, checked: verify.Checked, evidence: list[Evidence]) -> list[str]:
+    def _pair(self, plan: Plan) -> list[str]:
+        """Die zwei Dokumente eines Vergleichs: der erste Vertrag und das erste andere Dokument des Plans. Nicht einfach
+        die ersten zwei: Stichprobe S4 plante Rechnung, Verbrauchsübersicht und Vertrag, geprüft wurden nur die ersten
+        zwei, und beide Werte kamen aus der Rechnung."""
+        arts = {n: (e.art if (e := self.catalog.by_name(n)) else "") for n in plan.dokumente}
+        contract = next((n for n in plan.dokumente if arts[n] == "Vertrag"), None)
+        other = next((n for n in plan.dokumente if arts[n] != "Vertrag"), None)
+        return [n for n in (other, contract) if n] if contract and other else plan.dokumente[:2]
+
+    def _extra_problems(self, question: str, plan: Plan, checked: verify.Checked, evidence: list[Evidence]) -> list[str]:
         """Prüfungen, die den Plan kennen: Spalte (netto/brutto) und beim Vergleich Werte aus beiden Dokumenten."""
         problems = verify.column_problems(question, checked.values, [e.text for e in evidence])
         if plan.typ == "vergleich" and len(plan.dokumente) >= 2 and checked.values:
             cited = {evidence[int(v["beleg"]) - 1].filename for v in checked.values}
-            missing = [n for n in plan.dokumente[:2] if n not in cited]
+            missing = [n for n in self._pair(plan) if n not in cited]
             if missing:
                 problems.append("Für den Vergleich fehlt ein Wert aus " + ", ".join(missing) +
                                 ". Nimm den passenden Wert aus einem Beleg dieses Dokuments.")

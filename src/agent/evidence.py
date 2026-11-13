@@ -63,8 +63,9 @@ def build_context(items: Sequence[Evidence], start: int = 1) -> tuple[str, list[
     """Nummerierter Kontext für das LLM und die passende Quellenliste [{n, filename, page, chapter}]."""
     blocks, sources = [], []
     for n, item in enumerate(items, start):
+        chapter = item.chapter.split(" > ")[-1] if item.chapter else ""     # nur der letzte Abschnitt: kürzerer Prompt
         where = " | ".join(p for p in (f"Datei: {item.filename}" if item.filename else "",
-                                       f"Kapitel: {item.chapter}" if item.chapter else "",
+                                       f"Kapitel: {chapter}" if chapter else "",
                                        f"Seite: {item.page}" if item.page else "") if p)
         blocks.append(f"[{n}] {where}\n{item.text.strip()}")
         sources.append({"n": n, "filename": item.filename, "page": item.page, "chapter": item.chapter})

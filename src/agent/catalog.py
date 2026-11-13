@@ -165,6 +165,12 @@ HEADS = tuple(sorted(("vertrag", "vertrags", "vertraege", "versicherung", "abo",
                       "bescheid", "beitrag", "miete", "steuer", "besuch", "studio"),
                      key=len, reverse=True))
 
+# Eigenschaftswörter, die eine Art nicht eingrenzen ("meine letzte Stromrechnung"). Alle anderen vor einer Art
+# ("private Haftpflichtversicherung") müssen in einem Dokument stehen, das die Art auch enthält.
+_PLAIN_ADJ = ("mein", "dein", "sein", "ihr", "unser", "euer", "dies", "jed", "welch", "kein", "ein", "all", "beid",
+              "letzt", "aktuell", "neu", "alt", "gesamt", "erst", "naechst", "jetzig", "bisherig", "laufend",
+              "monatlich", "jaehrlich", "offen", "bezahlt", "ganz", "einzig", "ander", "gleich", "zweit")
+
 
 class Catalog:
     """Nummerierter Bestand; Nummern sind stabil sortiert nach Dateiname."""
@@ -174,6 +180,7 @@ class Catalog:
         records = load_all_facts(self.processed_dir) if records is None else records
         self.entries: list[Entry] = []
         self._vocabulary: set[str] | None = None
+        self._doc_words: list[set[str]] | None = None
         for n, (name, rec) in enumerate(sorted(records.items()), 1):
             facts = rec.get("facts") or {}
             provider = str(facts.get("provider") or "").strip()
@@ -185,38 +192,72 @@ class Catalog:
         return len(self.entries)
 
     # --- Themenprüfung -----------------------------------------------------------------------------------------------
+    def _texts(self) -> list[str]:
+        """Je Dokument: Dateiname, Anbieter, Titel, Kerndaten und alle Textblöcke, gefaltet."""
+        out = []
+        for entry in self.entries:
+            parts = [stem_words(entry.filename), entry.provider, entry.title,
+                     " ".join(str(v) for v in entry.facts.values())]
+            path = self.processed_dir / f"{Path(entry.filename).stem}_chunks.json"
+            try:
+                parts += [str(c.get("content", "")) for c in json.loads(path.read_text(encoding="utf-8"))]
+            except (OSError, json.JSONDecodeError):
+                pass
+            out.append(fold(" ".join(parts)).replace("-", " "))
+        return out
+
+    @property
+    def doc_words(self) -> list[set[str]]:
+        """Wortmenge je Dokument (Reihenfolge wie entries), einmal je Katalog berechnet."""
+        if self._doc_words is None:
+            self._doc_words = [set(re.findall(r"[a-z0-9]+", text)) for text in self._texts()]
+        return self._doc_words
+
     @property
     def vocabulary(self) -> set[str]:
-        """Alle Wörter aus Dateinamen, Kerndaten und Abschnitten (gefaltet), einmal je Katalog berechnet."""
+        """Alle Wörter aus Dateinamen, Kerndaten und Abschnitten (gefaltet)."""
         if self._vocabulary is None:
-            parts = []
-            for entry in self.entries:
-                parts += [stem_words(entry.filename), entry.provider, entry.title,
-                          " ".join(str(v) for v in entry.facts.values())]
-                path = self.processed_dir / f"{Path(entry.filename).stem}_chunks.json"
-                try:
-                    parts += [str(c.get("content", "")) for c in json.loads(path.read_text(encoding="utf-8"))]
-                except (OSError, json.JSONDecodeError):
-                    pass
-            self._vocabulary = set(re.findall(r"[a-z0-9]+", fold(" ".join(parts)).replace("-", " ")))
+            self._vocabulary = set().union(*self.doc_words) if self.doc_words else set()
         return self._vocabulary
+
+    @staticmethod
+    def _has(words: set[str], stem: str) -> bool:
+        return any(w == stem or (len(stem) >= 4 and w.startswith(stem)) for w in words)
 
     def _known(self, modifier: str) -> bool:
         m = modifier[:-1] if modifier.endswith("s") and len(modifier) > 4 else modifier
         if m in HEADS or any(m.endswith(h) and len(m) - len(h) >= 3 and self._known(m[:-len(h)]) for h in HEADS):
             return True
-        return any(w == m or (len(m) >= 4 and w.startswith(m)) for w in self.vocabulary)
+        return self._has(self.vocabulary, m)
+
+    def _qualifier_known(self, adjective: str, modifier: str) -> bool:
+        """'private Haftpflicht': Steht 'privat' in einem Dokument, das auch 'Haftpflicht' enthält? Dort steht nur
+        'Kfz-Haftpflicht', also nein. Allgemeine Wörter (meine, letzte, neue) grenzen nichts ein."""
+        folded = fold(adjective)
+        stem = re.sub(r"(em|en|er|es|e)$", "", folded)
+        if stem == folded or len(stem) < 4 or stem.startswith(_PLAIN_ADJ):     # keine Adjektivendung: "laut", "viel"
+            return True
+        m = modifier[:-1] if modifier.endswith("s") and len(modifier) > 4 else modifier
+        return any(self._has(words, stem) for words in self.doc_words if self._has(words, m))
 
     def unknown_topics(self, question: str) -> list[str]:
         """Wörter der Frage, die eine Dokumentart benennen, deren Bestimmungswort in keinem Dokument vorkommt:
-        'Zahnarztbesuch', 'Zeitungsabo', 'Gasvertrag'. 'Heizstromabrechnung' ist bekannt (Heizstrom steht im Bestand)."""
+        'Zahnarztbesuch', 'Zeitungsabo', 'Gasvertrag'. 'Heizstromabrechnung' ist bekannt (Heizstrom steht im Bestand).
+        Steht davor ein eingrenzendes Eigenschaftswort ('private Haftpflichtversicherung'), muss es in einem Dokument
+        mit diesem Bestimmungswort vorkommen; sonst ist die Art eine andere als die vorhandene."""
         out = []
-        for word in re.findall(r"[A-Za-zÄÖÜäöüß][\wÄÖÜäöüß-]*", question):
+        words = re.findall(r"[A-Za-zÄÖÜäöüß][\wÄÖÜäöüß-]*", question)
+        for i, word in enumerate(words):
             for part in word.split("-"):
                 folded = fold(part)
                 head = next((h for h in HEADS if folded.endswith(h) and len(folded) - len(h) >= 3), None)
-                if head and not self._known(folded[:-len(head)]):
+                if not head:
+                    continue
+                modifier = folded[:-len(head)]
+                if not self._known(modifier):
                     out.append(part)
+                elif i and words[i - 1][:1].islower() and not self._qualifier_known(words[i - 1], modifier):
+                    out.append(f"{words[i - 1]} {part}")
         return out
 
     def by_number(self, n: int) -> Entry | None:

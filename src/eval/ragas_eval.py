@@ -1,7 +1,7 @@
 """RAGAS-Bewertung gespeicherter Antworten: Faithfulness und Context Recall (Bibliothek ragas, Richter lokal über Ollama).
 
     uv sync --extra ragas
-    uv run python -m src.eval.ragas_eval --run schlussmessung4 --sets heldout3 --systems P1,P1alt,P2 --name ragas_heldout3
+    uv run python -m src.eval.ragas_eval --run heldout5_v5 --sets heldout5 --systems P1,P2 --name ragas_heldout5_v5
 
 Warum diese zwei Kennzahlen:
 - Faithfulness (Generierung): Anteil der Aussagen einer Antwort, die aus den übergebenen Belegen folgen. Das Richtermodell
@@ -151,7 +151,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run", required=True, help="Ergebnisordner unter src/eval/results mit <run>_raw.jsonl")
     parser.add_argument("--sets", required=True)
-    parser.add_argument("--systems", default="P1,P1alt,P2")
+    parser.add_argument("--systems", default="P1,P2")
     parser.add_argument("--rep", type=int, default=0)
     parser.add_argument("--name", required=True)
     parser.add_argument("--only-summary", action="store_true")
